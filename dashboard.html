@@ -1,0 +1,1042 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MNQ AI TRADER — COMMAND CENTER</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Syne:wght@400;600;800&display=swap');
+
+  :root {
+    --bg: #050508;
+    --bg2: #0a0a0f;
+    --bg3: #0f0f18;
+    --border: #1a1a2e;
+    --accent: #00ff88;
+    --accent2: #0088ff;
+    --accent3: #ff4466;
+    --warn: #ffaa00;
+    --text: #e0e0f0;
+    --muted: #4a4a6a;
+    --long: #00ff88;
+    --short: #ff4466;
+    --hold: #ffaa00;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    min-height: 100vh;
+    overflow-x: hidden;
+  }
+
+  /* Scanline effect */
+  body::after {
+    content: '';
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background: repeating-linear-gradient(
+      0deg,
+      transparent,
+      transparent 2px,
+      rgba(0,0,0,0.03) 2px,
+      rgba(0,0,0,0.03) 4px
+    );
+    pointer-events: none;
+    z-index: 9999;
+  }
+
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 24px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+
+  .logo {
+    font-family: 'Syne', sans-serif;
+    font-weight: 800;
+    font-size: 18px;
+    letter-spacing: 4px;
+    color: var(--accent);
+    text-shadow: 0 0 20px rgba(0,255,136,0.4);
+  }
+
+  .header-right {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+
+  .live-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    color: var(--muted);
+  }
+
+  .live-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: pulse 2s infinite;
+  }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; box-shadow: 0 0 0 0 rgba(0,255,136,0.4); }
+    50% { opacity: 0.6; box-shadow: 0 0 0 6px rgba(0,255,136,0); }
+  }
+
+  .clock {
+    font-size: 13px;
+    color: var(--accent);
+    letter-spacing: 2px;
+  }
+
+  /* Main grid */
+  .grid {
+    display: grid;
+    grid-template-columns: 280px 1fr 280px;
+    grid-template-rows: auto;
+    gap: 1px;
+    background: var(--border);
+    min-height: calc(100vh - 57px);
+  }
+
+  .panel {
+    background: var(--bg2);
+    padding: 16px;
+  }
+
+  .panel-title {
+    font-family: 'Syne', sans-serif;
+    font-size: 9px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    color: var(--muted);
+    text-transform: uppercase;
+    margin-bottom: 16px;
+    padding-bottom: 8px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Status panel */
+  .status-card {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+
+  .status-label {
+    font-size: 9px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    margin-bottom: 6px;
+  }
+
+  .status-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 1px;
+  }
+
+  .status-long { color: var(--long); text-shadow: 0 0 15px rgba(0,255,136,0.3); }
+  .status-short { color: var(--short); text-shadow: 0 0 15px rgba(255,68,102,0.3); }
+  .status-hold { color: var(--hold); text-shadow: 0 0 15px rgba(255,170,0,0.3); }
+  .status-analyzing { color: var(--accent2); text-shadow: 0 0 15px rgba(0,136,255,0.3); }
+
+  .position-detail {
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.8;
+  }
+
+  /* P&L display */
+  .pnl-display {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 14px;
+    margin-bottom: 10px;
+  }
+
+  .pnl-big {
+    font-family: 'Syne', sans-serif;
+    font-size: 32px;
+    font-weight: 800;
+    letter-spacing: -1px;
+    line-height: 1;
+  }
+
+  .pnl-positive { color: var(--long); }
+  .pnl-negative { color: var(--short); }
+  .pnl-zero { color: var(--muted); }
+
+  .pnl-sub {
+    font-size: 10px;
+    color: var(--muted);
+    margin-top: 4px;
+  }
+
+  /* Metrics grid */
+  .metrics-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+    margin-bottom: 10px;
+  }
+
+  .metric {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 10px;
+  }
+
+  .metric-label {
+    font-size: 8px;
+    color: var(--muted);
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 4px;
+  }
+
+  .metric-value {
+    font-family: 'Syne', sans-serif;
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--text);
+  }
+
+  .metric-value.good { color: var(--long); }
+  .metric-value.bad { color: var(--short); }
+  .metric-value.warn { color: var(--warn); }
+
+  /* Center panel */
+  .center {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    gap: 1px;
+    background: var(--border);
+  }
+
+  /* Reasoning feed */
+  .reasoning-panel {
+    background: var(--bg2);
+    padding: 16px;
+  }
+
+  .reasoning-feed {
+    height: 200px;
+    overflow-y: auto;
+    scrollbar-width: thin;
+    scrollbar-color: var(--border) transparent;
+  }
+
+  .reasoning-entry {
+    border-left: 2px solid var(--border);
+    padding: 8px 12px;
+    margin-bottom: 8px;
+    animation: fadeIn 0.5s ease;
+  }
+
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateX(-10px); }
+    to { opacity: 1; transform: translateX(0); }
+  }
+
+  .reasoning-entry.buy { border-left-color: var(--long); }
+  .reasoning-entry.sell { border-left-color: var(--short); }
+  .reasoning-entry.hold { border-left-color: var(--muted); }
+
+  .reasoning-time {
+    font-size: 9px;
+    color: var(--muted);
+    margin-bottom: 3px;
+  }
+
+  .reasoning-decision {
+    font-family: 'Syne', sans-serif;
+    font-size: 11px;
+    font-weight: 700;
+    margin-bottom: 3px;
+  }
+
+  .reasoning-text {
+    font-size: 10px;
+    color: var(--muted);
+    line-height: 1.6;
+    max-height: 60px;
+    overflow: hidden;
+  }
+
+  /* Trades table */
+  .trades-panel {
+    background: var(--bg2);
+    padding: 16px;
+    overflow: auto;
+  }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 10px;
+  }
+
+  th {
+    text-align: left;
+    color: var(--muted);
+    font-size: 8px;
+    letter-spacing: 2px;
+    padding: 6px 8px;
+    border-bottom: 1px solid var(--border);
+    font-weight: 400;
+  }
+
+  td {
+    padding: 8px;
+    border-bottom: 1px solid rgba(26,26,46,0.5);
+    vertical-align: top;
+  }
+
+  tr:hover td { background: var(--bg3); }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 6px;
+    border-radius: 2px;
+    font-size: 8px;
+    font-weight: 700;
+    letter-spacing: 1px;
+  }
+
+  .tag-long { background: rgba(0,255,136,0.1); color: var(--long); border: 1px solid rgba(0,255,136,0.2); }
+  .tag-short { background: rgba(255,68,102,0.1); color: var(--short); border: 1px solid rgba(255,68,102,0.2); }
+  .tag-win { background: rgba(0,255,136,0.05); color: var(--long); }
+  .tag-loss { background: rgba(255,68,102,0.05); color: var(--short); }
+
+  /* Right panel */
+  .setup-bar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 8px;
+  }
+
+  .setup-name {
+    font-size: 10px;
+    color: var(--text);
+  }
+
+  .setup-stats {
+    font-size: 9px;
+    color: var(--muted);
+  }
+
+  .bar-track {
+    height: 3px;
+    background: var(--border);
+    border-radius: 2px;
+    margin-bottom: 12px;
+    overflow: hidden;
+  }
+
+  .bar-fill {
+    height: 100%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width 1s ease;
+  }
+
+  .bar-fill.short { background: var(--short); }
+  .bar-fill.mixed { background: var(--accent2); }
+
+  /* Chart area */
+  .equity-chart {
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 10px;
+    height: 120px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .chart-label {
+    font-size: 8px;
+    color: var(--muted);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+  }
+
+  canvas {
+    width: 100% !important;
+    height: 80px !important;
+  }
+
+  /* Left money on table */
+  .left-money {
+    background: var(--bg3);
+    border: 1px solid rgba(255,170,0,0.2);
+    border-radius: 4px;
+    padding: 12px;
+    margin-bottom: 10px;
+  }
+
+  .left-money-title {
+    font-size: 9px;
+    color: var(--warn);
+    letter-spacing: 2px;
+    margin-bottom: 8px;
+  }
+
+  .left-money-item {
+    font-size: 10px;
+    color: var(--muted);
+    padding: 4px 0;
+    border-bottom: 1px solid var(--border);
+    line-height: 1.5;
+  }
+
+  /* Confluence display */
+  .confluence-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px;
+    margin-top: 6px;
+  }
+
+  .ctag {
+    padding: 2px 7px;
+    border-radius: 2px;
+    font-size: 8px;
+    letter-spacing: 0.5px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    color: var(--muted);
+  }
+
+  .ctag.active {
+    border-color: var(--accent2);
+    color: var(--accent2);
+    background: rgba(0,136,255,0.05);
+  }
+
+  /* AMD Phase */
+  .amd-display {
+    display: flex;
+    gap: 4px;
+    margin-bottom: 10px;
+  }
+
+  .amd-phase {
+    flex: 1;
+    padding: 8px 4px;
+    text-align: center;
+    border-radius: 3px;
+    font-size: 8px;
+    letter-spacing: 1px;
+    border: 1px solid var(--border);
+    color: var(--muted);
+    background: var(--bg3);
+    transition: all 0.3s;
+  }
+
+  .amd-phase.active {
+    background: rgba(0,136,255,0.1);
+    border-color: var(--accent2);
+    color: var(--accent2);
+  }
+
+  /* Scroll styling */
+  ::-webkit-scrollbar { width: 4px; height: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  /* Alert banner */
+  .alert-banner {
+    background: rgba(255,68,102,0.1);
+    border: 1px solid rgba(255,68,102,0.3);
+    border-radius: 3px;
+    padding: 8px 12px;
+    font-size: 10px;
+    color: var(--short);
+    margin-bottom: 8px;
+    display: none;
+  }
+
+  .alert-banner.show { display: block; }
+
+  /* Separator */
+  .sep {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 12px 0;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">MNQ//AI</div>
+  <div class="header-right">
+    <div class="live-indicator">
+      <div class="live-dot" id="liveDot"></div>
+      <span id="dataMode">DELAYED DATA</span>
+    </div>
+    <div class="clock" id="clock">--:--:-- ET</div>
+  </div>
+</header>
+
+<div class="grid">
+
+  <!-- LEFT PANEL -->
+  <div class="panel">
+    <div class="panel-title">System Status</div>
+
+    <div class="status-card">
+      <div class="status-label">CLAUDE STATUS</div>
+      <div class="status-value status-analyzing" id="claudeStatus">ANALYZING</div>
+      <div class="position-detail" id="claudeDetail">Waiting for market data...</div>
+    </div>
+
+    <div class="status-card">
+      <div class="status-label">POSITION</div>
+      <div class="status-value status-hold" id="positionStatus">FLAT</div>
+      <div class="position-detail" id="positionDetail">No open position</div>
+    </div>
+
+    <div class="status-card">
+      <div class="status-label">MARKET BIAS</div>
+      <div class="status-value" id="marketBias" style="color: var(--muted); font-size:14px">LOADING...</div>
+    </div>
+
+    <div class="panel-title" style="margin-top:16px">AMD Cycle</div>
+    <div class="amd-display">
+      <div class="amd-phase" id="amd-acc">ACC</div>
+      <div class="amd-phase active" id="amd-man">MAN</div>
+      <div class="amd-phase" id="amd-dis">DIST</div>
+    </div>
+
+    <div class="panel-title">Session Levels</div>
+    <div id="sessionLevels" style="font-size:10px; line-height:2; color: var(--muted)">
+      Loading session levels...
+    </div>
+
+  </div>
+
+  <!-- CENTER PANEL -->
+  <div class="center">
+
+    <div class="reasoning-panel">
+      <div class="panel-title">Claude Reasoning Feed</div>
+      <div class="alert-banner" id="alertBanner"></div>
+      <div class="reasoning-feed" id="reasoningFeed">
+        <div class="reasoning-entry hold">
+          <div class="reasoning-time">SYSTEM BOOT</div>
+          <div class="reasoning-decision" style="color: var(--accent2)">INITIALIZING</div>
+          <div class="reasoning-text">Connecting to IBKR, loading market data and memory from previous sessions...</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="trades-panel">
+      <div class="panel-title">Trade Log</div>
+      <table>
+        <thead>
+          <tr>
+            <th>TIME</th>
+            <th>DIR</th>
+            <th>ENTRY</th>
+            <th>EXIT</th>
+            <th>P&L</th>
+            <th>MODE</th>
+            <th>CONFLUENCE</th>
+            <th>NOTE</th>
+          </tr>
+        </thead>
+        <tbody id="tradeTable">
+          <tr>
+            <td colspan="8" style="color: var(--muted); text-align:center; padding: 24px">
+              No trades yet today
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+  </div>
+
+  <!-- RIGHT PANEL -->
+  <div class="panel">
+    <div class="panel-title">Daily P&L</div>
+
+    <div class="pnl-display">
+      <div class="pnl-big pnl-zero" id="dailyPnl">$0.00</div>
+      <div class="pnl-sub">Daily P&L — Max loss: $<span id="maxLoss">500</span></div>
+      <div style="margin-top:8px; background: var(--border); height:3px; border-radius:2px;">
+        <div id="lossBar" style="height:100%; width:0%; background: var(--long); border-radius:2px; transition: all 0.5s;"></div>
+      </div>
+      <div class="pnl-sub" style="margin-top:4px">Loss used: <span id="lossUsed">0%</span></div>
+    </div>
+
+    <div class="metrics-grid">
+      <div class="metric">
+        <div class="metric-label">Win Rate</div>
+        <div class="metric-value" id="winRate">--</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Profit Factor</div>
+        <div class="metric-value" id="profitFactor">--</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Avg Winner</div>
+        <div class="metric-value good" id="avgWinner">--</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Avg Loser</div>
+        <div class="metric-value bad" id="avgLoser">--</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Total Trades</div>
+        <div class="metric-value" id="totalTrades">0</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Expectancy</div>
+        <div class="metric-value" id="expectancy">--</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Best Trade</div>
+        <div class="metric-value good" id="bestTrade">--</div>
+      </div>
+      <div class="metric">
+        <div class="metric-label">Worst Trade</div>
+        <div class="metric-value bad" id="worstTrade">--</div>
+      </div>
+    </div>
+
+    <div class="panel-title">Equity Curve</div>
+    <div class="equity-chart">
+      <canvas id="equityCanvas"></canvas>
+    </div>
+
+    <div class="panel-title">Setup Performance</div>
+    <div id="setupPerformance">
+      <div style="color: var(--muted); font-size:10px">No setups traded yet</div>
+    </div>
+
+    <hr class="sep">
+
+    <div class="panel-title">Left On Table ⚠</div>
+    <div id="leftOnTable" class="left-money" style="display:none">
+      <div class="left-money-title">MISSED PROFITS</div>
+    </div>
+    <div id="noLeftOnTable" style="color: var(--muted); font-size:10px">
+      No data yet
+    </div>
+
+    <hr class="sep">
+
+    <div class="panel-title">Active Confluence</div>
+    <div class="confluence-tags" id="confluenceTags">
+      <span class="ctag">FVG</span>
+      <span class="ctag">OB</span>
+      <span class="ctag">VWAP</span>
+      <span class="ctag">DELTA</span>
+      <span class="ctag">DOM</span>
+      <span class="ctag">KILLZONE</span>
+      <span class="ctag">AMD</span>
+      <span class="ctag">HTF</span>
+      <span class="ctag">LIQ SWEEP</span>
+    </div>
+
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════
+let state = {
+  position: 'FLAT',
+  entryPrice: null,
+  stopPrice: null,
+  targetPrice: null,
+  dailyPnl: 0,
+  maxLoss: 500,
+  trades: [],
+  equityCurve: [0],
+  reasoning: [],
+  amdPhase: 'MANIPULATION',
+  bias: 'NEUTRAL',
+  confluence: [],
+  leftOnTable: [],
+  setupStats: {}
+};
+
+// ═══════════════════════════════════════
+// CLOCK
+// ═══════════════════════════════════════
+function updateClock() {
+  const now = new Date();
+  const et = new Date(now.toLocaleString('en-US', { timeZone: 'America/New_York' }));
+  const h = String(et.getHours()).padStart(2,'0');
+  const m = String(et.getMinutes()).padStart(2,'0');
+  const s = String(et.getSeconds()).padStart(2,'0');
+  document.getElementById('clock').textContent = `${h}:${m}:${s} ET`;
+}
+setInterval(updateClock, 1000);
+updateClock();
+
+// ═══════════════════════════════════════
+// RENDER FUNCTIONS
+// ═══════════════════════════════════════
+function renderStatus() {
+  const pos = document.getElementById('positionStatus');
+  const detail = document.getElementById('positionDetail');
+
+  if (state.position === 'LONG') {
+    pos.textContent = '▲ LONG';
+    pos.className = 'status-value status-long';
+    detail.textContent = `Entry: ${state.entryPrice} | Stop: ${state.stopPrice} | Target: ${state.targetPrice}`;
+  } else if (state.position === 'SHORT') {
+    pos.textContent = '▼ SHORT';
+    pos.className = 'status-value status-short';
+    detail.textContent = `Entry: ${state.entryPrice} | Stop: ${state.stopPrice} | Target: ${state.targetPrice}`;
+  } else {
+    pos.textContent = 'FLAT';
+    pos.className = 'status-value status-hold';
+    detail.textContent = 'No open position — scanning for setup';
+  }
+}
+
+function renderPnl() {
+  const pnl = state.dailyPnl;
+  const el = document.getElementById('dailyPnl');
+  el.textContent = (pnl >= 0 ? '+' : '') + '$' + pnl.toFixed(2);
+  el.className = 'pnl-big ' + (pnl > 0 ? 'pnl-positive' : pnl < 0 ? 'pnl-negative' : 'pnl-zero');
+
+  const lossUsed = Math.abs(Math.min(0, pnl)) / state.maxLoss * 100;
+  document.getElementById('lossBar').style.width = Math.min(100, lossUsed) + '%';
+  document.getElementById('lossBar').style.background = lossUsed > 50 ? 'var(--warn)' : lossUsed > 80 ? 'var(--short)' : 'var(--long)';
+  document.getElementById('lossUsed').textContent = lossUsed.toFixed(1) + '%';
+}
+
+function renderMetrics() {
+  const trades = state.trades;
+  if (trades.length === 0) return;
+
+  const winners = trades.filter(t => t.pnl > 0);
+  const losers = trades.filter(t => t.pnl < 0);
+  const winRate = (winners.length / trades.length * 100).toFixed(1);
+  const avgWin = winners.length ? (winners.reduce((s,t) => s+t.pnl, 0) / winners.length) : 0;
+  const avgLoss = losers.length ? (Math.abs(losers.reduce((s,t) => s+t.pnl, 0)) / losers.length) : 0;
+  const profitFactor = avgLoss > 0 ? (winners.reduce((s,t) => s+t.pnl, 0) / Math.abs(losers.reduce((s,t) => s+t.pnl, 0))).toFixed(2) : '∞';
+  const expectancy = ((parseFloat(winRate)/100 * avgWin) - ((1-parseFloat(winRate)/100) * avgLoss)).toFixed(2);
+  const best = Math.max(...trades.map(t => t.pnl));
+  const worst = Math.min(...trades.map(t => t.pnl));
+
+  document.getElementById('winRate').textContent = winRate + '%';
+  document.getElementById('winRate').className = 'metric-value ' + (parseFloat(winRate) >= 50 ? 'good' : 'bad');
+  document.getElementById('profitFactor').textContent = profitFactor;
+  document.getElementById('profitFactor').className = 'metric-value ' + (parseFloat(profitFactor) >= 1.5 ? 'good' : 'bad');
+  document.getElementById('avgWinner').textContent = '+$' + avgWin.toFixed(2);
+  document.getElementById('avgLoser').textContent = '-$' + avgLoss.toFixed(2);
+  document.getElementById('totalTrades').textContent = trades.length;
+  document.getElementById('expectancy').textContent = '$' + expectancy;
+  document.getElementById('expectancy').className = 'metric-value ' + (parseFloat(expectancy) > 0 ? 'good' : 'bad');
+  document.getElementById('bestTrade').textContent = '+$' + best.toFixed(2);
+  document.getElementById('worstTrade').textContent = '$' + worst.toFixed(2);
+}
+
+function renderTrades() {
+  const tbody = document.getElementById('tradeTable');
+  if (state.trades.length === 0) return;
+
+  tbody.innerHTML = state.trades.slice().reverse().map(t => `
+    <tr>
+      <td style="color:var(--muted)">${t.time}</td>
+      <td><span class="tag ${t.direction === 'LONG' ? 'tag-long' : 'tag-short'}">${t.direction === 'LONG' ? '▲ L' : '▼ S'}</span></td>
+      <td>${t.entry}</td>
+      <td>${t.exit || '--'}</td>
+      <td class="${t.pnl > 0 ? 'tag-win' : 'tag-loss'}" style="font-weight:700">
+        ${t.pnl > 0 ? '+' : ''}$${t.pnl ? t.pnl.toFixed(2) : '--'}
+      </td>
+      <td style="color:var(--accent2); font-size:9px">${t.mode || '--'}</td>
+      <td style="color:var(--muted); font-size:9px">${(t.confluence || []).join(', ')}</td>
+      <td style="color:var(--muted); font-size:9px; max-width:120px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis">${t.note || ''}</td>
+    </tr>
+  `).join('');
+}
+
+function renderEquity() {
+  const canvas = document.getElementById('equityCanvas');
+  const ctx = canvas.getContext('2d');
+  canvas.width = canvas.offsetWidth * window.devicePixelRatio || 400;
+  canvas.height = 80 * window.devicePixelRatio || 80;
+  ctx.scale(window.devicePixelRatio || 1, window.devicePixelRatio || 1);
+
+  const data = state.equityCurve;
+  const w = canvas.offsetWidth || 400;
+  const h = 80;
+
+  ctx.clearRect(0, 0, w, h);
+
+  if (data.length < 2) {
+    ctx.strokeStyle = 'rgba(74,74,106,0.3)';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, h/2);
+    ctx.lineTo(w, h/2);
+    ctx.stroke();
+    return;
+  }
+
+  const min = Math.min(...data);
+  const max = Math.max(...data);
+  const range = max - min || 1;
+  const pad = 10;
+
+  const points = data.map((v, i) => ({
+    x: (i / (data.length - 1)) * (w - pad*2) + pad,
+    y: h - pad - ((v - min) / range) * (h - pad*2)
+  }));
+
+  // Fill
+  const gradient = ctx.createLinearGradient(0, 0, 0, h);
+  const lastVal = data[data.length - 1];
+  const color = lastVal >= 0 ? '0,255,136' : '255,68,102';
+  gradient.addColorStop(0, `rgba(${color},0.15)`);
+  gradient.addColorStop(1, `rgba(${color},0)`);
+
+  ctx.beginPath();
+  ctx.moveTo(points[0].x, h);
+  points.forEach(p => ctx.lineTo(p.x, p.y));
+  ctx.lineTo(points[points.length-1].x, h);
+  ctx.fillStyle = gradient;
+  ctx.fill();
+
+  // Line
+  ctx.beginPath();
+  ctx.setLineDash([]);
+  points.forEach((p, i) => i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y));
+  ctx.strokeStyle = `rgba(${color},0.8)`;
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  // Zero line
+  if (min < 0 && max > 0) {
+    const zeroY = h - pad - ((0 - min) / range) * (h - pad*2);
+    ctx.beginPath();
+    ctx.setLineDash([2, 4]);
+    ctx.strokeStyle = 'rgba(74,74,106,0.5)';
+    ctx.lineWidth = 1;
+    ctx.moveTo(pad, zeroY);
+    ctx.lineTo(w - pad, zeroY);
+    ctx.stroke();
+  }
+}
+
+function renderSetups() {
+  const el = document.getElementById('setupPerformance');
+  const stats = state.setupStats;
+  if (Object.keys(stats).length === 0) return;
+
+  el.innerHTML = Object.entries(stats).map(([setup, data]) => {
+    const winPct = data.count > 0 ? (data.wins / data.count * 100).toFixed(0) : 0;
+    const isGood = parseFloat(winPct) >= 50;
+    return `
+      <div class="setup-bar">
+        <span class="setup-name">${setup}</span>
+        <span class="setup-stats">${data.wins}W/${data.count - data.wins}L — ${winPct}%</span>
+      </div>
+      <div class="bar-track">
+        <div class="bar-fill ${isGood ? '' : 'short'}" style="width:${winPct}%"></div>
+      </div>
+    `;
+  }).join('');
+}
+
+function renderAMD() {
+  const phases = ['acc', 'man', 'dis'];
+  const phase = state.amdPhase.toLowerCase();
+  phases.forEach(p => {
+    const el = document.getElementById('amd-' + p);
+    el.className = 'amd-phase' + (phase.includes(p.substring(0,3)) ? ' active' : '');
+  });
+}
+
+function renderConfluence() {
+  const tags = document.querySelectorAll('.ctag');
+  tags.forEach(tag => {
+    const name = tag.textContent.trim();
+    const active = state.confluence.some(c => c.toUpperCase().includes(name.split(' ')[0]));
+    tag.className = 'ctag' + (active ? ' active' : '');
+  });
+}
+
+function renderLeftOnTable() {
+  if (state.leftOnTable.length === 0) return;
+  const el = document.getElementById('leftOnTable');
+  const noEl = document.getElementById('noLeftOnTable');
+  el.style.display = 'block';
+  noEl.style.display = 'none';
+  el.innerHTML = `
+    <div class="left-money-title">MISSED PROFITS ⚠</div>
+    ${state.leftOnTable.map(item => `
+      <div class="left-money-item">${item}</div>
+    `).join('')}
+  `;
+}
+
+// ═══════════════════════════════════════
+// DATA LOADING — reads from trading log files
+// ═══════════════════════════════════════
+async function loadTradingData() {
+  try {
+    const today = new Date().toLocaleDateString('en-CA', { timeZone: 'America/New_York' });
+    const response = await fetch(`/trading-data?date=${today}`);
+    if (response.ok) {
+      const data = await response.json();
+      applyData(data);
+    }
+  } catch (e) {
+    // Server not running yet — use demo data
+  }
+}
+
+function applyData(data) {
+  if (data.position) state.position = data.position;
+  if (data.entryPrice) state.entryPrice = data.entryPrice;
+  if (data.stopPrice) state.stopPrice = data.stopPrice;
+  if (data.targetPrice) state.targetPrice = data.targetPrice;
+  if (data.dailyPnl !== undefined) state.dailyPnl = data.dailyPnl;
+  if (data.trades) {
+    state.trades = data.trades;
+    state.equityCurve = [0, ...data.trades.map((_, i) =>
+      data.trades.slice(0,i+1).reduce((s,t) => s + (t.pnl||0), 0)
+    )];
+    // Build setup stats
+    state.setupStats = {};
+    data.trades.forEach(t => {
+      const mode = t.mode || 'OTHER';
+      if (!state.setupStats[mode]) state.setupStats[mode] = { count: 0, wins: 0, pnl: 0 };
+      state.setupStats[mode].count++;
+      if (t.pnl > 0) state.setupStats[mode].wins++;
+      state.setupStats[mode].pnl += t.pnl || 0;
+    });
+  }
+  if (data.reasoning) {
+    addReasoningEntry(data.reasoning);
+  }
+  if (data.bias) {
+    state.bias = data.bias;
+    document.getElementById('marketBias').textContent = data.bias;
+    document.getElementById('marketBias').style.color =
+      data.bias.includes('BULL') ? 'var(--long)' :
+      data.bias.includes('BEAR') ? 'var(--short)' : 'var(--warn)';
+  }
+  if (data.claudeStatus) {
+    document.getElementById('claudeStatus').textContent = data.claudeStatus;
+  }
+  if (data.amdPhase) state.amdPhase = data.amdPhase;
+  if (data.confluence) state.confluence = data.confluence;
+  if (data.leftOnTable) state.leftOnTable = data.leftOnTable;
+  if (data.sessionLevels) {
+    document.getElementById('sessionLevels').innerHTML =
+      data.sessionLevels.split('\n')
+        .filter(l => l.trim())
+        .map(l => `<div>${l}</div>`)
+        .join('');
+  }
+
+  renderAll();
+}
+
+function addReasoningEntry(entry) {
+  const feed = document.getElementById('reasoningFeed');
+  const div = document.createElement('div');
+  const cls = entry.decision === 'BUY' ? 'buy' : entry.decision === 'SELL' ? 'sell' : 'hold';
+  div.className = `reasoning-entry ${cls}`;
+  div.innerHTML = `
+    <div class="reasoning-time">${entry.time || new Date().toLocaleTimeString()}</div>
+    <div class="reasoning-decision" style="color: ${
+      entry.decision === 'BUY' ? 'var(--long)' :
+      entry.decision === 'SELL' ? 'var(--short)' : 'var(--muted)'
+    }">${entry.decision || 'HOLD'} ${entry.confidence ? '— ' + entry.confidence : ''}</div>
+    <div class="reasoning-text">${entry.reasoning || ''}</div>
+  `;
+  feed.insertBefore(div, feed.firstChild);
+
+  // Keep last 50
+  while (feed.children.length > 50) feed.removeChild(feed.lastChild);
+}
+
+function renderAll() {
+  renderStatus();
+  renderPnl();
+  renderMetrics();
+  renderTrades();
+  renderEquity();
+  renderSetups();
+  renderAMD();
+  renderConfluence();
+  renderLeftOnTable();
+}
+
+// ═══════════════════════════════════════
+// DEMO DATA — shows while waiting for market
+// ═══════════════════════════════════════
+function loadDemoData() {
+  state.dailyPnl = 0;
+  state.bias = 'LOADING...';
+  document.getElementById('marketBias').textContent = 'AWAITING DATA';
+  document.getElementById('marketBias').style.color = 'var(--muted)';
+  document.getElementById('claudeStatus').textContent = 'WAITING';
+  document.getElementById('claudeDetail').textContent = 'System ready — market opens 9:30am ET';
+  renderAll();
+}
+
+// ═══════════════════════════════════════
+// POLLING — reads from dashboard_data.json
+// ═══════════════════════════════════════
+async function pollData() {
+  try {
+    const response = await fetch('dashboard_data.json?t=' + Date.now());
+    if (response.ok) {
+      const data = await response.json();
+      applyData(data);
+    }
+  } catch (e) {
+    // File not found yet — normal before trading starts
+  }
+}
+
+// ═══════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════
+loadDemoData();
+setInterval(pollData, 5000);  // Poll every 5 seconds
+setInterval(renderEquity, 10000);  // Redraw chart
+
+// Initial poll
+setTimeout(pollData, 1000);
+</script>
+</body>
+</html>

@@ -92,6 +92,12 @@ class IBKRFeed:
         self.dom_ticker              = None
         self.dom_subscription_active = False
 
+        # DOM history for iceberg / spoof / sweep detection
+        # Stores snapshots of (price→size) dicts for asks and bids
+        # Keyed by time.time() — last 10 snapshots (~50s at 5s cadence)
+        self._dom_history: list[dict] = []   # [{ts, asks:{p:s}, bids:{p:s}}]
+        self._dom_history_max = 12           # keep last 60s of snapshots
+
         # ── News cache (10-min TTL) ────────────────────────
         self._news_cache:      dict  = {}
         self._news_cache_time: float = 0.0
@@ -672,7 +678,7 @@ class IBKRFeed:
                 "vp_below_val":    vp_signals.get("vp_below_val", False),
                 "vp_inside_va":    vp_signals.get("vp_inside_va", False),
 
-                # DOM — structured + text
+                # DOM — structured + text (Session 4: full 20 levels + advanced signals)
                 "dom":                 dom_signals.get("dom_text", ""),
                 "dom_available":       dom_signals.get("dom_available", False),
                 "dom_resistance_wall": dom_signals.get("dom_resistance_wall"),
@@ -682,6 +688,14 @@ class IBKRFeed:
                 "dom_vacuum_above":    dom_signals.get("dom_vacuum_above", False),
                 "dom_vacuum_below":    dom_signals.get("dom_vacuum_below", False),
                 "dom_nearest_magnet":  dom_signals.get("dom_nearest_magnet"),
+                "dom_cluster_above":   dom_signals.get("dom_cluster_above"),
+                "dom_cluster_below":   dom_signals.get("dom_cluster_below"),
+                "dom_iceberg_ask":     dom_signals.get("dom_iceberg_ask"),
+                "dom_iceberg_bid":     dom_signals.get("dom_iceberg_bid"),
+                "dom_spoof_ask":       dom_signals.get("dom_spoof_ask"),
+                "dom_spoof_bid":       dom_signals.get("dom_spoof_bid"),
+                "dom_sweep_up":        dom_signals.get("dom_sweep_up", False),
+                "dom_sweep_down":      dom_signals.get("dom_sweep_down", False),
 
                 # Candles
                 "candles": self._format_candles(bars_1min, bars_5min),
@@ -1291,106 +1305,256 @@ class IBKRFeed:
 
     # ─── DOM ───────────────────────────────────────────────
 
+    # ─── DOM ───────────────────────────────────────────────
+
     def _compute_dom_signals(self) -> dict:
-        """Extract actionable signals from DOM — computed in Python, not by Claude."""
+        """
+        Extract actionable signals from DOM — computed in Python, not by Claude.
+
+        Session 4 DOM upgrade:
+          - Full 20 levels each side (was 10)
+          - Absolute size thresholds tuned for MNQ
+          - Cluster magnet detection (groups of large orders within 5 ticks)
+          - Iceberg detection (level replenishes after being hit)
+          - Spoof detection (large order vanishes without trading)
+          - Sweep detection (multiple levels consumed in sequence)
+        """
         empty = {
-            "dom_available": False,
-            "dom_resistance_wall": None, "dom_support_wall": None,
-            "dom_buy_pressure": 0.5, "dom_imbalance": "NEUTRAL",
-            "dom_nearest_magnet": None,
-            "dom_vacuum_above": False, "dom_vacuum_below": False,
-            "dom_text": "DOM not active",
+            "dom_available":       False,
+            "dom_resistance_wall": None,
+            "dom_support_wall":    None,
+            "dom_buy_pressure":    0.5,
+            "dom_imbalance":       "NEUTRAL",
+            "dom_nearest_magnet":  None,
+            "dom_vacuum_above":    False,
+            "dom_vacuum_below":    False,
+            "dom_iceberg_ask":     None,
+            "dom_iceberg_bid":     None,
+            "dom_spoof_ask":       None,
+            "dom_spoof_bid":       None,
+            "dom_sweep_up":        False,
+            "dom_sweep_down":      False,
+            "dom_cluster_above":   None,
+            "dom_cluster_below":   None,
+            "dom_text":            "DOM not active",
         }
         try:
             if not self.dom_ticker or not self.dom_subscription_active:
                 return empty
-            asks = [(d.price, d.size) for d in (self.dom_ticker.domAsks or [])[:10]]
-            bids = [(d.price, d.size) for d in (self.dom_ticker.domBids or [])[:10]]
+
+            # Full 20 levels — no [:10] slice
+            asks = [(d.price, d.size) for d in (self.dom_ticker.domAsks or [])]
+            bids = [(d.price, d.size) for d in (self.dom_ticker.domBids or [])]
+
             if not asks and not bids:
                 empty["dom_text"] = "DOM pending — CME L2 subscription required"
                 return empty
 
+            asks_dict = {p: s for p, s in asks}
+            bids_dict = {p: s for p, s in bids}
+
+            # Store snapshot for iceberg / spoof / sweep detection
+            self._dom_history.append({
+                "ts":   time.time(),
+                "asks": dict(asks_dict),
+                "bids": dict(bids_dict),
+            })
+            if len(self._dom_history) > self._dom_history_max:
+                self._dom_history.pop(0)
+
+            # MNQ-tuned absolute size thresholds
+            # Retail: 1-10ct | Active: 10-50ct | Institutional: 50-200ct | Whale: 200+ct
+            SIGNIFICANT = 30
+            LARGE       = 75
+            WHALE       = 200
+
+            # Pressure metrics
             total_ask_vol = sum(s for _, s in asks)
             total_bid_vol = sum(s for _, s in bids)
             total_vol     = total_ask_vol + total_bid_vol
             buy_pressure  = total_bid_vol / total_vol if total_vol else 0.5
 
             if buy_pressure > 0.65:
-                imbalance = "BID_HEAVY — buyers dominating"
+                imbalance = "BID_HEAVY"
             elif buy_pressure < 0.35:
-                imbalance = "ASK_HEAVY — sellers dominating"
+                imbalance = "ASK_HEAVY"
             else:
-                imbalance = "BALANCED"
+                imbalance = "NEUTRAL"
 
-            all_orders = asks + bids
-            avg_size   = sum(s for _, s in all_orders) / len(all_orders) if all_orders else 1
-            threshold  = avg_size * 2.5
+            # Walls — first large order on each side
+            large_asks = [(p, s) for p, s in asks if s >= LARGE]
+            large_bids = [(p, s) for p, s in bids if s >= LARGE]
+            resistance_wall = min(p for p, _ in large_asks) if large_asks else None
+            support_wall    = max(p for p, _ in large_bids) if large_bids else None
 
-            large_asks = [(p, s) for p, s in asks if s > threshold]
-            large_bids = [(p, s) for p, s in bids if s > threshold]
+            # Nearest single dominant order
+            all_orders     = asks + bids
+            nearest_magnet = max(all_orders, key=lambda x: x[1])[0] if all_orders else None
+            magnet_size    = max(all_orders, key=lambda x: x[1])[1] if all_orders else 0
+            magnet_label   = ("WHALE" if magnet_size >= WHALE
+                              else "LARGE" if magnet_size >= LARGE else None)
 
-            resistance_wall = min(p for p, _ in large_asks) if large_asks else (min(p for p, _ in asks) if asks else None)
-            support_wall    = max(p for p, _ in large_bids) if large_bids else (max(p for p, _ in bids) if bids else None)
-            nearest_magnet  = max(all_orders, key=lambda x: x[1])[0] if all_orders else None
+            # Cluster magnet: groups within 5 ticks whose total >= 2×LARGE
+            def find_clusters(orders, min_total):
+                if not orders:
+                    return []
+                s_orders = sorted(orders)
+                clusters, i = [], 0
+                while i < len(s_orders):
+                    cp, cs = s_orders[i][0], s_orders[i][1]
+                    j = i + 1
+                    while j < len(s_orders) and s_orders[j][0] - cp <= 1.25:  # 5 ticks
+                        cs += s_orders[j][1]
+                        j  += 1
+                    if cs >= min_total:
+                        clusters.append((cp, cs))
+                    i = j if j > i else i + 1
+                return clusters
 
-            vacuum_above = bool(asks) and all(s < avg_size * 0.5 for _, s in sorted(asks)[:3])
-            vacuum_below = bool(bids) and all(s < avg_size * 0.5 for _, s in sorted(bids, reverse=True)[:3])
+            ask_clusters  = find_clusters(asks, LARGE * 2)
+            bid_clusters  = find_clusters(bids, LARGE * 2)
+            cluster_above = min(ask_clusters, key=lambda x: x[0])[0] if ask_clusters else None
+            cluster_below = max(bid_clusters, key=lambda x: x[0])[0] if bid_clusters else None
 
+            # Vacuum: near-book levels are very thin (< 5ct each)
+            near_asks    = sorted(asks)[:3]
+            near_bids    = sorted(bids, reverse=True)[:3]
+            vacuum_above = bool(near_asks) and all(s < 5 for _, s in near_asks)
+            vacuum_below = bool(near_bids) and all(s < 5 for _, s in near_bids)
+
+            # Iceberg: level shrank then recovered
+            iceberg_ask = iceberg_bid = None
+            if len(self._dom_history) >= 3:
+                h0, h1, h2 = (self._dom_history[-3],
+                              self._dom_history[-2],
+                              self._dom_history[-1])
+                for p in set(h0["asks"]) & set(h1["asks"]) & set(h2["asks"]):
+                    if (h0["asks"][p] >= SIGNIFICANT
+                            and h1["asks"][p] < h0["asks"][p] * 0.6
+                            and h2["asks"][p] >= h0["asks"][p] * 0.7):
+                        iceberg_ask = p
+                        break
+                for p in set(h0["bids"]) & set(h1["bids"]) & set(h2["bids"]):
+                    if (h0["bids"][p] >= SIGNIFICANT
+                            and h1["bids"][p] < h0["bids"][p] * 0.6
+                            and h2["bids"][p] >= h0["bids"][p] * 0.7):
+                        iceberg_bid = p
+                        break
+
+            # Spoof: large order appeared then vanished without trading
+            spoof_ask = spoof_bid = None
+            if len(self._dom_history) >= 3:
+                h0, h1, h2 = (self._dom_history[-3],
+                              self._dom_history[-2],
+                              self._dom_history[-1])
+                for p, s in h0["asks"].items():
+                    if s >= LARGE and p not in h1["asks"] and p not in h2["asks"]:
+                        spoof_ask = p
+                        break
+                for p, s in h0["bids"].items():
+                    if s >= LARGE and p not in h1["bids"] and p not in h2["bids"]:
+                        spoof_bid = p
+                        break
+
+            # Sweep: 3+ significant levels consumed between snapshots
+            sweep_up = sweep_down = False
+            if len(self._dom_history) >= 2:
+                prev, curr = self._dom_history[-2], self._dom_history[-1]
+                ask_consumed = sum(
+                    1 for p in prev["asks"]
+                    if p not in curr["asks"] and prev["asks"][p] >= SIGNIFICANT
+                )
+                bid_consumed = sum(
+                    1 for p in prev["bids"]
+                    if p not in curr["bids"] and prev["bids"][p] >= SIGNIFICANT
+                )
+                sweep_up   = ask_consumed >= 3
+                sweep_down = bid_consumed >= 3
+
+            # Build text output
+            bar = "█" * int(buy_pressure * 10) + "░" * (10 - int(buy_pressure * 10))
             lines = [
-                f"DOM: {imbalance} | Buy pressure: {buy_pressure:.0%} | Bid: {total_bid_vol:,} Ask: {total_ask_vol:,}",
+                f"DOM [{bar}] {buy_pressure:.0%} buy | "
+                f"Bid:{total_bid_vol:,} Ask:{total_ask_vol:,} | {imbalance}"
             ]
-            if resistance_wall: lines.append(f"  Resistance wall: {resistance_wall}")
-            if support_wall:    lines.append(f"  Support wall: {support_wall}")
-            if vacuum_above:    lines.append("  ⚡ VACUUM ABOVE — thin asks, price can run")
-            if vacuum_below:    lines.append("  ⚡ VACUUM BELOW — thin bids, price can drop")
-            lines.append("  ASKS: " + " | ".join(f"{p}×{s}{'★' if s>threshold else ''}" for p,s in sorted(asks)[:5]))
-            lines.append("  BIDS: " + " | ".join(f"{p}×{s}{'★' if s>threshold else ''}" for p,s in sorted(bids,reverse=True)[:5]))
+            if resistance_wall:  lines.append(f"  Resistance wall: {resistance_wall}")
+            if support_wall:     lines.append(f"  Support wall: {support_wall}")
+            if cluster_above:    lines.append(f"  ★ CLUSTER MAGNET ABOVE: {cluster_above}")
+            if cluster_below:    lines.append(f"  ★ CLUSTER MAGNET BELOW: {cluster_below}")
+            if nearest_magnet and magnet_label:
+                lines.append(f"  Dominant order ({magnet_label}): {nearest_magnet}×{magnet_size}ct")
+            if vacuum_above:     lines.append("  ⚡ VACUUM ABOVE — thin asks, price can run fast")
+            if vacuum_below:     lines.append("  ⚡ VACUUM BELOW — thin bids, price can drop fast")
+            if iceberg_ask:      lines.append(f"  🧊 ICEBERG ASK @ {iceberg_ask} — replenishing resistance")
+            if iceberg_bid:      lines.append(f"  🧊 ICEBERG BID @ {iceberg_bid} — replenishing support")
+            if spoof_ask:        lines.append(f"  ⚠ POSSIBLE SPOOF ASK @ {spoof_ask} — large order vanished")
+            if spoof_bid:        lines.append(f"  ⚠ POSSIBLE SPOOF BID @ {spoof_bid} — large order vanished")
+            if sweep_up:         lines.append("  🔥 ASK SWEEP — aggressive buyers consuming offer side")
+            if sweep_down:       lines.append("  🔥 BID SWEEP — aggressive sellers consuming bid side")
+
+            def tag(s):
+                return " ★WHALE" if s >= WHALE else " ★LARGE" if s >= LARGE else " ·sig" if s >= SIGNIFICANT else ""
+
+            lines.append("  ASKS (20 levels):")
+            for p, s in sorted(asks)[:20]:
+                lines.append(f"    {p:.2f} × {s:>4}{tag(s)}")
+            lines.append("  BIDS (20 levels):")
+            for p, s in sorted(bids, reverse=True)[:20]:
+                lines.append(f"    {p:.2f} × {s:>4}{tag(s)}")
 
             return {
-                "dom_available": True,
+                "dom_available":       True,
                 "dom_resistance_wall": resistance_wall,
                 "dom_support_wall":    support_wall,
                 "dom_buy_pressure":    round(buy_pressure, 3),
-                "dom_imbalance":       imbalance.split(" —")[0],
+                "dom_imbalance":       imbalance,
                 "dom_nearest_magnet":  nearest_magnet,
                 "dom_vacuum_above":    vacuum_above,
                 "dom_vacuum_below":    vacuum_below,
+                "dom_iceberg_ask":     iceberg_ask,
+                "dom_iceberg_bid":     iceberg_bid,
+                "dom_spoof_ask":       spoof_ask,
+                "dom_spoof_bid":       spoof_bid,
+                "dom_sweep_up":        sweep_up,
+                "dom_sweep_down":      sweep_down,
+                "dom_cluster_above":   cluster_above,
+                "dom_cluster_below":   cluster_below,
                 "dom_text":            "\n".join(lines),
             }
         except Exception as e:
             logger.debug(f"DOM compute error: {e}")
-            return {**empty, "dom_text": "DOM compute error"}
+            return {**empty, "dom_text": f"DOM compute error: {e}"}
 
 
     def _get_live_dom(self) -> str:
+        """Compact DOM text for snapshot — uses full 20 levels."""
         try:
             if not self.dom_ticker or not self.dom_subscription_active:
                 return "DOM not active"
-            asks = [(d.price, d.size) for d in (self.dom_ticker.domAsks or [])[:10]]
-            bids = [(d.price, d.size) for d in (self.dom_ticker.domBids or [])[:10]]
+            asks = [(d.price, d.size) for d in (self.dom_ticker.domAsks or [])]
+            bids = [(d.price, d.size) for d in (self.dom_ticker.domBids or [])]
             if not asks and not bids:
                 return "DOM pending — requires CME Level 2 subscription"
 
+            SIGNIFICANT, LARGE, WHALE = 30, 75, 200
             all_orders = asks + bids
-            avg_size   = sum(s for _, s in all_orders) / len(all_orders)
-            threshold  = avg_size * 2.5
-
             lines = ["ASKS (resistance):"]
             for price, size in sorted(asks):
-                tag = " ← WALL" if size > threshold else ""
+                tag = (" ← WHALE" if size >= WHALE
+                       else " ← WALL" if size >= LARGE
+                       else " · sig" if size >= SIGNIFICANT else "")
                 lines.append(f"  {price} x {size}{tag}")
             lines.append("BIDS (support):")
             for price, size in sorted(bids, reverse=True):
-                tag = " ← WALL" if size > threshold else ""
+                tag = (" ← WHALE" if size >= WHALE
+                       else " ← WALL" if size >= LARGE
+                       else " · sig" if size >= SIGNIFICANT else "")
                 lines.append(f"  {price} x {size}{tag}")
 
-            large_asks = [p for p, s in asks if s > threshold]
-            large_bids = [p for p, s in bids if s > threshold]
-            if large_asks:
-                lines.append(f"Resistance magnet: {min(large_asks)}")
-            if large_bids:
-                lines.append(f"Support magnet: {max(large_bids)}")
-
+            large_asks = [p for p, s in asks if s >= LARGE]
+            large_bids = [p for p, s in bids if s >= LARGE]
+            if large_asks: lines.append(f"Resistance magnet: {min(large_asks)}")
+            if large_bids: lines.append(f"Support magnet: {max(large_bids)}")
             return "\n".join(lines)
         except Exception:
             return "DOM unavailable"

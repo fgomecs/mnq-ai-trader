@@ -860,6 +860,13 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     dom_vacuum_up  = snapshot.get("dom_vacuum_above", False)
     dom_vacuum_dn  = snapshot.get("dom_vacuum_below", False)
     dom_bp         = snapshot.get("dom_buy_pressure", 0.5)
+    dom_sweep_up   = snapshot.get("dom_sweep_up",   False)
+    dom_sweep_dn   = snapshot.get("dom_sweep_down", False)
+    dom_iceberg_b  = snapshot.get("dom_iceberg_bid")
+    dom_iceberg_a  = snapshot.get("dom_iceberg_ask")
+    dom_cluster_b  = snapshot.get("dom_cluster_below")
+    dom_cluster_a  = snapshot.get("dom_cluster_above")
+    last_price     = snapshot.get("last_price", 0) or 0
 
     vp_above_vah   = snapshot.get("vp_above_vah", False)
     vp_below_val   = snapshot.get("vp_below_val", False)
@@ -888,6 +895,12 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bull_signals += 1; bull_reasons.append("DOM vacuum above")
     if dom_bp > 0.65:
         bull_signals += 1; bull_reasons.append(f"buy pressure {dom_bp:.0%}")
+    if dom_sweep_up:
+        bull_signals += 2; bull_reasons.append("DOM ask sweep — aggressive buyers")
+    if dom_iceberg_b and last_price:
+        bull_signals += 1; bull_reasons.append(f"iceberg bid @ {dom_iceberg_b}")
+    if dom_cluster_b and last_price and abs(last_price - dom_cluster_b) < 10:
+        bull_signals += 1; bull_reasons.append(f"cluster magnet below @ {dom_cluster_b}")
     if vp_above_vah:
         bull_signals += 1; bull_reasons.append("above VAH breakout")
     if vp_inside_va and price > snapshot.get("vp_poc", 0):
@@ -916,6 +929,12 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bear_signals += 1; bear_reasons.append("DOM vacuum below")
     if dom_bp < 0.35:
         bear_signals += 1; bear_reasons.append(f"sell pressure {1-dom_bp:.0%}")
+    if dom_sweep_dn:
+        bear_signals += 2; bear_reasons.append("DOM bid sweep — aggressive sellers")
+    if dom_iceberg_a and last_price:
+        bear_signals += 1; bear_reasons.append(f"iceberg ask @ {dom_iceberg_a}")
+    if dom_cluster_a and last_price and abs(last_price - dom_cluster_a) < 10:
+        bear_signals += 1; bear_reasons.append(f"cluster magnet above @ {dom_cluster_a}")
     if vp_below_val:
         bear_signals += 1; bear_reasons.append("below VAL breakdown")
     if vp_inside_va and price < snapshot.get("vp_poc", 999999):
@@ -1188,11 +1207,24 @@ Cumulative Delta: {snapshot.get('cumulative_delta', 'N/A')}
 Delta Last Bar:   {snapshot.get('delta_last_bar', 'N/A')}
 Large Prints:     {snapshot.get('large_prints', 'N/A')}
 
-DOM (Level 2 — live):
+DOM (Level 2 — 20 levels each side):
 {snapshot.get('dom', 'Not available')}
+
+DOM SIGNALS (structured):
   Imbalance: {snapshot.get('dom_imbalance', 'N/A')} | Buy pressure: {snapshot.get('dom_buy_pressure', 'N/A')}
   Resistance wall: {snapshot.get('dom_resistance_wall', 'N/A')} | Support wall: {snapshot.get('dom_support_wall', 'N/A')}
   Vacuum above: {snapshot.get('dom_vacuum_above', False)} | Vacuum below: {snapshot.get('dom_vacuum_below', False)}
+  Cluster magnet above: {snapshot.get('dom_cluster_above') or 'none'} | Cluster magnet below: {snapshot.get('dom_cluster_below') or 'none'}
+  Iceberg ask: {snapshot.get('dom_iceberg_ask') or 'none'} | Iceberg bid: {snapshot.get('dom_iceberg_bid') or 'none'}
+  Spoof ask: {snapshot.get('dom_spoof_ask') or 'none'} | Spoof bid: {snapshot.get('dom_spoof_bid') or 'none'}
+  Sweep up: {snapshot.get('dom_sweep_up', False)} | Sweep down: {snapshot.get('dom_sweep_down', False)}
+
+DOM INTERPRETATION RULES:
+- CLUSTER MAGNET: group of large orders within 5 ticks — price tends to run to this level
+- ICEBERG: replenishing order — treat as strong S/R, harder to break than it looks
+- SPOOF: large order vanished — likely manipulation, ignore that level for bias
+- SWEEP: 3+ levels consumed — directional conviction, trade with the sweep direction
+- VACUUM: thin book — price moves quickly through this zone, useful for target extension
 
 Volume Profile (session):
 {snapshot.get('volume_profile', 'N/A')}

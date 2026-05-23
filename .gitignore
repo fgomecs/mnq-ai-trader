@@ -1,0 +1,2 @@
+git add .gitignore .env.example README.md
+git commit -m "Add gitignore, env example, README"

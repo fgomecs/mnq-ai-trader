@@ -745,6 +745,12 @@ class IBKRFeed:
                 "ibkr_headlines":     self.get_ibkr_headlines(5),
                 "ibkr_headlines_text": self.get_ibkr_headlines_text(3),
 
+                # Bar data for dashboard chart with per-bar VWAP
+                "bars_1min": self._serialize_bars_with_vwap(list(self._bars_1min)[-195:]),
+                "bars_5min": self._serialize_bars_with_vwap(list(self._bars_5min)[-195:]),
+                # Current forming bar (uses live price)
+                "currentBarOpen": self._bars_1min[-1].close if self._bars_1min else current_price,
+
                 # Risk
                 "current_position":    current_position,
                 "daily_pnl":           round(daily_pnl, 2),
@@ -952,6 +958,33 @@ class IBKRFeed:
         tp = (bar.high + bar.low + bar.close) / 3
         self.vwap_cum_pv  += tp * bar.volume
         self.vwap_cum_vol += bar.volume
+
+    def _serialize_bars_with_vwap(self, bars: list) -> list:
+        """Serialize bars with cumulative intraday VWAP per bar."""
+        result = []
+        cum_pv = 0.0
+        cum_vol = 0.0
+        last_date = None
+        for b in bars:
+            try:
+                bt = _bar_et(b)
+                if bt.date() != last_date:
+                    cum_pv = 0.0
+                    cum_vol = 0.0
+                    last_date = bt.date()
+                vol = getattr(b, 'volume', 0) or 0
+                tp  = (b.high + b.low + b.close) / 3
+                cum_pv  += tp * vol
+                cum_vol += vol
+                vwap = round(cum_pv / cum_vol, 2) if cum_vol > 0 else None
+            except Exception:
+                vwap = None
+            result.append({
+                "t": str(b.date)[:16], "o": b.open, "h": b.high,
+                "l": b.low, "c": b.close, "v": vol,
+                "vwap": vwap, "forming": False
+            })
+        return result
 
     def _calculate_vwap(self, bars: list, now_et: datetime) -> float:
         try:

@@ -233,6 +233,10 @@ def update_dashboard(
             "nextEventFull":  s.get("next_event_full"),
             "newsEvents":     s.get("events_today", []),
             "ibkrHeadlines":  s.get("ibkr_headlines", []),
+            "bars1min":       s.get("bars_1min", []),
+            "bars5min":       s.get("bars_5min", []),
+            "currentBarOpen": s.get("currentBarOpen"),
+            "tradeMarkers":   s.get("trade_markers", []),
 
             "account":    account or {},
             "netLiq":     (account or {}).get("net_liquidation", 0),

@@ -1,11 +1,13 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
+<link rel="apple-mobile-web-app-title" content="DoBot">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>MNQ/AI</title>
+<title>DoBot</title>
 <style>
   :root {
     --bg: #0a0a0a; --bg2: #141414; --bg3: #1e1e1e;
@@ -31,8 +33,8 @@
   #logo { font-size: 17px; font-weight: 700; color: var(--blue); }
   #version { font-size: 11px; color: var(--text3); margin-top: 2px; }
   #topright { text-align: right; }
-  #clock { font-size: 20px; font-weight: 600; }
-  #data-mode { font-size: 11px; margin-top: 1px; }
+  #clock { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #data-mode { font-size: 11px; margin-top: 1px; color: var(--green); }
 
   /* ── CARDS ── */
   .card {
@@ -63,12 +65,13 @@
   #ms-state.closing     { color: var(--orange); }
   #ms-state.news-event  { color: var(--red); animation: pulse 1s infinite; }
   @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.5} }
-  #ms-countdown { font-size: 14px; color: var(--text2); }
+  #ms-countdown { font-size: 14px; color: var(--text2); min-height: 20px; }
 
   /* ── PRICE ── */
   #price-main {
-    font-size: 40px; font-weight: 700; letter-spacing: -1px;
+    font-size: 42px; font-weight: 700; letter-spacing: -1px;
     line-height: 1; margin-bottom: 4px;
+    font-variant-numeric: tabular-nums;
   }
   #price-sub { font-size: 14px; color: var(--text2); }
   #offline-badge {
@@ -79,15 +82,14 @@
 
   /* ── POSITION ── */
   #pos-display { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-  #pos-pnl { font-size: 22px; font-weight: 600; }
+  #pos-pnl { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
   .pos-row {
     display: flex; justify-content: space-between; align-items: center;
-    padding: 8px 0; border-bottom: 1px solid var(--border);
-    font-size: 15px;
+    padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 15px;
   }
   .pos-row:last-child { border-bottom: none; }
   .pos-label { color: var(--text2); }
-  .pos-val { font-weight: 600; }
+  .pos-val { font-weight: 600; font-variant-numeric: tabular-nums; }
 
   /* ── DECISION ── */
   #decision-badge {
@@ -95,64 +97,50 @@
     letter-spacing: 2px; padding: 8px 20px; border-radius: 8px;
     border: 2px solid var(--border); margin-bottom: 10px;
   }
-  #decision-badge.BUY  { border-color: var(--green); color: var(--green); background: #0a1a0a; }
-  #decision-badge.SELL { border-color: var(--red);   color: var(--red);   background: #1a0a0a; }
-  #decision-badge.HOLD { border-color: #333; color: #888; background: var(--bg3); }
+  #decision-badge.BUY   { border-color: var(--green); color: var(--green); background: #0a1a0a; }
+  #decision-badge.SELL  { border-color: var(--red);   color: var(--red);   background: #1a0a0a; }
+  #decision-badge.HOLD  { border-color: #333; color: #888; background: var(--bg3); }
+  #decision-badge.CLOSE { border-color: var(--orange); color: var(--orange); background: #1a0e00; }
 
-  #decision-meta {
-    display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap;
-  }
+  #decision-meta { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .meta-chip {
     background: var(--bg3); border: 1px solid var(--border);
-    border-radius: 6px; padding: 4px 10px; font-size: 13px;
+    border-radius: 6px; padding: 4px 10px; font-size: 13px; color: var(--text2);
   }
   .meta-chip b { color: var(--text); }
 
+  #bias-row {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-bottom: 10px; font-size: 15px;
+  }
+  #bias-val { font-size: 15px; font-weight: 700; }
+
   #reasoning {
-    font-size: 14px; line-height: 1.6; color: var(--text2);
+    font-size: 13px; line-height: 1.6; color: var(--text2);
     background: var(--bg3); border-radius: 8px; padding: 12px;
+    min-height: 60px;
   }
   #reasoning.stale { color: var(--text3); font-style: italic; }
 
-  /* ── BIAS ── */
-  #bias-row {
-    display: flex; justify-content: space-between; align-items: center;
-    font-size: 15px;
-  }
-  #bias-val { font-size: 17px; font-weight: 700; }
-
   /* ── RISK ── */
-  .risk-grid {
-    display: grid; grid-template-columns: 1fr 1fr; gap: 12px;
-  }
+  .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .risk-item { text-align: center; }
-  .risk-num { font-size: 22px; font-weight: 700; }
+  .risk-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .risk-lbl { font-size: 11px; color: var(--text3); text-transform: uppercase;
                letter-spacing: 0.5px; margin-top: 2px; }
 
   /* ── STATS ── */
-  .stats-grid {
-    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
-    text-align: center;
-  }
-  .stat-num { font-size: 24px; font-weight: 700; }
+  .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; text-align: center; }
+  .stat-num { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
   .stat-lbl { font-size: 11px; color: var(--text3); text-transform: uppercase; }
 
   /* ── NEWS ── */
   #news-card .card-body { font-size: 13px; line-height: 1.6; color: var(--text2); }
-  #news-dot {
-    display: inline-block; width: 8px; height: 8px; border-radius: 50%;
-    margin-right: 6px; vertical-align: middle;
-  }
-  #news-dot.green { background: var(--green); }
-  #news-dot.red   { background: var(--red); }
+  .news-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; vertical-align: middle; }
+  .news-dot.green { background: var(--green); }
+  .news-dot.red   { background: var(--red); }
 
-  /* ── FOOTER ── */
-  #footer {
-    text-align: center; color: var(--text3); font-size: 11px;
-    padding: 16px; margin-bottom: 8px;
-  }
-
+  #footer { text-align: center; color: var(--text3); font-size: 11px; padding: 16px; margin-bottom: 8px; }
   .green { color: var(--green); }
   .red   { color: var(--red); }
   .yellow { color: var(--yellow); }
@@ -161,19 +149,17 @@
 </head>
 <body>
 
-<!-- TOP BAR -->
 <div id="topbar">
   <div>
-    <div id="logo">MNQ/AI</div>
+    <div id="logo">DoBot</div>
     <div id="version">v—</div>
   </div>
   <div id="topright">
     <div id="clock">—</div>
-    <div id="data-mode" class="green">LIVE L2</div>
+    <div id="data-mode">LIVE L2</div>
   </div>
 </div>
 
-<!-- MARKET STATUS -->
 <div class="card">
   <div class="card-header">Market Status</div>
   <div class="card-body">
@@ -182,7 +168,6 @@
   </div>
 </div>
 
-<!-- PRICE -->
 <div class="card">
   <div class="card-header">Price</div>
   <div class="card-body">
@@ -192,30 +177,19 @@
   </div>
 </div>
 
-<!-- POSITION -->
 <div class="card">
   <div class="card-header">Position</div>
   <div class="card-body">
     <div id="pos-display" class="yellow">FLAT</div>
     <div id="pos-pnl" style="color:var(--text2)">+$0.00</div>
     <div style="margin-top:12px">
-      <div class="pos-row">
-        <span class="pos-label">Stop</span>
-        <span class="pos-val red" id="pos-stop">—</span>
-      </div>
-      <div class="pos-row">
-        <span class="pos-label">Entry</span>
-        <span class="pos-val" id="pos-entry">—</span>
-      </div>
-      <div class="pos-row">
-        <span class="pos-label">Target</span>
-        <span class="pos-val green" id="pos-target">—</span>
-      </div>
+      <div class="pos-row"><span class="pos-label">Stop</span><span class="pos-val red" id="pos-stop">—</span></div>
+      <div class="pos-row"><span class="pos-label">Entry</span><span class="pos-val" id="pos-entry">—</span></div>
+      <div class="pos-row"><span class="pos-label">Target</span><span class="pos-val green" id="pos-target">—</span></div>
     </div>
   </div>
 </div>
 
-<!-- CLAUDE DECISION -->
 <div class="card">
   <div class="card-header">Claude Analysis</div>
   <div class="card-body">
@@ -225,7 +199,7 @@
       <div class="meta-chip">PROB <b id="meta-prob" class="yellow">—%</b></div>
       <div class="meta-chip">SCORE <b id="meta-score">—</b></div>
     </div>
-    <div id="bias-row" style="margin-bottom:10px">
+    <div id="bias-row">
       <span style="color:var(--text2)">Bias</span>
       <span id="bias-val" class="yellow">NEUTRAL</span>
     </div>
@@ -233,49 +207,28 @@
   </div>
 </div>
 
-<!-- RISK -->
 <div class="card">
   <div class="card-header">Session Risk</div>
   <div class="card-body">
     <div class="risk-grid">
-      <div class="risk-item">
-        <div class="risk-num green" id="risk-pnl">+$0</div>
-        <div class="risk-lbl">Daily P&amp;L</div>
-      </div>
-      <div class="risk-item">
-        <div class="risk-num" id="risk-loss">$500</div>
-        <div class="risk-lbl">Loss Remaining</div>
-      </div>
+      <div class="risk-item"><div class="risk-num green" id="risk-pnl">+$0</div><div class="risk-lbl">Daily P&amp;L</div></div>
+      <div class="risk-item"><div class="risk-num" id="risk-loss">$500</div><div class="risk-lbl">Loss Remaining</div></div>
     </div>
   </div>
 </div>
 
-<!-- SESSION STATS -->
 <div class="card">
   <div class="card-header">Session Stats</div>
   <div class="card-body">
     <div class="stats-grid">
-      <div>
-        <div class="stat-num" id="st-trades">0</div>
-        <div class="stat-lbl">Trades</div>
-      </div>
-      <div>
-        <div class="stat-num green" id="st-wins">0</div>
-        <div class="stat-lbl">Wins</div>
-      </div>
-      <div>
-        <div class="stat-num red" id="st-losses">0</div>
-        <div class="stat-lbl">Losses</div>
-      </div>
-      <div>
-        <div class="stat-num yellow" id="st-wr">—</div>
-        <div class="stat-lbl">W-Rate</div>
-      </div>
+      <div><div class="stat-num" id="st-trades">0</div><div class="stat-lbl">Trades</div></div>
+      <div><div class="stat-num green" id="st-wins">0</div><div class="stat-lbl">Wins</div></div>
+      <div><div class="stat-num red" id="st-losses">0</div><div class="stat-lbl">Losses</div></div>
+      <div><div class="stat-num yellow" id="st-wr">—</div><div class="stat-lbl">W-Rate</div></div>
     </div>
   </div>
 </div>
 
-<!-- NEWS -->
 <div class="card" id="news-card">
   <div class="card-header">News &amp; Calendar</div>
   <div class="card-body">
@@ -284,98 +237,149 @@
   </div>
 </div>
 
-<div id="footer">Auto-refreshes every 5s · MNQ AI Trader</div>
+<div id="footer">DoBot · MNQ AI Trader</div>
 
 <script>
 const FILE = 'dashboard_data.json';
-
 function el(id) { return document.getElementById(id); }
 
+function fmt(v, dec) {
+  const n = parseFloat(v);
+  return isNaN(n) ? '—' : n.toFixed(dec || 2);
+}
 function fmtPnl(v) {
   const n = parseFloat(v) || 0;
-  return (n >= 0 ? '+' : '') + '$' + Math.abs(n).toFixed(0);
+  return (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(2);
 }
 
-// ── Clock ────────────────────────────────────────────────────
+// ── Clock — extrapolates demo sim time at 20x speed ──────────
+const DEMO_SPEED = 20;
+let _demoSimTimeSecs = null;
+let _demoSimTimeAt   = null;
+
 function updateClock() {
+  const clockEl = el('clock');
+  if (!clockEl) return;
   try {
-    el('clock').textContent = new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/New_York',
-      hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
-    }).format(new Date());
+    if (_demoSimTimeSecs !== null && _demoSimTimeAt !== null) {
+      const elapsed = (Date.now() - _demoSimTimeAt) / 1000;
+      const secs    = _demoSimTimeSecs + elapsed * DEMO_SPEED;
+      const h = Math.floor(secs / 3600) % 24;
+      const m = Math.floor((secs % 3600) / 60);
+      const s = Math.floor(secs % 60);
+      clockEl.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      clockEl.style.color = 'var(--yellow)';
+    } else {
+      clockEl.textContent = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'America/New_York',
+        hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false
+      }).format(new Date());
+      clockEl.style.color = '';
+    }
   } catch(e) {}
 }
-setInterval(updateClock, 1000);
+setInterval(updateClock, 100);
 updateClock();
 
-// ── Market Status ─────────────────────────────────────────────
-function getMarketState() {
-  const etFull = new Date(new Date().toLocaleString('en-US', {timeZone:'America/New_York'}));
-  const day = etFull.getDay(), mins = etFull.getHours()*60 + etFull.getMinutes();
+// ── Market status — computed once per second, independent ─────
+function getMarketInfo(dangerZone, nextEvent) {
+  let h, m;
+  if (_demoSimTimeSecs !== null && _demoSimTimeAt !== null) {
+    const elapsed = (Date.now() - _demoSimTimeAt) / 1000;
+    const secs    = _demoSimTimeSecs + elapsed * DEMO_SPEED;
+    h = Math.floor(secs / 3600) % 24;
+    m = Math.floor((secs % 3600) / 60);
+  } else {
+    const et = new Date(new Date().toLocaleString('en-US', {timeZone:'America/New_York'}));
+    h = et.getHours(); m = et.getMinutes();
+  }
+  const mins = h * 60 + m;
+  const day  = (_demoSimTimeSecs !== null) ? 1 : new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'})).getDay();
 
   function minsTo(m) {
-    const diff = m - mins;
-    if (diff <= 0) return '';
-    return diff >= 60 ? `${Math.floor(diff/60)}h ${diff%60}m` : `${diff}m`;
+    const d = m - mins;
+    if (d <= 0) return '';
+    return d >= 60 ? `${Math.floor(d/60)}h ${d%60}m` : `${d}m`;
   }
 
-  if (day === 6) return { state:'MARKET CLOSED', cls:'closed', next:'Opens Sun 6:00 PM ET' };
-  if (day === 0) {
-    if (mins < 18*60) return { state:'MARKET CLOSED', cls:'closed', next:`Opens in ${minsTo(18*60)}` };
-    return { state:'GLOBEX OPEN', cls:'globex', next:'Pre-market 8:30 AM' };
-  }
-  if (mins >= 17*60 && mins < 18*60) return { state:'MAINTENANCE', cls:'maintenance', next:`Reopens in ${minsTo(18*60)}` };
-  if (day === 5 && mins >= 17*60) return { state:'MARKET CLOSED', cls:'closed', next:'Opens Sun 6:00 PM ET' };
-  if (mins >= 8*60+30 && mins < 9*60+30) return { state:'PRE-MARKET', cls:'premarket', next:`RTH opens in ${minsTo(9*60+30)}` };
-  if (mins >= 9*60+30 && mins < 11*60) return { state:'NY AM PRIME ★★', cls:'am-prime', next:`Dead zone in ${minsTo(11*60)}` };
-  if (mins >= 11*60 && mins < 13*60+30) return { state:'DEAD ZONE', cls:'dead-zone', next:`PM prime in ${minsTo(13*60+30)}` };
-  if (mins >= 13*60+30 && mins < 16*60) return { state:'NY PM PRIME ★', cls:'pm-prime', next:`Closing in ${minsTo(16*60)}` };
-  if (mins >= 16*60 && mins < 17*60) return { state:'AFTER-HOURS', cls:'closing', next:`Maintenance in ${minsTo(17*60)}` };
-  return { state:'GLOBEX / OVERNIGHT', cls:'globex', next: mins < 8*60+30 ? `Pre-market in ${minsTo(8*60+30)}` : 'Pre-market 8:30 AM' };
+  let state, cls, next;
+
+  if (dangerZone)                            { state = '⚠ NEWS DANGER';        cls = 'news-event'; next = nextEvent || ''; }
+  else if (day === 6)                        { state = 'MARKET CLOSED';         cls = 'closed';     next = 'Opens Sun 6:00 PM ET'; }
+  else if (day === 0 && mins < 18*60)        { state = 'MARKET CLOSED';         cls = 'closed';     next = `Opens in ${minsTo(18*60)}`; }
+  else if (day === 0)                        { state = 'GLOBEX OPEN';           cls = 'globex';     next = 'Pre-market 8:30 AM'; }
+  else if (day === 5 && mins >= 17*60)       { state = 'MARKET CLOSED';         cls = 'closed';     next = 'Opens Sun 6:00 PM ET'; }
+  else if (mins >= 17*60 && mins < 18*60)   { state = 'MAINTENANCE';           cls = 'maintenance';next = `Reopens in ${minsTo(18*60)}`; }
+  else if (mins >= 8*60+30 && mins < 9*60+30){ state = 'PRE-MARKET';           cls = 'premarket';  next = `RTH opens in ${minsTo(9*60+30)}`; }
+  else if (mins >= 9*60+30 && mins < 11*60) { state = 'NY AM PRIME ★★';       cls = 'am-prime';   next = `Dead zone in ${minsTo(11*60)}`; }
+  else if (mins >= 11*60 && mins < 13*60+30){ state = 'DEAD ZONE';             cls = 'dead-zone';  next = `PM prime in ${minsTo(13*60+30)}`; }
+  else if (mins >= 13*60+30 && mins < 16*60){ state = 'NY PM PRIME ★';        cls = 'pm-prime';   next = `Closing in ${minsTo(16*60)}`; }
+  else if (mins >= 16*60 && mins < 17*60)   { state = 'AFTER-HOURS';           cls = 'closing';    next = `Maintenance in ${minsTo(17*60)}`; }
+  else                                       { state = 'GLOBEX / OVERNIGHT';    cls = 'globex';
+    next = mins < 8*60+30 ? `Pre-market in ${minsTo(8*60+30)}` : 'Pre-market 8:30 AM'; }
+
+  if (nextEvent && !dangerZone) next = `📅 ${nextEvent}`;
+  return { state, cls, next };
 }
 
-function updateMarketStatus(dangerZone, nextEvent) {
-  const info = getMarketState();
+// Market status state — persisted across renders to avoid flicker
+let _dangerZone = false;
+let _nextEvent  = null;
+
+function tickMarketStatus() {
+  const info = getMarketInfo(_dangerZone, _nextEvent);
   const stEl = el('ms-state');
-  if (dangerZone) {
-    stEl.textContent = '⚠ NEWS DANGER';
-    stEl.className = 'news-event';
-  } else {
+  const ctEl = el('ms-countdown');
+  if (stEl.textContent !== info.state) {
     stEl.textContent = info.state;
-    stEl.className = info.cls;
+    stEl.className   = info.cls;
   }
-  el('ms-countdown').textContent = nextEvent ? `📅 ${nextEvent}` : info.next;
+  if (ctEl) ctEl.textContent = info.next;
 }
-setInterval(() => updateMarketStatus(false, null), 1000);
+setInterval(tickMarketStatus, 100);
+tickMarketStatus();
 
-// ── Render ───────────────────────────────────────────────────
+// ── Render — only update changed values, no DOM thrash ────────
+
+
 async function poll() {
   try {
     const resp = await fetch(FILE + '?t=' + Date.now());
     if (!resp.ok) return;
     const d = await resp.json();
 
-    // Offline check
-    const age = d.timestamp ? Date.now() - new Date(d.timestamp).getTime() : 99999;
+    const age     = d.timestamp ? Date.now() - new Date(d.timestamp).getTime() : 99999;
     const offline = age > 30000;
-    el('offline-badge').style.display = offline ? 'block' : 'none';
 
-    // Data mode
+    // Offline
+    el('offline-badge').style.display = offline ? 'block' : 'none';
     const modeEl = el('data-mode');
-    modeEl.textContent  = offline ? 'BOT OFFLINE' : (d.data_mode || 'DELAYED');
-    modeEl.className    = offline ? 'red' : ((d.data_mode||'').includes('LIVE') ? 'green' : 'yellow');
+    modeEl.textContent = offline ? 'BOT OFFLINE' : (d.data_mode || 'DELAYED');
+    modeEl.style.color = offline ? 'var(--red)' : (d.data_mode||'').includes('LIVE') ? 'var(--green)' : 'var(--yellow)';
 
     // Version
     if (d.botVersion) el('version').textContent = `v${d.botVersion}`;
 
     // Price
     const price = d.currentPrice || 0;
-    el('price-main').textContent = price ? price.toFixed(2) : '—';
+    el('price-main').textContent   = price ? price.toFixed(2) : '—';
     el('price-main').style.opacity = offline ? '0.4' : '1';
-    el('price-sub').textContent = `Bid ${d.bid||'—'} / Ask ${d.ask||'—'}`;
+    el('price-sub').textContent    = `Bid ${fmt(d.bid)} / Ask ${fmt(d.ask)}`;
 
-    // Market status
-    updateMarketStatus(d.newsDangerZone, d.nextEventFull);
+    // Demo mode — store sim time for extrapolation
+    if (d.demoMode && d.simTimeEt) {
+      const parts      = d.simTimeEt.split(':').map(Number);
+      _demoSimTimeSecs = (parts[0]||0)*3600 + (parts[1]||0)*60 + (parts[2]||0);
+      _demoSimTimeAt   = Date.now();
+    } else {
+      _demoSimTimeSecs = null;
+      _demoSimTimeAt   = null;
+    }
+
+    // Market status (update stored state, tickMarketStatus handles display)
+    _dangerZone = d.newsDangerZone || false;
+    _nextEvent  = d.nextEventFull  || null;
+    tickMarketStatus();
 
     // Position
     const pos = d.position || 'FLAT';
@@ -384,46 +388,42 @@ async function poll() {
     posEl.className   = pos === 'LONG' ? 'green' : pos === 'SHORT' ? 'red' : 'yellow';
 
     const pnl = parseFloat(d.dailyPnl) || 0;
-    el('pos-pnl').textContent = fmtPnl(pnl) + '.00';
-    el('pos-pnl').style.color = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--text2)';
-
-    el('pos-stop').textContent   = d.stopPrice   ? d.stopPrice.toFixed(2)   : '—';
-    el('pos-entry').textContent  = d.entryPrice  ? d.entryPrice.toFixed(2)  : '—';
-    el('pos-target').textContent = d.targetPrice ? d.targetPrice.toFixed(2) : '—';
+    el('pos-pnl').textContent  = fmtPnl(pnl);
+    el('pos-pnl').style.color  = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--text2)';
+    el('pos-stop').textContent   = d.stopPrice   ? fmt(d.stopPrice)   : '—';
+    el('pos-entry').textContent  = d.entryPrice  ? fmt(d.entryPrice)  : '—';
+    el('pos-target').textContent = d.targetPrice ? fmt(d.targetPrice) : '—';
 
     // Decision
     const dec = (d.lastDecision || 'HOLD').toUpperCase();
     const badge = el('decision-badge');
     badge.textContent = dec;
-    badge.className   = dec;
+    badge.className   = ['BUY','SELL','HOLD','CLOSE'].includes(dec) ? dec : 'HOLD';
 
     el('meta-conf').textContent  = d.lastConfidence || '—';
     el('meta-score').textContent = d.lastConfluenceScore ? `${d.lastConfluenceScore}/10` : '—';
-    const prob = d.thesisProbability || 0;
-    const probEl = el('meta-prob');
-    probEl.textContent  = prob ? `${prob}%` : '—%';
-    probEl.className    = prob >= 75 ? 'green' : prob >= 60 ? 'yellow' : prob > 0 ? 'red' : 'yellow';
+    const prob    = d.thesisProbability || 0;
+    const probEl  = el('meta-prob');
+    probEl.textContent = prob ? `${prob}%` : '—%';
+    probEl.style.color = prob >= 75 ? 'var(--green)' : prob >= 60 ? 'var(--yellow)' : prob > 0 ? 'var(--red)' : 'var(--text2)';
 
-    // Bias
-    const bias = (d.bias || 'NEUTRAL').replace(/_/g, ' ');
+    const bias   = (d.bias || 'NEUTRAL').replace(/_/g,' ');
     const biasEl = el('bias-val');
-    biasEl.textContent = bias;
-    biasEl.style.color = bias.includes('LONG') ? 'var(--green)' :
-                         bias.includes('SHORT') ? 'var(--red)' : 'var(--text2)';
+    biasEl.textContent  = bias;
+    biasEl.style.color  = bias.includes('LONG') ? 'var(--green)' : bias.includes('SHORT') ? 'var(--red)' : 'var(--text2)';
 
-    // Reasoning
-    const raw = d.reasoning;
+    const raw        = d.reasoning;
     const reasonText = raw ? (raw.reasoning || d.lastReasoning || '—') : (d.lastReasoning || 'Waiting…');
-    const reasonEl = el('reasoning');
-    reasonEl.textContent = reasonText.substring(0, 300);
-    const isStale = raw && raw.iso_ts ? (Date.now() - new Date(raw.iso_ts).getTime()) > 300000 : false;
-    reasonEl.className = isStale ? 'stale' : '';
+    const reasonEl   = el('reasoning');
+    reasonEl.textContent = reasonText.substring(0, 280);
+    const isStale    = raw && raw.iso_ts ? (Date.now() - new Date(raw.iso_ts).getTime()) > 300000 : false;
+    reasonEl.className   = isStale ? 'stale' : '';
 
     // Risk
     const maxLoss = parseFloat(d.maxLoss) || 500;
     el('risk-pnl').textContent  = fmtPnl(pnl);
     el('risk-pnl').style.color  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
-    el('risk-loss').textContent = '$' + (maxLoss + Math.min(0, pnl)).toFixed(0);
+    el('risk-loss').textContent = '$' + Math.max(0, maxLoss + Math.min(0, pnl)).toFixed(0);
 
     // Stats
     const trades = d.trades || [];
@@ -437,14 +437,14 @@ async function poll() {
     // News
     const rawNews = (d.newsText || '').split('\n')
       .filter(l => !l.includes('FRED') && l.trim()).join(' ').substring(0, 120);
-    el('news-text').textContent = rawNews || 'No major events — clean window';
-    el('news-dot').className = 'news-dot ' + (d.newsDangerZone ? 'red' : 'green');
+    el('news-text').textContent  = rawNews || 'No major events — clean window';
+    el('news-dot').className     = 'news-dot ' + (d.newsDangerZone ? 'red' : 'green');
 
   } catch(e) {}
 }
 
 poll();
-setInterval(poll, 5000);
+setInterval(poll, 200);
 </script>
 </body>
 </html>

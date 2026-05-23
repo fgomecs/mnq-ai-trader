@@ -273,10 +273,11 @@ def _build_report(date_str: str, baseline: dict, ablations: dict) -> str:
 
 
 def save_report(report_text: str, date_str: str) -> Path:
-    """Save ablation report to memory/ directory."""
-    memory_dir = Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader")) / "memory"
-    memory_dir.mkdir(exist_ok=True)
-    path = memory_dir / f"ablation_{date_str}.md"
+    """Save ablation report to reports/ directory (committed to git)."""
+    base_dir    = Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"))
+    reports_dir = base_dir / "reports"
+    reports_dir.mkdir(exist_ok=True)
+    path = reports_dir / f"ablation_{date_str}.md"
     path.write_text(report_text, encoding="utf-8")
     print(f"[ablation] Report saved: {path}")
     return path

@@ -1,0 +1,37 @@
+# ─── Secrets ──────────────────────────────────────────────────
+.env
+*.key
+*.pem
+
+# ─── Generated at runtime ─────────────────────────────────────
+logs/
+memory/
+data/
+dashboard_data.json
+price_data.json
+tick_state.json
+
+# ─── Reports tracked intentionally ────────────────────────────
+# reports/ is NOT excluded — learning + ablation reports are
+# version-controlled as a performance audit trail.
+!reports/
+!reports/**
+
+# ─── Python ───────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.venv/
+venv/
+
+# ─── IDE / OS ─────────────────────────────────────────────────
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ─── Data files ───────────────────────────────────────────────
+*.jsonl
+*.log

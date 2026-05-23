@@ -27,6 +27,7 @@ from pathlib import Path
 BASE_DIR   = Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"))
 MEMORY_DIR = BASE_DIR / "memory"
 DATA_DIR   = BASE_DIR / "data"
+REPORTS_DIR = BASE_DIR / "reports"  # committed to git — analysis, not raw data
 
 sys.path.insert(0, str(BASE_DIR))
 
@@ -146,6 +147,7 @@ def run_learning_session(
         Path to saved learning report
     """
     MEMORY_DIR.mkdir(exist_ok=True)
+    REPORTS_DIR.mkdir(exist_ok=True)
     print(f"\n{'='*60}")
     print(f"LEARNING SESSION — {date_str}")
     print(f"{'='*60}\n")
@@ -212,8 +214,12 @@ def run_learning_session(
 
     report_text = "\n".join(report_lines)
 
-    report_path = MEMORY_DIR / f"learning_{date_str}.md"
+    # Save to reports/ (committed to git) and memory/ (local context injection)
+    report_path = REPORTS_DIR / f"learning_{date_str}.md"
     report_path.write_text(report_text, encoding="utf-8")
+    # Also save to memory/ for pre-market injection (load_learning_for_premarket reads here)
+    memory_path = MEMORY_DIR / f"learning_{date_str}.md"
+    memory_path.write_text(report_text, encoding="utf-8")
     print(f"[learning] Report saved: {report_path}")
 
     # ── 6. Print key insights ─────────────────────────────────

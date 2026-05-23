@@ -1224,6 +1224,8 @@ quality than the same setup in a clean window.
 
 {snapshot.get('news_text', 'No news data')}
 
+{snapshot.get('ibkr_headlines_text', '')}
+
 Change of Character (1-min): {snapshot.get('choch', 'N/A')}
 Inducement: {snapshot.get('inducement', 'N/A')}
 Delta Trend: {snapshot.get('delta_trend', 'N/A')} {'(true bid/ask classification)' if snapshot.get('delta_is_live') else '(signed-volume approximation — delayed data, less reliable)'}

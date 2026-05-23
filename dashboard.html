@@ -48,7 +48,7 @@
   #grid {
     display: grid;
     grid-template-columns: 240px 1fr 360px;
-    height: calc(100vh - 52px - 60px);
+    height: calc(100vh - 52px - 36px - 60px);
     overflow: hidden;
   }
 
@@ -114,6 +114,41 @@
   .ict-block.green-left { border-color: var(--green); }
   .ict-block.red-left   { border-color: var(--red); }
   .ict-block.yellow-left { border-color: var(--yellow); }
+
+  /* ── MARKET STATUS BAR ── */
+  #market-status-bar {
+    height: 36px; background: #0a0a0a; border-top: 1px solid var(--border);
+    display: grid; grid-template-columns: 240px 1fr 400px;
+    align-items: center; padding: 0 12px; gap: 12px;
+  }
+  #ms-left { display: flex; align-items: center; gap: 10px; }
+  #ms-state {
+    font-size: 11px; font-weight: bold; padding: 2px 8px;
+    border-radius: 2px; letter-spacing: 0.5px; text-transform: uppercase;
+    border: 1px solid var(--border2); color: var(--text2);
+  }
+  #ms-state.closed      { border-color: #555; color: #555; }
+  #ms-state.maintenance { border-color: #555; color: #555; }
+  #ms-state.globex      { border-color: var(--blue); color: var(--blue); background: #0a0f1a; }
+  #ms-state.premarket   { border-color: var(--yellow); color: var(--yellow); background: #1a1500; }
+  #ms-state.am-prime    { border-color: var(--green); color: var(--green); background: #0a1a0a;
+                           box-shadow: 0 0 6px rgba(0,230,118,0.3); }
+  #ms-state.dead-zone   { border-color: #888; color: #888; background: #111; }
+  #ms-state.pm-prime    { border-color: var(--green); color: var(--green); background: #0a1a0a; }
+  #ms-state.closing     { border-color: var(--orange); color: var(--orange); background: #1a0e00; }
+  #ms-state.news-event  { border-color: var(--red); color: var(--red); background: #1a0000;
+                           animation: pulse-red 1s infinite; }
+  @keyframes pulse-red { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
+  #ms-countdown { font-size: 10px; color: var(--text3); white-space: nowrap; }
+  #ms-schedule { display: flex; align-items: center; gap: 4px; font-size: 10px; }
+  .ms-slot { color: var(--text3); padding: 1px 4px; border-radius: 2px; }
+  .ms-slot.active { color: var(--text); background: var(--bg3); }
+  .ms-slot.next { color: var(--text2); }
+  .ms-sep { color: var(--text3); }
+  #ms-right { text-align: right; }
+  #ms-news-event { font-size: 10px; color: var(--yellow); }
+  #ms-ibkr-headline { font-size: 10px; color: var(--text3); overflow: hidden;
+                       text-overflow: ellipsis; white-space: nowrap; }
 
   /* ── BOTTOM BAR ── */
   #bottom {
@@ -293,6 +328,29 @@
   </div>
 </div>
 
+<!-- MARKET STATUS BAR -->
+<div id="market-status-bar">
+  <div id="ms-left">
+    <div id="ms-state">—</div>
+    <div id="ms-countdown"></div>
+  </div>
+  <div id="ms-center">
+    <div id="ms-schedule">
+      <span class="ms-slot" id="ms-s1"></span>
+      <span class="ms-sep">→</span>
+      <span class="ms-slot active" id="ms-s2"></span>
+      <span class="ms-sep">→</span>
+      <span class="ms-slot" id="ms-s3"></span>
+      <span class="ms-sep">→</span>
+      <span class="ms-slot" id="ms-s4"></span>
+    </div>
+  </div>
+  <div id="ms-right">
+    <div id="ms-news-event"></div>
+    <div id="ms-ibkr-headline"></div>
+  </div>
+</div>
+
 <!-- BOTTOM BAR -->
 <div id="bottom">
   <div id="news-block">
@@ -343,8 +401,11 @@ function reasoningAge(isoTs) {
   return `${secs}s old`;
 }
 
+let _lastDashData = null;
+
 function render(d) {
   if (!d) return;
+  _lastDashData = d;
 
   // Clock
   el('clock').textContent = d.time_et || '—';
@@ -549,6 +610,9 @@ function render(d) {
   el('news-text').textContent = newsText.substring(0, 100);
   el('news-dot').className = 'news-dot ' + (dangerous ? 'red' : 'green');
 
+  // Store for market status bar
+  d._ibkrHeadlines = d.ibkrHeadlines || d.ibkr_headlines || [];
+
   // Session levels
   el('session-levels-text').textContent = d.sessionLevels || 'Building session levels…';
 }
@@ -605,8 +669,169 @@ function updateClock() {
   }
 }
 
-setInterval(updateClock, 1000);
-updateClock();
+// ── Market Hours Engine ──────────────────────────────────────
+// MNQ (CME Globex) hours in ET:
+//   Open:        Sunday 6:00 PM → Friday 5:00 PM (continuous)
+//   Maintenance: Daily 5:00 PM → 6:00 PM (closed)
+//   RTH:         9:30 AM → 4:00 PM weekdays
+//   Pre-market:  8:30 AM → 9:30 AM
+//   Dead zone:   11:00 AM → 1:30 PM
+//   AM Prime:    9:30 AM → 11:00 AM  ★★
+//   PM Prime:    1:30 PM → 4:00 PM   ★
+//   Closing:     4:00 PM → 5:00 PM
+
+function getETComponents() {
+  const now = new Date();
+  const etStr = now.toLocaleString('en-US', { timeZone: 'America/New_York',
+    hour: 'numeric', minute: 'numeric', second: 'numeric',
+    hour12: false, weekday: 'long' });
+  // Parse manually
+  const etFull = new Date(now.toLocaleString('en-US', {timeZone: 'America/New_York'}));
+  return {
+    day:  etFull.getDay(),     // 0=Sun, 1=Mon ... 6=Sat
+    h:    etFull.getHours(),
+    m:    etFull.getMinutes(),
+    s:    etFull.getSeconds(),
+    mins: etFull.getHours() * 60 + etFull.getMinutes(),
+  };
+}
+
+function minsToStr(totalMins) {
+  if (totalMins <= 0) return '';
+  const h = Math.floor(totalMins / 60);
+  const m = totalMins % 60;
+  if (h > 0 && m > 0) return `${h}h ${m}m`;
+  if (h > 0) return `${h}h`;
+  return `${m}m`;
+}
+
+function getMarketState(d) {
+  // d = { day, h, m, s, mins } in ET
+  const { day, mins } = d;
+
+  // Saturday = always closed
+  if (day === 6) return { state: 'MARKET CLOSED', cls: 'closed',
+    next: 'Opens Sunday 6:00 PM', nextMins: (18*60 - mins) + (24*60) };
+
+  // Sunday
+  if (day === 0) {
+    if (mins < 18*60) return { state: 'MARKET CLOSED', cls: 'closed',
+      next: 'Opens 6:00 PM ET', nextMins: 18*60 - mins };
+    return { state: 'GLOBEX OPEN', cls: 'globex',
+      next: 'Pre-market 8:30 AM', nextMins: (24*60 - mins) + 8*60+30 };
+  }
+
+  // Monday–Friday
+  // Maintenance: 5:00 PM – 6:00 PM
+  if (mins >= 17*60 && mins < 18*60) return { state: 'MAINTENANCE', cls: 'maintenance',
+    next: 'Globex reopens 6:00 PM', nextMins: 18*60 - mins };
+
+  // Friday after 5 PM = closed for weekend
+  if (day === 5 && mins >= 17*60) return { state: 'MARKET CLOSED', cls: 'closed',
+    next: 'Opens Sunday 6:00 PM', nextMins: null };
+
+  // Pre-market: 8:30 – 9:30
+  if (mins >= 8*60+30 && mins < 9*60+30) return { state: 'PRE-MARKET', cls: 'premarket',
+    next: 'RTH Opens 9:30 AM', nextMins: 9*60+30 - mins };
+
+  // AM Prime: 9:30 – 11:00
+  if (mins >= 9*60+30 && mins < 11*60) return { state: 'NY AM PRIME ★★', cls: 'am-prime',
+    next: 'Dead zone 11:00 AM', nextMins: 11*60 - mins };
+
+  // Dead zone: 11:00 – 13:30
+  if (mins >= 11*60 && mins < 13*60+30) return { state: 'DEAD ZONE', cls: 'dead-zone',
+    next: 'PM Prime 1:30 PM', nextMins: 13*60+30 - mins };
+
+  // PM Prime: 13:30 – 16:00
+  if (mins >= 13*60+30 && mins < 16*60) return { state: 'NY PM PRIME ★', cls: 'pm-prime',
+    next: 'Closing 4:00 PM', nextMins: 16*60 - mins };
+
+  // Closing/after-hours: 16:00 – 17:00
+  if (mins >= 16*60 && mins < 17*60) return { state: 'CLOSING / AFTER-HOURS', cls: 'closing',
+    next: 'Maintenance 5:00 PM', nextMins: 17*60 - mins };
+
+  // Overnight Globex: 18:00+ or before 8:30
+  const nextSession = mins < 8*60+30 ? 8*60+30 - mins : null;
+  return { state: 'GLOBEX / OVERNIGHT', cls: 'globex',
+    next: mins < 8*60+30 ? 'Pre-market 8:30 AM' : 'Pre-market tomorrow 8:30 AM',
+    nextMins: nextSession };
+}
+
+// Today's session timeline (the 4 key times)
+function getScheduleSlots(day) {
+  if (day === 0 || day === 6) return ['CLOSED','—','—','—'];
+  return ['PRE-MKT 8:30', 'AM PRIME 9:30', 'DEAD 11:00', 'PM PRIME 1:30'];
+}
+
+function updateMarketStatus(dashData) {
+  const d    = getETComponents();
+  const info = getMarketState(d);
+
+  // Check for news danger zone from bot data
+  const dangerZone  = dashData && dashData.newsDangerZone;
+  const nextEvent   = dashData && dashData.nextEventFull;
+  const ibkrHeads   = dashData && dashData.ibkrHeadlines;
+
+  const stateEl = document.getElementById('ms-state');
+  const countEl = document.getElementById('ms-countdown');
+  const newsEl  = document.getElementById('ms-news-event');
+  const headEl  = document.getElementById('ms-ibkr-headline');
+
+  if (!stateEl) return;
+
+  // Override state if news danger zone active
+  if (dangerZone) {
+    stateEl.textContent  = '⚠ NEWS DANGER ZONE';
+    stateEl.className    = 'news-event';
+  } else {
+    stateEl.textContent = info.state;
+    stateEl.className   = info.cls;
+  }
+
+  // Countdown
+  if (info.nextMins != null) {
+    countEl.textContent = `${info.next} (${minsToStr(info.nextMins)})`;
+  } else {
+    countEl.textContent = info.next || '';
+  }
+
+  // Next economic event
+  if (nextEvent) {
+    newsEl.textContent = '📅 ' + nextEvent;
+  } else {
+    newsEl.textContent = '';
+  }
+
+  // Latest IBKR headline
+  if (ibkrHeads && ibkrHeads.length > 0) {
+    const h = ibkrHeads[0];
+    headEl.textContent = `[${h.provider}] ${h.headline}`;
+  } else {
+    headEl.textContent = '';
+  }
+
+  // Schedule slots
+  const slots = getScheduleSlots(d.day);
+  const mins  = d.mins;
+  // Which slot is active?
+  const boundaries = [8*60+30, 9*60+30, 11*60, 13*60+30];
+  let activeIdx = 0;
+  for (let i = 0; i < boundaries.length; i++) {
+    if (mins >= boundaries[i]) activeIdx = i;
+  }
+  for (let i = 1; i <= 4; i++) {
+    const el = document.getElementById(`ms-s${i}`);
+    if (!el) continue;
+    el.textContent = slots[i-1];
+    el.className   = 'ms-slot';
+    if (i-1 === activeIdx && d.day > 0 && d.day < 6) el.classList.add('active');
+    else if (i-1 === activeIdx + 1) el.classList.add('next');
+  }
+}
+
+setInterval(() => updateMarketStatus(_lastDashData), 1000);
+
+
 </script>
 </body>
 </html>

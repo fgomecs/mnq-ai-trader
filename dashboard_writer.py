@@ -20,11 +20,12 @@ from typing import Any, Optional
 import pytz
 
 try:
-    from config import DASHBOARD_FILE, PRICE_FILE, LIVE_DATA_ACTIVE
+    from config import DASHBOARD_FILE, PRICE_FILE, LIVE_DATA_ACTIVE, VERSION
 except ImportError:
     DASHBOARD_FILE   = "C:\\trading\\mnq-ai-trader\\dashboard_data.json"
     PRICE_FILE       = "C:\\trading\\mnq-ai-trader\\price_data.json"
     LIVE_DATA_ACTIVE = False
+    VERSION          = "?"
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -187,7 +188,7 @@ def update_dashboard(
             "lastConfluenceScore": kwargs.get("last_confluence_score", 0),
             "thesisProbability":   kwargs.get("thesis_probability", 0),
             "lastThesisStatus":    kwargs.get("last_thesis_status", ""),
-            "botVersion":          kwargs.get("bot_version", ""),
+            "botVersion":          VERSION,
             "reasoning":           reasoning_block,
 
             "bias":         detected_bias,
@@ -229,7 +230,9 @@ def update_dashboard(
             "newsText":       s.get("news_text", ""),
             "newsDangerZone": s.get("news_danger_zone", False),
             "nextHighImpact": s.get("next_high_impact"),
+            "nextEventFull":  s.get("next_event_full"),
             "newsEvents":     s.get("events_today", []),
+            "ibkrHeadlines":  s.get("ibkr_headlines", []),
 
             "account":    account or {},
             "netLiq":     (account or {}).get("net_liquidation", 0),

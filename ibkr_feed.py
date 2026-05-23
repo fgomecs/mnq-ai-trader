@@ -103,6 +103,11 @@ class IBKRFeed:
         self._news_cache:      dict  = {}
         self._news_cache_time: float = 0.0
 
+        # ── IBKR live news headlines (tick 292) ────────────
+        # Stores last 10 headlines as [{"time": str, "headline": str, "provider": str}]
+        self._ibkr_headlines: list = []
+        self._ibkr_headlines_max  = 10
+
         # ── Opening Range ──────────────────────────────────
         self.or_high            = self.or_low   = None
         self.or_open            = self.or_close = None
@@ -362,7 +367,7 @@ class IBKRFeed:
 
             bars.updateEvent += on_rt_bar
             self._rt_subscription = bars
-            logger.info("Real-time bar subscription active (5-sec bars → 1-min cache)")
+            logger.info("Real-time bar subscription active (5-sec bars -> 1-min cache)")
 
         except Exception as e:
             logger.error(f"Real-time bars error: {e}")
@@ -528,8 +533,15 @@ class IBKRFeed:
                     bars_daily = list(self._bars_daily)
 
             # Live price from ticker
-            ticker = self.ib.reqMktData(self.contract, "", False, False)
+            # Generic tick 292 = live news headlines (requires IBKR news subscription)
+            ticker = self.ib.reqMktData(self.contract, "292", False, False)
             self._mkt_ticker = ticker
+
+            # Wire tickNews handler for live IBKR headlines
+            if not hasattr(self, '_news_handler_wired'):
+                self.ib.tickNewsEvent += self._on_tick_news
+                self._news_handler_wired = True
+
             self.ib.sleep(0.3)   # 0.3s vs 1.0s before
 
             last_price = ticker.last or ticker.close or (bars_1min[-1].close if bars_1min else 0)
@@ -712,14 +724,17 @@ class IBKRFeed:
                 "large_prints":     delta_info["large_prints"],
                 "delta_is_live":    LIVE_DATA_ACTIVE and self._tick_stream_available,
 
-                # News
-                "news_text":          self._news_cache.get("news_text",          "News unavailable"),
+                # News — scheduled events + IBKR live headlines
+                "news_text":          self._news_cache.get("news_text", "News unavailable"),
                 "news_danger_zone":   self._news_cache.get("news_danger_zone",   False),
                 "next_high_impact":   self._news_cache.get("next_high_impact",   None),
                 "next_event_full":    self._news_cache.get("next_event_full",    None),
                 "next_event_minutes": self._news_cache.get("next_event_minutes", None),
                 "recent_event":       self._news_cache.get("recent_event",       None),
                 "events_today":       self._news_cache.get("events_today",       []),
+                # V4.1 — IBKR live headlines (tick 292)
+                "ibkr_headlines":     self.get_ibkr_headlines(5),
+                "ibkr_headlines_text": self.get_ibkr_headlines_text(3),
 
                 # Risk
                 "current_position":    current_position,
@@ -1307,6 +1322,45 @@ class IBKRFeed:
             return "\n".join(pools[:5]) if pools else "No liquidity pools nearby"
         except Exception:
             return "Liquidity unavailable"
+
+    # ─── V4.1: IBKR Live News (tick 292) ───────────────────
+
+    def _on_tick_news(self, tickerId: int, timeStamp: int, providerCode: str,
+                      articleId: str, headline: str, extraData: str) -> None:
+        """
+        Handler for IBKR tick 292 live news events.
+        Fires whenever a news headline is published for the subscribed contract.
+        Requires an active IBKR news subscription (Briefing.com, Benzinga, etc.).
+        If no subscription: tick 292 silently returns nothing — no error.
+        """
+        try:
+            ts_dt  = datetime.fromtimestamp(timeStamp / 1000, tz=eastern)
+            ts_str = ts_dt.strftime("%H:%M ET")
+            entry  = {
+                "time":     ts_str,
+                "headline": headline[:200],
+                "provider": providerCode,
+                "article":  articleId,
+            }
+            self._ibkr_headlines.insert(0, entry)
+            if len(self._ibkr_headlines) > self._ibkr_headlines_max:
+                self._ibkr_headlines.pop()
+            logger.info(f"[NEWS] {ts_str} [{providerCode}] {headline[:120]}")
+        except Exception as e:
+            logger.debug(f"tickNews handler error: {e}")
+
+    def get_ibkr_headlines(self, n: int = 5) -> list:
+        """Return last N IBKR live news headlines."""
+        return self._ibkr_headlines[:n]
+
+    def get_ibkr_headlines_text(self, n: int = 3) -> str:
+        """Return formatted headline string for prompt injection."""
+        if not self._ibkr_headlines:
+            return ""
+        lines = ["IBKR LIVE NEWS:"]
+        for h in self._ibkr_headlines[:n]:
+            lines.append(f"  {h['time']} [{h['provider']}] {h['headline']}")
+        return "\n".join(lines)
 
     # ─── V4.0: Order Flow Imbalance ────────────────────────
 

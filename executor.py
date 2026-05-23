@@ -1,256 +1,881 @@
+"""
+Executor — order placement and position management for MNQ AI Trader.
+
+Fixes from audit:
+  P1.1 — _get_market_price no longer fetches inside the lock; uses cached _last_price
+  P1.2 — Entry order has explicit outsideRth (matches stop/target orders)
+  P2.5 — Orphan check runs on a background thread (lock released first)
+"""
+
+import datetime
 import threading
 import time
-from ib_insync import *
-from config import *
-from logger import logger, log_trade
+from typing import Optional
+
+from ib_insync import Future, LimitOrder, MarketOrder, StopOrder
+
+from config import (
+    MAX_CONTRACTS, MAX_DAILY_LOSS_USD, MAX_SESSION_R_LOSS, SYMBOL,
+    TICK_SIZE, TICK_VALUE,
+    SCALP_STOP_TICKS, SCALP_TARGET_TICKS,
+    PROTECTION_LOOP_SECS,
+)
+from logger import logger
+
+try:
+    from strategy_stats import record_trade as _record_trade_stats
+except Exception:
+    _record_trade_stats = None
+
 
 class Executor:
-    def __init__(self, ib_instance, contract, paper=True):
-        self.ib = ib_instance
-        self.contract = contract
-        self.paper = paper
-        self.current_position = 0
-        self.entry_price = 0
-        self.stop_price = 0
-        self.target_price = 0
-        self.trade_mode = "NONE"
-        self.daily_pnl = 0
-        self.daily_loss_remaining = MAX_DAILY_LOSS_USD
-        self.consecutive_losses = 0
-        self.trades_today = []
-        self._lock = threading.Lock()
-        self._running = False
-        self._protection_thread = None
+    def __init__(self, ib_instance, contract, paper: bool = True):
+        self.ib            = ib_instance
+        self.contract      = contract
+        self.paper         = paper
 
-    def start_protection_loop(self):
-        """Start the fast protection loop in background thread"""
+        # Position state
+        self.current_position: int   = 0
+        self.entry_price:      float = 0.0
+        self.stop_price:       float = 0.0
+        self.target_price:     float = 0.0
+        self.trade_mode:       str   = "NONE"
+        self.entry_timestamp:  float = 0.0   # P1.3 — owned by executor, set on fill
+
+        # P&L / risk state
+        self.daily_pnl:            float = 0.0
+        self.daily_loss_remaining: float = MAX_DAILY_LOSS_USD
+        self.consecutive_losses:   int   = 0
+        self.trades_today:         list  = []
+
+        # D.1 — R-budget: track session risk units spent
+        # 1R = dollar risk of one trade's stop distance.
+        # Stops new entries once MAX_SESSION_R_LOSS R units have been lost.
+        self.session_r_spent:      float = 0.0
+
+        # Internal
+        self._lock                   = threading.Lock()
+        self._running                = False
+        self._protection_thread: Optional[threading.Thread] = None
+        self._last_price:            float = 0.0
+        self._needs_close:           Optional[str] = None
+        self._stop_order_id:         Optional[int] = None
+        self._target_order_id:       Optional[int] = None
+        self._closing_in_progress:   bool  = False
+        self._last_invalid_stop_log: float = 0.0  # FIX 3 — throttle warning
+        # D.2 — Track last stop set by Claude TRAIL so auto-trail doesn't
+        # overwrite it with a looser value
+        self._claude_trail_stop:     float = 0.0
+
+    # ─── Protection loop ───────────────────────────────────
+
+    def start_protection_loop(self) -> None:
         self._running = True
         self._protection_thread = threading.Thread(
             target=self._fast_protection_loop,
-            daemon=True
+            daemon=True,
+            name="ProtectionLoop",
         )
         self._protection_thread.start()
-        logger.info("Fast protection loop started — checking every 5 seconds")
+        logger.info(f"Protection loop started ({PROTECTION_LOOP_SECS}s cadence)")
 
-    def stop_protection_loop(self):
+    def stop_protection_loop(self) -> None:
         self._running = False
 
-    def _fast_protection_loop(self):
+    def _fast_protection_loop(self) -> None:
         """
-        Runs every 5 seconds independently of Claude.
-        Manages stops and targets on open positions.
-        No API calls — pure Python speed.
+        Runs every PROTECTION_LOOP_SECS. Two responsibilities:
+          1. Check stop/target against current price (cheap, runs every loop)
+          2. Reconcile local position with broker every N loops (cheap call)
+
+        FIX 4 — Periodic broker reconciliation. Catches zombie positions
+        where local state shows position != 0 but broker shows 0 (or vice
+        versa), which is what the May 22 race condition produced. Without
+        this, the stop-check would fire on a stale position with stop=0
+        and submit nonsense orders.
         """
+        loop_count = 0
+        RECONCILE_EVERY_N = 4   # every 20s at 5s cadence
+
         while self._running:
             try:
                 with self._lock:
-                    if self.current_position != 0:
-                        self._check_stop_and_target()
+                    if self.current_position != 0 and self._last_price > 0:
+                        if not self._closing_in_progress:
+                            self._check_stop_and_target()
+                            self._log_unrealized()
+
+                    # FIX 4 — Reconcile periodically. Done OUTSIDE the
+                    # closing-in-progress check because the whole point is
+                    # to catch state drift.
+                    loop_count += 1
+                    if loop_count >= RECONCILE_EVERY_N:
+                        loop_count = 0
+                        if not self._closing_in_progress:
+                            self._reconcile_with_broker()
+
             except Exception as e:
                 logger.error(f"Protection loop error: {e}")
-            time.sleep(5)
+            time.sleep(PROTECTION_LOOP_SECS)
 
-    def _check_stop_and_target(self):
-        """Check if stop or target hit — called every 5 seconds"""
+    def _reconcile_with_broker(self) -> None:
+        """
+        Compare local position with broker. If they disagree, flag for main
+        thread to fix. We CANNOT call ib.placeOrder or ib.sleep from this
+        thread (protection thread) safely — ib_insync's asyncio loop lives
+        on the main thread, and calls from worker threads can hang or fail.
+
+        So this method only DETECTS drift and sets _needs_close with a
+        special tag. check_pending_close on main thread does the actual
+        reconciliation work.
+        """
         try:
-            ticker = self.ib.reqMktData(self.contract, '', False, False)
-            self.ib.sleep(0.5)
-            current_price = ticker.last or ticker.close
+            broker_pos = self._broker_position()
+            local_pos  = self.current_position
 
-            if not current_price or current_price <= 0:
-                return
+            if broker_pos == local_pos:
+                return   # in sync
 
-            if self.current_position > 0:  # Long position
-                # Stop hit
-                if current_price <= self.stop_price:
-                    logger.info(f"STOP HIT — Price {current_price} <= Stop {self.stop_price}")
-                    self._close_position(current_price, "STOP HIT")
-                    return
-                # Target hit
-                if self.target_price and current_price >= self.target_price:
-                    logger.info(f"TARGET HIT — Price {current_price} >= Target {self.target_price}")
-                    self._close_position(current_price, "TARGET HIT")
-                    return
-                # Trail stop for momentum
-                if self.trade_mode == "MOMENTUM":
-                    new_stop = current_price - (SWING_TRAIL_TICKS * TICK_SIZE)
-                    if new_stop > self.stop_price:
-                        self.stop_price = new_stop
-                        logger.info(f"TRAIL STOP updated to {self.stop_price}")
+            logger.warning(
+                f"Position drift detected — local:{local_pos} broker:{broker_pos}. "
+                f"Queuing reconciliation for main thread."
+            )
 
-            elif self.current_position < 0:  # Short position
-                # Stop hit
-                if current_price >= self.stop_price:
-                    logger.info(f"STOP HIT — Price {current_price} >= Stop {self.stop_price}")
-                    self._close_position(current_price, "STOP HIT")
-                    return
-                # Target hit
-                if self.target_price and current_price <= self.target_price:
-                    logger.info(f"TARGET HIT — Price {current_price} <= Target {self.target_price}")
-                    self._close_position(current_price, "TARGET HIT")
-                    return
-                # Trail stop for momentum
-                if self.trade_mode == "MOMENTUM":
-                    new_stop = current_price + (SWING_TRAIL_TICKS * TICK_SIZE)
-                    if new_stop < self.stop_price:
-                        self.stop_price = new_stop
-                        logger.info(f"TRAIL STOP updated to {self.stop_price}")
+            # Set a flag main thread will pick up. Encode the drift type in the
+            # reason so we can dispatch correctly on the main side.
+            if broker_pos == 0 and local_pos != 0:
+                self._needs_close = "RECONCILE: bracket filled externally"
+            elif local_pos == 0 and broker_pos != 0:
+                self._needs_close = f"RECONCILE: unexpected broker position {broker_pos}"
+            else:
+                self._needs_close = f"RECONCILE: size mismatch local={local_pos} broker={broker_pos}"
 
         except Exception as e:
-            logger.error(f"Stop/target check error: {e}")
+            logger.error(f"Reconcile detect error: {e}")
+
+    def _handle_reconcile_on_main(self, reason: str) -> None:
+        """
+        Main-thread reconciliation handler. Called from check_pending_close
+        when _needs_close starts with 'RECONCILE'. Safe to call ib_insync
+        methods here.
+        """
+        try:
+            broker_pos = self._broker_position()
+            local_pos  = self.current_position
+            logger.info(f"Reconciling: {reason} | local={local_pos} broker={broker_pos}")
+
+            # Case A: Broker flat but we think we're in a position.
+            if broker_pos == 0 and local_pos != 0:
+                was_long    = local_pos > 0
+                entry_price = self.entry_price
+                contracts   = abs(local_pos)
+                exit_price  = self._infer_recent_exit_fill(was_long, entry_price)
+                if entry_price > 0 and exit_price > 0:
+                    pnl = self._record_pnl(entry_price, exit_price, contracts,
+                                           was_long, "Reconciled — bracket filled externally")
+                    logger.info(
+                        f"CLOSED (reconciled): {contracts} MNQ @ {exit_price} | "
+                        f"Entry:{entry_price} P&L:${pnl:.2f}"
+                    )
+                self._cancel_all_orders_and_wait()
+                self._reset_position_state()
+                return
+
+            # Case B: Unexpected broker position.
+            if local_pos == 0 and broker_pos != 0:
+                logger.error(
+                    f"UNEXPECTED BROKER POSITION: {broker_pos} contracts with "
+                    f"no local record. Flattening immediately."
+                )
+                self._cancel_all_orders_and_wait()
+                flatten_action = "SELL" if broker_pos > 0 else "BUY"
+                flatten = MarketOrder(flatten_action, abs(broker_pos))
+                flatten.tif        = "GTC"
+                flatten.outsideRth = True
+                self.ib.placeOrder(self.contract, flatten)
+                self.ib.sleep(1.5)
+                logger.warning("Unexpected broker position flattened — P&L not attributed")
+                return
+
+            # Case C: Size mismatch. Adopt broker value as truth.
+            logger.warning(f"Position size mismatch — adopting broker value {broker_pos}")
+            self.current_position = broker_pos
+        except Exception as e:
+            logger.error(f"Reconcile handler error: {e}")
+
+    # ─── Price update ──────────────────────────────────────
+
+    def update_price(self, price: float) -> None:
+        if price and price > 0:
+            self._last_price = price
+
+    # ─── Pending close ─────────────────────────────────────
+
+    def check_pending_close(self) -> bool:
+        # FIX 4 — Reconciliation requests are handled on main thread
+        if self._needs_close and self._needs_close.startswith("RECONCILE"):
+            reason            = self._needs_close
+            self._needs_close = None
+            self._handle_reconcile_on_main(reason)
+            return True
+
+        if self._needs_close and self.current_position == 0:
+            logger.info(f"Clearing stale close flag: {self._needs_close}")
+            self._needs_close = None
+            return False
+        if self._needs_close and self.current_position != 0 and not self._closing_in_progress:
+            reason            = self._needs_close
+            self._needs_close = None
+            logger.info(f"Executing pending close: {reason}")
+            self._close_position(self._last_price, reason)
+            return True
+        return False
+
+    # ─── Execute (entry/close/hold) ────────────────────────
 
     def execute(self, decision: dict) -> bool:
-        """Execute Claude's trading decision"""
         with self._lock:
-            action = decision.get("decision", "HOLD")
-            mode = decision.get("mode", "NONE")
+            action     = decision.get("decision", "HOLD")
+            mode       = decision.get("mode", "NONE")
             confidence = decision.get("confidence", "LOW")
-            contracts = min(int(decision.get("contracts", 1)), MAX_CONTRACTS)
+            contracts  = min(int(decision.get("contracts", 1)), MAX_CONTRACTS)
             stop_ticks = int(decision.get("stop_ticks", SCALP_STOP_TICKS))
             target_ticks = decision.get("target_ticks", SCALP_TARGET_TICKS)
-            reasoning = decision.get("reasoning", "")
+            reasoning  = decision.get("reasoning", "")
 
             if not self._safety_checks(action, confidence):
                 return False
 
-            if action == "BUY" and self.current_position == 0:
-                return self._enter_trade("BUY", contracts, stop_ticks, target_ticks, mode, reasoning)
-            elif action == "SELL" and self.current_position == 0:
-                return self._enter_trade("SELL", contracts, stop_ticks, target_ticks, mode, reasoning)
-            elif action == "CLOSE" and self.current_position != 0:
-                ticker = self.ib.reqMktData(self.contract, '', False, False)
-                self.ib.sleep(0.5)
-                price = ticker.last or ticker.close
+            if action in ("BUY", "SELL") and self.current_position == 0:
+                return self._enter_trade(action, contracts, stop_ticks,
+                                         target_ticks, mode, reasoning)
+            if action == "CLOSE" and self.current_position != 0:
+                price = self._get_market_price()
                 return self._close_position(price, reasoning)
-            elif action == "HOLD":
+            if action == "HOLD":
                 logger.info(f"HOLD | {reasoning[:150]}")
                 return True
-
             return False
 
-    def _safety_checks(self, action, confidence) -> bool:
-        """Check all safety rules before trading"""
+    # ─── Safety checks ─────────────────────────────────────
+
+    def _safety_checks(self, action: str, confidence: str) -> bool:
         if self.daily_loss_remaining <= 0:
-            logger.info("SAFETY: Daily loss limit reached. No more trades today.")
+            logger.info("SAFETY: Daily loss limit — no more trades.")
             return False
-        if self.consecutive_losses >= 3:
-            logger.info("SAFETY: 3 consecutive losses. Pausing.")
-            return False
-        if action in ["BUY", "SELL"] and confidence == "LOW":
-            logger.info("SAFETY: Low confidence — skipping.")
-            return False
-        if action in ["BUY", "SELL"] and self.current_position != 0:
-            logger.info("SAFETY: Already in position.")
-            return False
+        if action in ("BUY", "SELL"):
+            # D.1 — R-budget gate
+            if self.session_r_spent >= MAX_SESSION_R_LOSS:
+                logger.info(
+                    f"SAFETY: R-budget exhausted — {self.session_r_spent:.1f}R spent "
+                    f"(max {MAX_SESSION_R_LOSS}R). No more entries today."
+                )
+                return False
+            if confidence == "LOW":
+                logger.info("SAFETY: Low confidence — skipping.")
+                return False
+            if self.current_position != 0:
+                logger.info("SAFETY: Already in position — skipping.")
+                return False
+            if self._closing_in_progress:
+                logger.info("SAFETY: Close in progress — skipping entry.")
+                return False
         return True
 
-    def _enter_trade(self, direction: str, contracts: int,
-                     stop_ticks: int, target_ticks, mode: str, reasoning: str) -> bool:
-        """Enter a trade"""
+    # ─── Market price helper (P1.1 — no blocking inside lock) ─
+
+    def _get_market_price(self) -> float:
+        """
+        Best available current price WITHOUT blocking.
+        Uses cached _last_price written by the 1Hz dashboard ticker.
+
+        Previously this called reqMktData() + ib.sleep(0.5) inside the
+        executor lock, blocking the protection loop. That's gone now.
+        """
+        return self._last_price or 0.0
+
+    # ─── Cancel all orders ─────────────────────────────────
+
+    def _cancel_all_orders_and_wait(self, timeout: float = 5.0) -> None:
         try:
-            ticker = self.ib.reqMktData(self.contract, '', False, False)
-            self.ib.sleep(0.5)
-            price = ticker.ask if direction == "BUY" else ticker.bid
+            open_trades = self.ib.openTrades()
+            if not open_trades:
+                self._stop_order_id   = None
+                self._target_order_id = None
+                return
 
-            if not price or price <= 0:
-                logger.error("Invalid entry price")
-                return False
+            logger.info(f"Cancelling {len(open_trades)} open order(s)…")
+            for trade in open_trades:
+                try:
+                    self.ib.cancelOrder(trade.order)
+                    logger.info(
+                        f"  Cancelled #{trade.order.orderId} "
+                        f"{trade.order.action} x{trade.order.totalQuantity}"
+                    )
+                except Exception as e:
+                    logger.error(f"  Cancel #{trade.order.orderId} failed: {e}")
 
-            tick = TICK_SIZE
-            if direction == "BUY":
-                self.stop_price = round(price - (stop_ticks * tick), 2)
-                self.target_price = round(price + (int(target_ticks) * tick), 2) if target_ticks != "TRAIL" else None
-            else:
-                self.stop_price = round(price + (stop_ticks * tick), 2)
-                self.target_price = round(price - (int(target_ticks) * tick), 2) if target_ticks != "TRAIL" else None
+            # Wait for confirmation
+            waited = 0.0
+            while waited < timeout:
+                self.ib.sleep(0.5)
+                waited += 0.5
+                if not self.ib.openTrades():
+                    logger.info(f"All orders cleared after {waited:.1f}s")
+                    break
 
-            ib_action = "BUY" if direction == "BUY" else "SELL"
+            # Force-cancel any stragglers
+            remaining = self.ib.openTrades()
+            if remaining:
+                logger.warning(f"{len(remaining)} order(s) still open — force cancelling")
+                for trade in remaining:
+                    try:
+                        self.ib.cancelOrder(trade.order)
+                    except Exception:
+                        pass
+                self.ib.sleep(1)
+
+        except Exception as e:
+            logger.error(f"Cancel-all error: {e}")
+        finally:
+            self._stop_order_id   = None
+            self._target_order_id = None
+
+    # ─── Enter trade ───────────────────────────────────────
+
+    def _enter_trade(
+        self, direction: str, contracts: int, stop_ticks: int,
+        target_ticks, mode: str, reasoning: str,
+    ) -> bool:
+        try:
+            tick         = TICK_SIZE
             close_action = "SELL" if direction == "BUY" else "BUY"
 
-            # Place entry order
-            entry_order = MarketOrder(ib_action, contracts)
-            self.ib.placeOrder(self.contract, entry_order)
-            self.ib.sleep(0.5)
+            # Market entry — P1.2: explicit outsideRth=True for futures
+            entry_order             = MarketOrder(direction, contracts)
+            entry_order.tif         = "GTC"
+            entry_order.outsideRth  = True   # MNQ trades nearly 24/5; be explicit
+            entry_trade             = self.ib.placeOrder(self.contract, entry_order)
+            self.ib.sleep(1.5)
 
-            # Place hard stop at broker level as backup
-            stop_order = StopOrder(close_action, contracts, self.stop_price)
-            stop_order.outsideRth = False
-            self.ib.placeOrder(self.contract, stop_order)
+            # Resolve fill price
+            if entry_trade.fills:
+                actual_fill = entry_trade.fills[-1].execution.price
+                logger.info(f"Fill (broker): {actual_fill}")
+            else:
+                # Use cached last price (no extra reqMktData round-trip)
+                actual_fill = self._last_price
+                logger.info(f"Fill (cached last_price): {actual_fill}")
 
-            self.current_position = contracts if direction == "BUY" else -contracts
-            self.entry_price = price
-            self.trade_mode = mode
+            if not actual_fill or actual_fill <= 0:
+                logger.error("Cannot determine fill price — aborting")
+                return False
 
-            log_trade(direction, contracts, price, reasoning)
-            logger.info(f"ENTERED: {direction} {contracts} MNQ @ {price} | Stop: {self.stop_price} | Target: {self.target_price} | Mode: {mode}")
+            # Sanity-check: delayed data can be 50-100 pts stale
+            if self._last_price and abs(self._last_price - actual_fill) > 20:
+                logger.warning(
+                    f"Price mismatch: fill={actual_fill}, last={self._last_price} "
+                    f"(diff {abs(self._last_price - actual_fill):.1f}pts) — using last_price"
+                )
+                actual_fill = self._last_price
 
+            # Calculate stop / target from actual fill
+            if direction == "BUY":
+                stop_price   = round(actual_fill - stop_ticks * tick, 2)
+                target_price = (
+                    round(actual_fill + int(target_ticks) * tick, 2)
+                    if target_ticks != "TRAIL" else None
+                )
+                if stop_price >= actual_fill:
+                    logger.error(f"BUY stop {stop_price} >= fill {actual_fill} — aborting")
+                    return False
+                if target_price and target_price <= actual_fill:
+                    logger.error(f"BUY target {target_price} <= fill {actual_fill} — aborting")
+                    return False
+            else:
+                stop_price   = round(actual_fill + stop_ticks * tick, 2)
+                target_price = (
+                    round(actual_fill - int(target_ticks) * tick, 2)
+                    if target_ticks != "TRAIL" else None
+                )
+                if stop_price <= actual_fill:
+                    logger.error(f"SELL stop {stop_price} <= fill {actual_fill} — aborting")
+                    return False
+                if target_price and target_price >= actual_fill:
+                    logger.error(f"SELL target {target_price} >= fill {actual_fill} — aborting")
+                    return False
+
+            logger.info(f"Fill:{actual_fill} Stop:{stop_price} Target:{target_price} Dir:{direction}")
+
+            # Bracket orders — explicit outsideRth for consistency with entry
+            stop_order             = StopOrder(close_action, contracts, stop_price)
+            stop_order.outsideRth  = True
+            stop_order.tif         = "GTC"
+            stop_trade             = self.ib.placeOrder(self.contract, stop_order)
+            self._stop_order_id    = stop_trade.order.orderId
+
+            self._target_order_id = None
+            if target_price:
+                tgt_order             = LimitOrder(close_action, contracts, target_price)
+                tgt_order.outsideRth  = True
+                tgt_order.tif         = "GTC"
+                tgt_trade             = self.ib.placeOrder(self.contract, tgt_order)
+                self._target_order_id = tgt_trade.order.orderId
+
+            # Update state — P1.3: own entry_timestamp here, set after fill confirmed
+            self.current_position    = contracts if direction == "BUY" else -contracts
+            self.entry_price         = actual_fill
+            self.stop_price          = stop_price
+            self.target_price        = target_price
+            self.trade_mode          = mode
+            self.entry_timestamp     = time.time()
+            self._last_price         = actual_fill
+            self._needs_close        = None
+            self._closing_in_progress = False
+            self._claude_trail_stop  = 0.0   # D.2 — reset trail anchor for new trade
+
+            logger.info(
+                f"ENTERED: {direction} {contracts} MNQ @ {actual_fill} | "
+                f"Stop:{stop_price} Target:{target_price} Mode:{mode} | {reasoning[:100]}"
+            )
             return True
 
         except Exception as e:
             logger.error(f"Entry error: {e}")
             return False
 
+    # ─── Close position ────────────────────────────────────
+
+    def _record_pnl(
+        self, entry_price: float, exit_price: float,
+        contracts: int, was_long: bool, reason: str,
+    ) -> float:
+        """Compute P&L, update counters, append to trades_today."""
+        diff = (exit_price - entry_price) if was_long else (entry_price - exit_price)
+        pnl  = (diff / TICK_SIZE) * TICK_VALUE * contracts
+
+        # FIX 6 — P&L sanity bound. On a 1-contract MNQ trade, the maximum
+        # realistic single-trade P&L is roughly $200-300 (a 100-point move).
+        # Anything wildly larger means corrupted entry_price or exit_price
+        # (e.g. entry_price=0 because state was reset prematurely). Reject
+        # rather than poison daily_pnl which gates further trading.
+        MAX_REASONABLE_SINGLE_PNL = 1000.0   # USD per contract
+        if abs(pnl) > MAX_REASONABLE_SINGLE_PNL * contracts:
+            logger.error(
+                f"P&L sanity REJECT: ${pnl:.2f} on {contracts} contracts is impossible "
+                f"(entry={entry_price}, exit={exit_price}, was_long={was_long}). "
+                f"State is corrupted. Not recording, not updating daily_pnl. "
+                f"Reason given: {reason}"
+            )
+            # Still log the trade so we have a record, but with pnl=None
+            self.trades_today.append({
+                "time":       datetime.datetime.now().strftime("%H:%M:%S"),
+                "action":     "SELL" if was_long else "BUY",
+                "entry":      entry_price,
+                "exit":       exit_price,
+                "pnl":        None,
+                "mode":       self.trade_mode,
+                "exit_reason": f"REJECTED (sanity bound): {reason}",
+            })
+            return 0.0
+
+        self.daily_pnl            += pnl
+        self.daily_loss_remaining -= max(0.0, -pnl)
+
+        if pnl < 0:
+            self.consecutive_losses += 1
+            # D.1 — Accumulate R spent: this loss = 1R by definition
+            # (we sized the stop to be 1R). Use actual loss/stop_dollar ratio
+            # to handle partial losses (e.g. Claude CLOSE before stop).
+            stop_dollar = abs(self.entry_price - self.stop_price) / TICK_SIZE * TICK_VALUE * contracts
+            if stop_dollar > 0:
+                r_this_trade = min(abs(pnl) / stop_dollar, 1.5)  # cap at 1.5R
+            else:
+                r_this_trade = 1.0   # assume 1R if stop not recorded
+            self.session_r_spent += r_this_trade
+            logger.info(f"R-budget: {r_this_trade:.2f}R spent this trade | session total: {self.session_r_spent:.1f}R / {MAX_SESSION_R_LOSS}R")
+        else:
+            self.consecutive_losses = 0
+
+        self.trades_today.append({
+            "time":       datetime.datetime.now().strftime("%H:%M:%S"),
+            "action":     "SELL" if was_long else "BUY",
+            "entry":      entry_price,
+            "exit":       exit_price,
+            "pnl":        round(pnl, 2),
+            "mode":       self.trade_mode,
+            "exit_reason": reason,
+        })
+        return pnl
+
+    def _reset_position_state(self) -> None:
+        self.current_position  = 0
+        self.entry_price       = 0.0
+        self.stop_price        = 0.0
+        self.target_price      = 0.0
+        self.trade_mode        = "NONE"
+        self.entry_timestamp   = 0.0
+        self._needs_close      = None
+        self._stop_order_id    = None
+        self._target_order_id  = None
+
+    def _broker_position(self) -> int:
+        """
+        Query broker for current MNQ position, bypassing local state.
+        Returns the signed contract count from IBKR's perspective.
+        Used by _close_position to verify position is actually open before
+        submitting a close order — protects against the race where a broker
+        stop fills concurrently with our CLOSE decision.
+        """
+        try:
+            for pos in self.ib.positions():
+                if pos.contract.symbol == SYMBOL:
+                    return int(pos.position)
+            return 0
+        except Exception as e:
+            logger.warning(f"Broker position query failed: {e}")
+            # Fall back to local state on query failure — caller should be
+            # cautious but at least not silently drop the close attempt.
+            return self.current_position
+
     def _close_position(self, current_price: float, reason: str) -> bool:
-        """Close current position immediately"""
         try:
             if self.current_position == 0:
                 return False
+            if self._closing_in_progress:
+                logger.warning("Close already in progress — skipping duplicate")
+                return False
 
-            contracts = abs(self.current_position)
+            self._closing_in_progress = True
+            self._needs_close         = None
+
+            contracts    = abs(self.current_position)
             close_action = "SELL" if self.current_position > 0 else "BUY"
+            entry_price  = self.entry_price
+            was_long     = self.current_position > 0
 
-            close_order = MarketOrder(close_action, contracts)
-            self.ib.placeOrder(self.contract, close_order)
-            self.ib.sleep(0.5)
+            logger.info(
+                f"Closing {contracts} MNQ {'LONG' if was_long else 'SHORT'} "
+                f"@ ~{current_price} | {reason}"
+            )
 
-            # Calculate P&L
-            if self.current_position > 0:
-                pnl = (current_price - self.entry_price) / TICK_SIZE * TICK_VALUE * contracts
+            # ── FIX 1+2 — Race-safe broker sync ──────────────
+            # Before placing any close order, verify the broker-side position.
+            # If a bracket stop already filled concurrently with our CLOSE
+            # decision, the broker may already show us flat. In that case
+            # we must NOT submit a market sell from flat (which would open
+            # an accidental short).
+            broker_pos_before = self._broker_position()
+            if broker_pos_before == 0:
+                logger.warning(
+                    "Position already closed at broker (bracket order filled "
+                    "before our CLOSE could fire). Reconciling local state, "
+                    "no close order submitted."
+                )
+                # Try to capture the broker stop/target fill from execDetails so
+                # we record realistic P&L. If we can't find it, use last_price.
+                exit_price = self._infer_recent_exit_fill(was_long, entry_price)
+                pnl = self._record_pnl(entry_price, exit_price, contracts,
+                                       was_long, f"Broker bracket filled: {reason}")
+                logger.info(
+                    f"CLOSED (broker): {contracts} MNQ @ {exit_price} | "
+                    f"Entry:{entry_price} P&L:${pnl:.2f} Daily:${self.daily_pnl:.2f}"
+                )
+                self._cancel_all_orders_and_wait()   # clean up the unfilled side
+                self._reset_position_state()
+                return True
+
+            # If broker shows a position different magnitude than ours, trust broker
+            if abs(broker_pos_before) != contracts:
+                logger.warning(
+                    f"Broker position {broker_pos_before} differs from local "
+                    f"{self.current_position} — using broker value for close size"
+                )
+                contracts    = abs(broker_pos_before)
+                close_action = "SELL" if broker_pos_before > 0 else "BUY"
+                was_long     = broker_pos_before > 0
+
+            # 1. Cancel bracket orders
+            self._cancel_all_orders_and_wait()
+
+            # ── FIX 1 again — RE-CHECK after cancel ──────────
+            # Cancellation isn't instantaneous. Between the cancel request and
+            # confirmation, a stop or target can fill. Verify post-cancel that
+            # we still have a position to close.
+            broker_pos_after = self._broker_position()
+            if broker_pos_after == 0:
+                logger.warning(
+                    "Position closed during cancel (broker bracket filled "
+                    "between our cancel request and close submission). "
+                    "Skipping close order to avoid accidental reverse entry."
+                )
+                exit_price = self._infer_recent_exit_fill(was_long, entry_price)
+                pnl = self._record_pnl(entry_price, exit_price, contracts,
+                                       was_long, f"Filled during cancel: {reason}")
+                logger.info(
+                    f"CLOSED (during cancel): {contracts} MNQ @ {exit_price} | "
+                    f"Entry:{entry_price} P&L:${pnl:.2f} Daily:${self.daily_pnl:.2f}"
+                )
+                self._reset_position_state()
+                return True
+
+            # 2. Market close — explicit outsideRth
+            close_order             = MarketOrder(close_action, contracts)
+            close_order.tif         = "GTC"
+            close_order.outsideRth  = True
+            close_trade             = self.ib.placeOrder(self.contract, close_order)
+            self.ib.sleep(1.5)
+
+            # 3. Resolve exit fill
+            if close_trade.fills:
+                exit_price = close_trade.fills[-1].execution.price
+                logger.info(f"Exit fill (broker): {exit_price}")
             else:
-                pnl = (self.entry_price - current_price) / TICK_SIZE * TICK_VALUE * contracts
+                exit_price = self._last_price or current_price
+                logger.info(f"Exit fill (cached last_price): {exit_price}")
 
-            self.daily_pnl += pnl
-            self.daily_loss_remaining -= max(0, -pnl)
+            # 4. Record P&L (with sanity bound — see _record_pnl)
+            pnl = self._record_pnl(entry_price, exit_price, contracts, was_long, reason)
+            logger.info(
+                f"CLOSED: {contracts} MNQ @ {exit_price} | "
+                f"Entry:{entry_price} P&L:${pnl:.2f} Daily:${self.daily_pnl:.2f} | {reason}"
+            )
 
-            if pnl < 0:
-                self.consecutive_losses += 1
-            else:
-                self.consecutive_losses = 0
+            # 5. Reset state
+            self._reset_position_state()
 
-            self.trades_today.append({
-                "entry": self.entry_price,
-                "exit": current_price,
-                "pnl": pnl,
-                "reason": reason
-            })
-
-            log_trade(f"CLOSE ({close_action})", contracts, current_price,
-                     f"PnL: ${pnl:.2f} | {reason}")
-            logger.info(f"CLOSED: {contracts} MNQ @ {current_price} | P&L: ${pnl:.2f} | Daily P&L: ${self.daily_pnl:.2f} | Reason: {reason}")
-
-            self.current_position = 0
-            self.entry_price = 0
-            self.stop_price = 0
-            self.target_price = 0
-            self.trade_mode = "NONE"
+            # 6. Orphan check — now in-thread on main asyncio loop (FIX 5)
+            self._post_close_orphan_check_safe()
 
             return True
 
         except Exception as e:
             logger.error(f"Close error: {e}")
             return False
+        finally:
+            self._closing_in_progress = False
 
-    def update_position_from_ibkr(self):
-        """Sync position with actual IBKR position"""
+    def _infer_recent_exit_fill(self, was_long: bool, entry_price: float) -> float:
+        """
+        When a bracket stop/target fires before our CLOSE submission, the
+        actual exit price came from the broker bracket. Look through recent
+        executions to find the matching fill.
+        """
         try:
-            positions = self.ib.positions()
-            for pos in positions:
+            # ib.fills() returns recent executions, newest first
+            for fill in reversed(self.ib.fills()[-10:]):
+                if fill.contract.symbol != SYMBOL:
+                    continue
+                exec_obj = fill.execution
+                # Opposite side of our entry = the close
+                if was_long and exec_obj.side == "SLD":
+                    return float(exec_obj.price)
+                if not was_long and exec_obj.side == "BOT":
+                    return float(exec_obj.price)
+        except Exception as e:
+            logger.debug(f"Could not infer exit fill: {e}")
+        # Fall back to cached last_price or stop_price as best estimate
+        return self._last_price or self.stop_price or entry_price
+
+    def _post_close_orphan_check_safe(self) -> None:
+        """
+        FIX 5 — Orphan check that doesn't race with asyncio. Previously this
+        ran on a background thread which had no event loop, causing
+        "no current event loop in thread 'OrphanCheck'" errors.
+
+        Now runs synchronously on the caller thread (which has the event
+        loop). _close_position is already called from the main thread via
+        run_cycle, or from check_pending_close (also main). It IS called
+        from the protection loop in some cases — we accept a brief block
+        there in exchange for correctness.
+
+        Includes a 1.5s sleep to let the broker propagate, then checks.
+        With the FIX 1 pre-flight check, orphans should be far rarer now.
+        """
+        try:
+            self.ib.sleep(1.5)   # let broker propagate any concurrent fills
+            broker_pos = self._broker_position()
+            if broker_pos != 0:
+                logger.warning(
+                    f"ORPHAN POSITION after close: {broker_pos} contracts "
+                    f"— flattening"
+                )
+                flatten_action = "SELL" if broker_pos > 0 else "BUY"
+                flatten_qty    = abs(broker_pos)
+                flatten = MarketOrder(flatten_action, flatten_qty)
+                flatten.tif        = "GTC"
+                flatten.outsideRth = True
+                self.ib.placeOrder(self.contract, flatten)
+                self.ib.sleep(1.5)
+                logger.info("Orphan flatten submitted")
+        except Exception as e:
+            logger.error(f"Orphan check error: {e}")
+
+    # ─── Position sync from IBKR ──────────────────────────
+
+    def update_position_from_ibkr(self) -> None:
+        """Sync local position state with broker — handles external fills."""
+        try:
+            if self._closing_in_progress:
+                return
+
+            mnq_position = 0
+            for pos in self.ib.positions():
                 if pos.contract.symbol == SYMBOL:
-                    self.current_position = int(pos.position)
-                    logger.info(f"Position synced: {self.current_position} MNQ")
-                    return
-            self.current_position = 0
+                    mnq_position = int(pos.position)
+                    break
+
+            if mnq_position == self.current_position:
+                return
+
+            logger.info(f"Position sync: {self.current_position} → {mnq_position}")
+            prev_position        = self.current_position
+            self.current_position = mnq_position
+
+            # Broker stop / target fired
+            if mnq_position == 0 and self.entry_price > 0:
+                logger.info("Position closed externally by broker")
+                self._cancel_all_orders_and_wait()
+
+                exit_price   = self._last_price or self.stop_price
+                contracts    = abs(prev_position)
+                was_long     = prev_position > 0
+
+                pnl = self._record_pnl(
+                    self.entry_price, exit_price, contracts, was_long,
+                    "Broker stop/target hit",
+                )
+                logger.info(f"External close P&L: ${pnl:.2f}")
+                self._reset_position_state()
+
         except Exception as e:
             logger.error(f"Position sync error: {e}")
 
-print("Executor loaded successfully")
+    # ─── Stop / target check ───────────────────────────────
+
+    def _check_stop_and_target(self) -> None:
+        price = self._last_price
+        if not price or price <= 0:
+            return
+
+        # FIX 3 — Never act on invalid stop/target. After _reset_position_state
+        # stop_price=0.0 and target_price=0.0, but the protection loop might
+        # see current_position != 0 momentarily (e.g. orphan from a race) and
+        # then fire "STOP HIT: 29670 >= 0.0" which is nonsense.
+        #
+        # If we have a position but no valid stop, something is wrong — flag
+        # for the position-management loop to investigate, don't trigger close.
+        if self.stop_price <= 0:
+            # Only log once per minute to avoid spam
+            now = time.time()
+            if (now - getattr(self, "_last_invalid_stop_log", 0)) > 60:
+                logger.warning(
+                    f"Position {self.current_position} with invalid stop_price={self.stop_price}. "
+                    f"Skipping stop check until valid stop set."
+                )
+                self._last_invalid_stop_log = now
+            return
+
+        try:
+            pos = self.current_position
+            if pos > 0:
+                if price <= self.stop_price:
+                    logger.info(f"STOP HIT: {price} <= {self.stop_price}")
+                    self._needs_close = "STOP HIT"
+                elif self.target_price and self.target_price > 0 and price >= self.target_price:
+                    logger.info(f"TARGET HIT: {price} >= {self.target_price}")
+                    if not self._target_order_id:
+                        self._needs_close = "TARGET HIT"
+                    else:
+                        logger.info("Broker limit order handling target fill")
+                else:
+                    self._auto_trail_long(price)
+
+            elif pos < 0:
+                if price >= self.stop_price:
+                    logger.info(f"STOP HIT: {price} >= {self.stop_price}")
+                    self._needs_close = "STOP HIT"
+                elif self.target_price and self.target_price > 0 and price <= self.target_price:
+                    logger.info(f"TARGET HIT: {price} <= {self.target_price}")
+                    if not self._target_order_id:
+                        self._needs_close = "TARGET HIT"
+                    else:
+                        logger.info("Broker limit order handling target fill")
+                else:
+                    self._auto_trail_short(price)
+
+        except Exception as e:
+            logger.error(f"Stop/target check error: {e}")
+
+    def _auto_trail_long(self, price: float) -> None:
+        """
+        Move stop up at profit milestones. D.2 — auto-trail never overwrites
+        a stop that Claude explicitly set via TRAIL decision (which is stored
+        in _claude_trail_stop). Claude's structural stop is always tighter.
+        """
+        ticks = (price - self.entry_price) / TICK_SIZE
+        proposed = None
+        if ticks >= 150:
+            proposed = round(self.entry_price + 50 * TICK_SIZE, 2)
+        elif ticks >= 100:
+            proposed = round(self.entry_price + 25 * TICK_SIZE, 2)
+        elif ticks >= 50 and self.stop_price < self.entry_price:
+            proposed = self.entry_price
+
+        if proposed is None:
+            return
+        # D.2 — don't move stop backward past what Claude explicitly set
+        effective_floor = max(proposed, self._claude_trail_stop)
+        if self.stop_price < effective_floor:
+            self.stop_price = effective_floor
+            logger.info(f"AUTO-TRAIL LONG: stop → {effective_floor} (Claude floor: {self._claude_trail_stop})")
+
+    def _auto_trail_short(self, price: float) -> None:
+        """
+        Move stop down at profit milestones. D.2 — auto-trail never overwrites
+        Claude's explicit TRAIL stop.
+        """
+        ticks = (self.entry_price - price) / TICK_SIZE
+        proposed = None
+        if ticks >= 150:
+            proposed = round(self.entry_price - 50 * TICK_SIZE, 2)
+        elif ticks >= 100:
+            proposed = round(self.entry_price - 25 * TICK_SIZE, 2)
+        elif ticks >= 50 and self.stop_price > self.entry_price:
+            proposed = self.entry_price
+
+        if proposed is None:
+            return
+        # D.2 — don't move stop forward past Claude's explicit TRAIL stop
+        effective_ceiling = min(proposed, self._claude_trail_stop) if self._claude_trail_stop > 0 else proposed
+        if self.stop_price > effective_ceiling:
+            self.stop_price = effective_ceiling
+            logger.info(f"AUTO-TRAIL SHORT: stop → {effective_ceiling} (Claude floor: {self._claude_trail_stop})")
+
+    # ─── Unrealized P&L log ────────────────────────────────
+
+    def _log_unrealized(self) -> None:
+        try:
+            price = self._last_price
+            if not price or not self.entry_price:
+                return
+            direction  = "LONG" if self.current_position > 0 else "SHORT"
+            diff       = (price - self.entry_price) if self.current_position > 0 else (self.entry_price - price)
+            ticks      = diff / TICK_SIZE
+            unrealized = ticks * TICK_VALUE * abs(self.current_position)
+            stop_dist  = abs(price - self.stop_price) / TICK_SIZE
+            tgt_dist   = abs(price - self.target_price) / TICK_SIZE if self.target_price else 0
+            sign       = "+" if unrealized >= 0 else ""
+            bar        = "█" * min(20, int(abs(unrealized) / 2.5))
+            arrow      = "▲" if unrealized >= 0 else "▼"
+
+            logger.info(
+                f"  {arrow} {direction} @ {self.entry_price} | Now:{price} | "
+                f"P&L:{sign}${unrealized:.2f} {bar} | "
+                f"Stop:{stop_dist:.0f}t | Target:{tgt_dist:.0f}t"
+            )
+        except Exception:
+            pass
+
+
+print("Executor loaded")

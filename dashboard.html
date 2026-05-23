@@ -431,12 +431,6 @@ function render(d) {
     el('price-main').style.opacity = '1';
   }
 
-  // Clock — store bot's ET time for extrapolation
-  if (d.time_et && !isOffline) {
-    _lastBotTime = d.time_et;
-    _lastBotTs   = Date.now();
-  }
-
   // Version
   const verEl = el('version-badge');
   if (verEl) verEl.textContent = d.botVersion ? `v${d.botVersion}` : 'v—';
@@ -635,36 +629,18 @@ poll();
 setInterval(poll, 2000);
 
 // Live clock — use Intl API for correct ET (handles DST automatically)
-let _lastBotTime = null;
-let _lastBotTs   = null;
+
+
 
 function updateClock() {
   const clockEl = document.getElementById('clock');
   if (!clockEl) return;
-
-  // If bot is running and gave us a recent time_et, extrapolate from it
-  if (_lastBotTime && _lastBotTs) {
-    const elapsed = Math.floor((Date.now() - _lastBotTs) / 1000);
-    // Parse HH:MM:SS from bot
-    const parts = _lastBotTime.split(':').map(Number);
-    if (parts.length === 3) {
-      const totalSecs = parts[0]*3600 + parts[1]*60 + parts[2] + elapsed;
-      const h = Math.floor(totalSecs / 3600) % 24;
-      const m = Math.floor((totalSecs % 3600) / 60);
-      const s = totalSecs % 60;
-      clockEl.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
-      return;
-    }
-  }
-
-  // Fallback: use Intl API — correct ET with automatic DST
   try {
-    const et = new Intl.DateTimeFormat('en-US', {
+    clockEl.textContent = new Intl.DateTimeFormat('en-US', {
       timeZone: 'America/New_York',
       hour: '2-digit', minute: '2-digit', second: '2-digit',
       hour12: false
     }).format(new Date());
-    clockEl.textContent = et;
   } catch(e) {
     clockEl.textContent = new Date().toLocaleTimeString();
   }

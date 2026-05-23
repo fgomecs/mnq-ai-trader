@@ -27,7 +27,13 @@ from config import (
     CLAUDE_POSITION_MODEL,
     CLAUDE_STRUCTURE_MODEL,
     CLAUDE_USE_CACHING,
+    MIN_THESIS_PROBABILITY,
     TICK_SIZE, TICK_VALUE,
+    FEATURE_BIDIRECTIONAL, FEATURE_BIAS_DECAY, FEATURE_ORB_BIAS,
+    FEATURE_OFI, FEATURE_MTF_SCORE, FEATURE_THESIS_GATE,
+    FEATURE_NEWS_GATE, FEATURE_DEAD_ZONE, FEATURE_EARLY_EXIT,
+    FEATURE_LEARNING_INJECT,
+    VERSION,
 )
 from logger import logger
 from data_recorder import recorder as _recorder
@@ -141,10 +147,35 @@ SELL when ALL of: CHoCH bearish + MTF not bullish + delta not strongly positive
 HOLD when: conflicting signals, no structure, in dead zone, news danger
 
 ═══════════════════════════════════════
+THESIS PROBABILITY — V4.0
+═══════════════════════════════════════
+After deciding BUY/SELL/HOLD, assign a THESIS_PROBABILITY (0-100).
+This is your confidence that the trade will reach TARGET_1 before hitting STOP_PRICE.
+
+Calibration guide:
+  90-100: Everything aligned — CHoCH confirmed, MTF bullish, OFI accelerating,
+          cluster magnet target visible, iceberg support below, clean news window.
+          Rare. Only when every signal points the same way.
+  75-89:  Strong setup — most signals aligned, one minor conflict.
+          This is the normal entry range. Tradeable.
+  60-74:  Decent setup — 2-3 signals conflicting. Marginal.
+          Reduce conviction. Only enter in prime kill zones.
+  40-59:  Weak — too many conflicts. HOLD unless score is still above minimum.
+  0-39:   No trade. Force HOLD regardless of other signals.
+
+Be honest. If your reasoning includes "but..." or "however..." that drops probability.
+Iceberg support below: +5-10. OFI accelerating: +5-10. Spoof on opposite side: +5.
+MTF conflict: -10-15. Delta diverging from price: -10. Near news event: -5 to -20.
+
+The bot will only enter if THESIS_PROBABILITY >= threshold (default 70).
+Your probability directly controls trade frequency — be calibrated, not optimistic.
+
+═══════════════════════════════════════
 RESPONSE FORMAT — EXACT, NO EXCEPTIONS
 ═══════════════════════════════════════
 DECISION: [BUY / SELL / HOLD]
 CONFIDENCE: [LOW / MEDIUM / HIGH]
+THESIS_PROBABILITY: [0-100]
 MODE: [SCALP / SWING / NONE]
 STOP_PRICE: [actual price level]
 TARGET_1: [first key level price]
@@ -152,7 +183,7 @@ TARGET_2: [second key level price or TRAIL]
 STRATEGY: [ORB_BREAKOUT / ORB_PULLBACK / ICT_SWEEP_REVERSAL / VWAP_RECLAIM / OB_BOUNCE / FVG_FILL / CHOCH_ENTRY / BEAR_SWEEP / COMBINED]
 CONFLUENCE: [factors e.g. OR_BULL + SWEEP + CHOCH_BEAR + BELOW_VWAP + DELTA_NEG + NY_PM_KZ + MTF_PARTIAL_BEAR]
 CONFLUENCE_SCORE: [1-10]
-REASONING: [3 sentences: what structure shows, why this direction NOW, what invalidates the thesis]
+REASONING: [3 sentences: what structure shows, why entering NOW, what invalidates thesis]
 """
 
 POSITION_SYSTEM = """You are an ICT-trained position manager for MNQ futures.
@@ -868,6 +899,12 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     dom_cluster_a  = snapshot.get("dom_cluster_above")
     last_price     = snapshot.get("last_price", 0) or 0
 
+    # V4.0 — OFI signals
+    ofi            = snapshot.get("ofi", {})
+    ofi_score      = ofi.get("score", 0)
+    ofi_signal     = ofi.get("signal", "NEUTRAL")
+    ofi_accel      = ofi.get("acceleration", "STABLE")
+
     vp_above_vah   = snapshot.get("vp_above_vah", False)
     vp_below_val   = snapshot.get("vp_below_val", False)
     vp_inside_va   = snapshot.get("vp_inside_va", False)
@@ -901,6 +938,13 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bull_signals += 1; bull_reasons.append(f"iceberg bid @ {dom_iceberg_b}")
     if dom_cluster_b and last_price and abs(last_price - dom_cluster_b) < 10:
         bull_signals += 1; bull_reasons.append(f"cluster magnet below @ {dom_cluster_b}")
+    # V4.0 — OFI signals (gated by feature flag)
+    if FEATURE_OFI:
+        if ofi_signal in ("STRONG_BUY", "BUY"):
+            bull_signals += 2 if ofi_signal == "STRONG_BUY" else 1
+            bull_reasons.append(f"OFI {ofi_signal} ({ofi_score:+d})")
+        if ofi_signal in ("STRONG_BUY", "BUY") and ofi_accel == "ACCELERATING":
+            bull_signals += 1; bull_reasons.append("OFI accelerating")
     if vp_above_vah:
         bull_signals += 1; bull_reasons.append("above VAH breakout")
     if vp_inside_va and price > snapshot.get("vp_poc", 0):
@@ -935,6 +979,13 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bear_signals += 1; bear_reasons.append(f"iceberg ask @ {dom_iceberg_a}")
     if dom_cluster_a and last_price and abs(last_price - dom_cluster_a) < 10:
         bear_signals += 1; bear_reasons.append(f"cluster magnet above @ {dom_cluster_a}")
+    # V4.0 — OFI signals (gated by feature flag)
+    if FEATURE_OFI:
+        if ofi_signal in ("STRONG_SELL", "SELL"):
+            bear_signals += 2 if ofi_signal == "STRONG_SELL" else 1
+            bear_reasons.append(f"OFI {ofi_signal} ({ofi_score:+d})")
+        if ofi_signal in ("STRONG_SELL", "SELL") and ofi_accel == "ACCELERATING":
+            bear_signals += 1; bear_reasons.append("OFI accelerating")
     if vp_below_val:
         bear_signals += 1; bear_reasons.append("below VAL breakdown")
     if vp_inside_va and price < snapshot.get("vp_poc", 999999):
@@ -1280,6 +1331,7 @@ STOP_PRICE is MANDATORY for BUY/SELL. If you cannot identify a structure-based s
 
         logger.info(
             f"Claude: {decision['decision']} | "
+            f"Prob: {decision.get('thesis_probability', '?')}% | "
             f"Conf: {decision['confidence']} | Mode: {decision['mode']}"
         )
         if decision.get("reasoning"):
@@ -1352,6 +1404,18 @@ Delta last bar:   {snapshot.get('delta_last_bar')} {'→ buying pressure this ba
 Delta trend:      {snapshot.get('delta_trend', 'N/A')}
 Large prints:     {snapshot.get('large_prints', 'none')}
 
+OFI (Order Flow Imbalance — V4.0 predictive signal):
+{snapshot.get('ofi', {}).get('text', 'OFI unavailable')}
+OFI score: {snapshot.get('ofi', {}).get('score', 0):+d}/100 | Signal: {snapshot.get('ofi', {}).get('signal', 'NEUTRAL')} | Accel: {snapshot.get('ofi', {}).get('acceleration', 'STABLE')}
+OFI divergence: {snapshot.get('ofi', {}).get('divergence', False)}
+
+OFI RULES (use these to adjust THESIS_PROBABILITY):
+- STRONG_BUY + ACCELERATING: +10 to thesis probability for longs
+- BUY + ACCELERATING: +5 to thesis probability for longs
+- NEUTRAL: no adjustment
+- SELL/STRONG_SELL against your direction: -10 to thesis probability
+- DIVERGENCE (OFI disagrees with price): -10 — treat current move as weak
+
 ICT LEVELS:
 {snapshot.get('fair_value_gaps', '')}
 {snapshot.get('order_blocks', '')}
@@ -1402,10 +1466,22 @@ REASONING: [2 sentences max]
 # ─── Pre-Market ────────────────────────────────────────────
 
 def analyze_premarket(snapshot: dict, memory_context: str) -> dict:
+
+    # V4.1 — Inject learning findings from recent sessions
+    learning_context = ""
+    if FEATURE_LEARNING_INJECT:
+        try:
+            from learning_session import load_learning_for_premarket
+            learning_context = load_learning_for_premarket(n_days=3)
+        except Exception:
+            pass
+
     msg = f"""
 PRE-MARKET ANALYSIS — {snapshot.get('time_et', 'N/A')} ET
 
 {memory_context}
+
+{learning_context}
 
 CURRENT DATA:
 AMD Phase: {snapshot.get('amd_phase')}
@@ -1501,19 +1577,17 @@ def parse_decision(text: str, allow_zero_stop: bool = False) -> dict:
     """
     Parse Claude's structured response into a dict.
 
-    P1.7 — If decision is BUY/SELL but stop_price <= 0, demote to HOLD with
-    a clear reasoning. Previously the executor would compute a bogus tick
-    count from stop_price=0 and only catch it via downstream sanity checks,
-    which made the failure mode invisible.
+    V4.0 — Added THESIS_PROBABILITY (0-100). Replaces LOW/MEDIUM/HIGH as the
+    primary entry gate. Entries blocked when probability < MIN_THESIS_PROBABILITY.
 
-    Set allow_zero_stop=True for pre-market analysis (game plan, no entry).
+    P1.7 — If decision is BUY/SELL but stop_price <= 0, demote to HOLD.
     """
     d = {
         "decision": "HOLD", "mode": "NONE", "contracts": 1,
         "stop_price": 0.0, "target_1": 0.0, "target_2": 0.0,
-        # Legacy tick fields (kept for executor compatibility)
         "stop_ticks": 100, "target_ticks": 200,
         "confidence": "LOW",
+        "thesis_probability": 0,   # V4.0 — 0-100
         "strategy": "", "confluence": "", "confluence_score": 0,
         "reasoning": "",
     }
@@ -1546,6 +1620,9 @@ def parse_decision(text: str, allow_zero_stop: bool = False) -> dict:
             d["target_ticks"] = _extract_int(val, 200)
         elif key == "CONFIDENCE":
             d["confidence"] = _first_match(val, ["HIGH", "MEDIUM", "LOW"]) or "LOW"
+        elif key == "THESIS_PROBABILITY":
+            prob = _extract_int(val, 0)
+            d["thesis_probability"] = max(0, min(100, prob))   # clamp 0-100
         elif key == "STRATEGY":
             d["strategy"] = val
         elif key == "CONFLUENCE":
@@ -1560,10 +1637,24 @@ def parse_decision(text: str, allow_zero_stop: bool = False) -> dict:
         if d["stop_price"] <= 0:
             logger.warning(
                 f"Claude returned {d['decision']} without STOP_PRICE — demoting to HOLD. "
-                f"Reasoning was: {d['reasoning'][:120]}"
+                f"Reasoning: {d['reasoning'][:120]}"
             )
             d["decision"]  = "HOLD"
-            d["reasoning"] = f"[DEMOTED — no STOP_PRICE in response] {d['reasoning']}"
+            d["reasoning"] = f"[DEMOTED — no STOP_PRICE] {d['reasoning']}"
+
+    # V4.0 — demote BUY/SELL below probability threshold to HOLD
+    if FEATURE_THESIS_GATE and not allow_zero_stop and d["decision"] in ("BUY", "SELL"):
+        prob = d["thesis_probability"]
+        if prob > 0 and prob < MIN_THESIS_PROBABILITY:
+            logger.info(
+                f"Thesis probability {prob}% below threshold {MIN_THESIS_PROBABILITY}% "
+                f"— demoting {d['decision']} to HOLD"
+            )
+            d["decision"]  = "HOLD"
+            d["reasoning"] = (
+                f"[PROB GATE: {prob}% < {MIN_THESIS_PROBABILITY}% threshold] "
+                f"{d['reasoning']}"
+            )
 
     return d
 

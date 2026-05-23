@@ -23,6 +23,7 @@ from ib_insync import IB, Future, RealTimeBar
 from config import (
     CONTRACT_CONID, CONTRACT_EXPIRY, CURRENCY, EXCHANGE,
     IBKR_CLIENT_ID, IBKR_HOST, IBKR_PORT, LIVE_DATA_ACTIVE, SYMBOL,
+    FEATURE_OFI, FEATURE_DOM_ADVANCED, FEATURE_MTF_SCORE, FEATURE_DELTA_LIVE,
 )
 from logger import logger
 from news_calendar import get_news_snapshot
@@ -384,8 +385,9 @@ class IBKRFeed:
             "structure":      self._analyze_market_structure(bars_15, bars_5),
             "htf_bias":       self._calculate_htf_bias(self._bars_daily, bars_15),
             "mtf_alignment":  self._check_mtf_alignment(bars_1, bars_5, bars_15),
-            "mtf_score":      self._check_mtf_score(bars_1, bars_5, bars_15),
+            "mtf_score":      self._check_mtf_score(bars_1, bars_5, bars_15) if FEATURE_MTF_SCORE else {"score": 0, "bull_tfs": 0, "bear_tfs": 0, "direction": "MIXED"},
             "delta_trend":    self._calculate_delta_trend(bars_1),
+            "ofi":            self._compute_ofi() if FEATURE_OFI else {"score": 0, "signal": "NEUTRAL", "text": "OFI disabled"},
         }
         self._ict_cache_time = time.time()
 
@@ -638,6 +640,9 @@ class IBKRFeed:
                 # MTF alignment (Improvement 8)
                 "mtf_alignment":   ict.get("mtf_alignment", ""),
                 "mtf_score":       ict.get("mtf_score", {"score": 0, "bull_tfs": 0, "bear_tfs": 0, "direction": "MIXED"}),
+
+                # V4.0 — Order Flow Imbalance
+                "ofi":             ict.get("ofi", {"score": 0, "signal": "NEUTRAL", "text": "OFI unavailable"}),
 
                 # Delta trend (Improvement 5)
                 "delta_trend":     ict.get("delta_trend", ""),
@@ -1303,7 +1308,82 @@ class IBKRFeed:
         except Exception:
             return "Liquidity unavailable"
 
-    # ─── DOM ───────────────────────────────────────────────
+    # ─── V4.0: Order Flow Imbalance ────────────────────────
+
+    def _compute_ofi(self) -> dict:
+        """
+        Order Flow Imbalance (OFI) — V4.0 predictive feature.
+
+        Measures net buying vs selling pressure from DOM bid/ask size changes
+        across the 60-second rolling history.
+
+        Based on Cont, Kukanov & Stoikov (2014):
+          OFI = Σ (ΔBid - ΔAsk) over N snapshots
+          Positive = net buying pressure (bids growing, asks shrinking)
+          Negative = net selling pressure
+
+        Returns: score (-100 to +100), acceleration, signal, divergence flag.
+        """
+        empty = {
+            "score": 0, "raw": 0,
+            "acceleration": "STABLE",
+            "signal": "NEUTRAL",
+            "divergence": False,
+            "text": "OFI: insufficient DOM history",
+        }
+        try:
+            if len(self._dom_history) < 4:
+                return empty
+
+            ofi_series = []
+            for i in range(1, len(self._dom_history[-12:])):
+                history = self._dom_history[-12:]
+                prev = history[i - 1]
+                curr = history[i]
+                delta_bid = sum(curr["bids"].values()) - sum(prev["bids"].values())
+                delta_ask = sum(curr["asks"].values()) - sum(prev["asks"].values())
+                ofi_series.append(delta_bid - delta_ask)
+
+            if not ofi_series:
+                return empty
+
+            raw_ofi = sum(ofi_series)
+            STRONG   = 500   # MNQ "strong" OFI threshold in contracts
+            score    = max(-100, min(100, int(raw_ofi / STRONG * 100)))
+
+            mid         = len(ofi_series) // 2
+            first_half  = sum(ofi_series[:mid]) if mid > 0 else 0
+            second_half = sum(ofi_series[mid:])
+            if abs(second_half) > abs(first_half) * 1.3:
+                acceleration = "ACCELERATING"
+            elif abs(second_half) < abs(first_half) * 0.7:
+                acceleration = "DECELERATING"
+            else:
+                acceleration = "STABLE"
+
+            if score >= 60:   signal = "STRONG_BUY"
+            elif score >= 25: signal = "BUY"
+            elif score <= -60:signal = "STRONG_SELL"
+            elif score <= -25:signal = "SELL"
+            else:             signal = "NEUTRAL"
+
+            divergence = False
+            if hasattr(self, '_bars_1min') and self._bars_1min and len(self._bars_1min) >= 3:
+                bars = list(self._bars_1min[-3:])
+                price_up = bars[-1].close > bars[0].close
+                divergence = (price_up != (raw_ofi > 0)) and abs(score) > 20
+
+            arrow = "▲" if score > 0 else ("▼" if score < 0 else "→")
+            text  = (f"OFI: {arrow} {score:+d}/100 | Raw: {raw_ofi:+,d}ct | "
+                     f"Signal: {signal} | {acceleration}")
+            if divergence:
+                text += " | ⚠ DIVERGENCE — OFI disagrees with price"
+
+            return {"score": score, "raw": raw_ofi, "acceleration": acceleration,
+                    "signal": signal, "divergence": divergence, "text": text}
+        except Exception as e:
+            logger.debug(f"OFI compute error: {e}")
+            return empty
 
     # ─── DOM ───────────────────────────────────────────────
 
@@ -1354,13 +1434,15 @@ class IBKRFeed:
             bids_dict = {p: s for p, s in bids}
 
             # Store snapshot for iceberg / spoof / sweep detection
-            self._dom_history.append({
-                "ts":   time.time(),
-                "asks": dict(asks_dict),
-                "bids": dict(bids_dict),
-            })
-            if len(self._dom_history) > self._dom_history_max:
-                self._dom_history.pop(0)
+            # Only if DOM_ADVANCED feature is enabled
+            if FEATURE_DOM_ADVANCED:
+                self._dom_history.append({
+                    "ts":   time.time(),
+                    "asks": dict(asks_dict),
+                    "bids": dict(bids_dict),
+                })
+                if len(self._dom_history) > self._dom_history_max:
+                    self._dom_history.pop(0)
 
             # MNQ-tuned absolute size thresholds
             # Retail: 1-10ct | Active: 10-50ct | Institutional: 50-200ct | Whale: 200+ct
@@ -1422,12 +1504,16 @@ class IBKRFeed:
             vacuum_above = bool(near_asks) and all(s < 5 for _, s in near_asks)
             vacuum_below = bool(near_bids) and all(s < 5 for _, s in near_bids)
 
-            # Iceberg: level shrank then recovered
+            # Iceberg, spoof, sweep — only when DOM_ADVANCED enabled
             iceberg_ask = iceberg_bid = None
-            if len(self._dom_history) >= 3:
+            spoof_ask   = spoof_bid   = None
+            sweep_up    = sweep_down  = False
+
+            if FEATURE_DOM_ADVANCED and len(self._dom_history) >= 3:
                 h0, h1, h2 = (self._dom_history[-3],
                               self._dom_history[-2],
                               self._dom_history[-1])
+                # Iceberg: level shrank then recovered
                 for p in set(h0["asks"]) & set(h1["asks"]) & set(h2["asks"]):
                     if (h0["asks"][p] >= SIGNIFICANT
                             and h1["asks"][p] < h0["asks"][p] * 0.6
@@ -1440,13 +1526,7 @@ class IBKRFeed:
                             and h2["bids"][p] >= h0["bids"][p] * 0.7):
                         iceberg_bid = p
                         break
-
-            # Spoof: large order appeared then vanished without trading
-            spoof_ask = spoof_bid = None
-            if len(self._dom_history) >= 3:
-                h0, h1, h2 = (self._dom_history[-3],
-                              self._dom_history[-2],
-                              self._dom_history[-1])
+                # Spoof: large order appeared then vanished
                 for p, s in h0["asks"].items():
                     if s >= LARGE and p not in h1["asks"] and p not in h2["asks"]:
                         spoof_ask = p
@@ -1456,10 +1536,9 @@ class IBKRFeed:
                         spoof_bid = p
                         break
 
-            # Sweep: 3+ significant levels consumed between snapshots
-            sweep_up = sweep_down = False
-            if len(self._dom_history) >= 2:
+            if FEATURE_DOM_ADVANCED and len(self._dom_history) >= 2:
                 prev, curr = self._dom_history[-2], self._dom_history[-1]
+                # Sweep: 3+ significant levels consumed between snapshots
                 ask_consumed = sum(
                     1 for p in prev["asks"]
                     if p not in curr["asks"] and prev["asks"][p] >= SIGNIFICANT

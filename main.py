@@ -28,6 +28,9 @@ from config import (
     EMERGENCY_STOP_DIST_TICKS,
     ENTRY_SCAN_INTERVAL_SECS, POS_INTERVAL_NORMAL_SECS,
     POS_INTERVAL_ALERT_SECS, WATCHLIST_REFRESH_SECS,
+    FEATURE_DUAL_TRAIL, FEATURE_EARLY_EXIT, FEATURE_NEWS_GATE,
+    FEATURE_DEAD_ZONE, FEATURE_LEARNING_EOD,
+    VERSION, features_summary,
 )
 
 from logger import logger, log_daily_summary
@@ -468,17 +471,19 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
                 try:
                     nsp = float(new_stop)
                     if executor.current_position > 0 and nsp > executor.stop_price:
-                        executor.stop_price       = nsp
-                        executor._claude_trail_stop = nsp   # D.2
+                        executor.stop_price = nsp
+                        if FEATURE_DUAL_TRAIL:
+                            executor._claude_trail_stop = nsp   # D.2
                         logger.info(f"TRAIL: stop → {nsp}")
                     elif executor.current_position < 0 and nsp < executor.stop_price:
-                        executor.stop_price       = nsp
-                        executor._claude_trail_stop = nsp   # D.2
+                        executor.stop_price = nsp
+                        if FEATURE_DUAL_TRAIL:
+                            executor._claude_trail_stop = nsp   # D.2
                         logger.info(f"TRAIL: stop → {nsp}")
                 except (ValueError, TypeError):
                     pass
 
-            if decision == "CLOSE":
+            if decision == "CLOSE" and FEATURE_EARLY_EXIT:
                 price = executor._get_market_price()
                 executor._close_position(price, result.get("reasoning", "Claude exit"))
                 _flush_log()   # C.4
@@ -609,6 +614,8 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
         last_strategy   = decision.get("strategy", ""),
         last_confluence = decision.get("confluence", ""),
         last_confluence_score = decision.get("confluence_score", 0),
+        thesis_probability    = decision.get("thesis_probability", 0),
+        bot_version           = VERSION,
         claude_status   = f"SCANNING — last: {dec_str}",
         amd_phase       = snapshot.get("amd_phase", ""),
         session_levels  = snapshot.get("session_levels", ""),
@@ -654,8 +661,7 @@ def end_of_day(feed: IBKRFeed, executor: Executor) -> None:
 
     logger.info(f"Final P&L: ${executor.daily_pnl:.2f}  Trades: {len(executor.trades_today)}")
 
-    # P2.8 — wipe per-session brain state so tomorrow doesn't inherit
-    # yesterday's consecutive_holds, watchlist, etc.
+    # P2.8 — wipe per-session brain state
     reset_session_state()
 
     # Flush recorder files cleanly at EOD
@@ -663,6 +669,27 @@ def end_of_day(feed: IBKRFeed, executor: Executor) -> None:
 
     premarket_done = False
     analysis_log.clear()
+
+    # V4.1 — EOD Learning Session
+    if FEATURE_LEARNING_EOD:
+        try:
+            from datetime import date
+            from learning_session import run_learning_session
+            date_str = date.today().strftime("%Y-%m-%d")
+            session_summary = (
+                f"Trades: {len(executor.trades_today)} | "
+                f"P&L: ${executor.daily_pnl:+.2f} | "
+                f"Features: {features_summary()}"
+            )
+            logger.info("Starting EOD learning session...")
+            run_learning_session(
+                date_str        = date_str,
+                session_summary = session_summary,
+                trades          = executor.trades_today,
+                auto_commit     = True,
+            )
+        except Exception as e:
+            logger.warning(f"EOD learning session failed: {e}")
 
 
 # ─── Live dashboard patch (runs every 10s from fast ticker) ─
@@ -726,10 +753,11 @@ def main() -> None:
     global premarket_done, _fast_ticker_running
 
     logger.info("=" * 50)
-    logger.info("MNQ AI TRADING SYSTEM — ICT EDITION v2")
+    logger.info(f"MNQ AI TRADING SYSTEM — ICT EDITION v{VERSION}")
     logger.info(f"Account: ${ACCOUNT_SIZE:,} | Max Loss: ${MAX_DAILY_LOSS_USD:,}")
     logger.info(f"Entry scan: {ENTRY_SCAN_INTERVAL_SECS}s (pre-filter active)")
     logger.info(f"Position management: event-driven ({POS_INTERVAL_ALERT_SECS}s alert / {POS_INTERVAL_NORMAL_SECS}s normal)")
+    logger.info(f"Active features: {features_summary()}")
     logger.info("=" * 50)
 
     # C.6 — Clear stale dashboard state from previous session.

@@ -19,6 +19,7 @@ from config import (
     TICK_SIZE, TICK_VALUE,
     SCALP_STOP_TICKS, SCALP_TARGET_TICKS,
     PROTECTION_LOOP_SECS,
+    FEATURE_R_BUDGET, FEATURE_DUAL_TRAIL,
 )
 from logger import logger
 
@@ -264,8 +265,8 @@ class Executor:
             logger.info("SAFETY: Daily loss limit — no more trades.")
             return False
         if action in ("BUY", "SELL"):
-            # D.1 — R-budget gate
-            if self.session_r_spent >= MAX_SESSION_R_LOSS:
+            # D.1 — R-budget gate (gated by feature flag)
+            if FEATURE_R_BUDGET and self.session_r_spent >= MAX_SESSION_R_LOSS:
                 logger.info(
                     f"SAFETY: R-budget exhausted — {self.session_r_spent:.1f}R spent "
                     f"(max {MAX_SESSION_R_LOSS}R). No more entries today."

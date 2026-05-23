@@ -185,7 +185,9 @@ def update_dashboard(
             "lastStrategy":        kwargs.get("last_strategy", ""),
             "lastConfluence":      kwargs.get("last_confluence", ""),
             "lastConfluenceScore": kwargs.get("last_confluence_score", 0),
+            "thesisProbability":   kwargs.get("thesis_probability", 0),
             "lastThesisStatus":    kwargs.get("last_thesis_status", ""),
+            "botVersion":          kwargs.get("bot_version", ""),
             "reasoning":           reasoning_block,
 
             "bias":         detected_bias,

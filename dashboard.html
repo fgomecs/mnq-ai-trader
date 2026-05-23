@@ -27,6 +27,7 @@
     height: 52px;
   }
   #logo { font-size: 13px; font-weight: bold; color: var(--blue); letter-spacing: 1px; }
+  #version-badge { font-size: 9px; color: var(--text3); margin-top: 2px; }
   #price-block { display: flex; flex-direction: column; }
   #price-main { font-size: 32px; font-weight: bold; color: var(--text); line-height: 1; }
   #price-sub { font-size: 11px; color: var(--text2); margin-top: 2px; }
@@ -150,7 +151,7 @@
 
 <!-- TOP BAR -->
 <div id="topbar">
-  <div id="logo">MNQ/AI</div>
+  <div id="logo">MNQ/AI<div id="version-badge">v—</div></div>
 
   <div id="price-block">
     <div id="price-main">—</div>
@@ -221,6 +222,7 @@
         <div id="decision-meta">
           <span>CONFIDENCE <b id="meta-conf">—</b></span>
           <span>SCORE <b id="meta-score">—</b></span>
+          <span>PROB <b id="meta-prob" style="color:var(--yellow)">—%</b></span>
           <span>STRATEGY <b id="meta-strat">—</b></span>
         </div>
       </div>
@@ -349,6 +351,37 @@ function render(d) {
   el('data-mode').textContent = d.data_mode || 'DELAYED';
   el('data-mode').style.color = (d.data_mode || '').includes('LIVE') ? 'var(--green)' : 'var(--yellow)';
 
+  // Staleness detection — use JSON timestamp, not data_mode
+  // If the bot hasn't written a new snapshot in 30s, it's offline
+  const jsonTs = d.timestamp ? new Date(d.timestamp).getTime() : 0;
+  const ageMs  = Date.now() - jsonTs;
+  const isOffline = !jsonTs || ageMs > 30000;
+
+  const modeEl = el('data-mode');
+  if (isOffline) {
+    modeEl.textContent = 'BOT OFFLINE';
+    modeEl.style.color = 'var(--red)';
+    modeEl.style.fontWeight = 'bold';
+    el('price-main').style.opacity = '0.35';
+    el('pill-status').textContent  = 'OFFLINE';
+    el('pill-status').className    = 'pill warn';
+  } else {
+    modeEl.textContent     = d.data_mode || 'DELAYED';
+    modeEl.style.color     = (d.data_mode || '').includes('LIVE') ? 'var(--green)' : 'var(--yellow)';
+    modeEl.style.fontWeight = 'normal';
+    el('price-main').style.opacity = '1';
+  }
+
+  // Clock — store bot's ET time for extrapolation
+  if (d.time_et && !isOffline) {
+    _lastBotTime = d.time_et;
+    _lastBotTs   = Date.now();
+  }
+
+  // Version
+  const verEl = el('version-badge');
+  if (verEl) verEl.textContent = d.botVersion ? `v${d.botVersion}` : 'v—';
+
   // Price
   const price = d.currentPrice || 0;
   el('price-main').textContent = price ? price.toFixed(2) : '—';
@@ -419,6 +452,10 @@ function render(d) {
 
   el('meta-conf').textContent  = d.lastConfidence || '—';
   el('meta-score').textContent = d.lastConfluenceScore ? `${d.lastConfluenceScore}/10` : '—';
+  const prob = d.thesisProbability || 0;
+  const probEl = el('meta-prob');
+  probEl.textContent = prob ? `${prob}%` : '—%';
+  probEl.style.color = prob >= 75 ? 'var(--green)' : prob >= 60 ? 'var(--yellow)' : prob > 0 ? 'var(--red)' : 'var(--text3)';
   el('meta-strat').textContent = d.lastStrategy || '—';
 
   // Reasoning
@@ -532,18 +569,44 @@ async function poll() {
 poll();
 setInterval(poll, 2000);
 
-// Live clock
-setInterval(() => {
-  const now = new Date();
-  // Show ET (UTC-4 in summer, UTC-5 in winter)
-  const etOffset = -4;
-  const et = new Date(now.getTime() + (etOffset * 60 - now.getTimezoneOffset()) * 60000);
-  const h = et.getHours().toString().padStart(2,'0');
-  const m = et.getMinutes().toString().padStart(2,'0');
-  const s = et.getSeconds().toString().padStart(2,'0');
+// Live clock — use Intl API for correct ET (handles DST automatically)
+let _lastBotTime = null;
+let _lastBotTs   = null;
+
+function updateClock() {
   const clockEl = document.getElementById('clock');
-  if (clockEl) clockEl.textContent = `${h}:${m}:${s}`;
-}, 1000);
+  if (!clockEl) return;
+
+  // If bot is running and gave us a recent time_et, extrapolate from it
+  if (_lastBotTime && _lastBotTs) {
+    const elapsed = Math.floor((Date.now() - _lastBotTs) / 1000);
+    // Parse HH:MM:SS from bot
+    const parts = _lastBotTime.split(':').map(Number);
+    if (parts.length === 3) {
+      const totalSecs = parts[0]*3600 + parts[1]*60 + parts[2] + elapsed;
+      const h = Math.floor(totalSecs / 3600) % 24;
+      const m = Math.floor((totalSecs % 3600) / 60);
+      const s = totalSecs % 60;
+      clockEl.textContent = `${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')}`;
+      return;
+    }
+  }
+
+  // Fallback: use Intl API — correct ET with automatic DST
+  try {
+    const et = new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/New_York',
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+      hour12: false
+    }).format(new Date());
+    clockEl.textContent = et;
+  } catch(e) {
+    clockEl.textContent = new Date().toLocaleTimeString();
+  }
+}
+
+setInterval(updateClock, 1000);
+updateClock();
 </script>
 </body>
 </html>

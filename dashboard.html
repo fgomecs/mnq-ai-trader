@@ -604,10 +604,13 @@ function render(d) {
   el('ict-ind').textContent   = d.inducement ? 'Inducement: ' + d.inducement : '—';
   el('ict-mtf').textContent   = d.mtf_alignment || '—';
 
-  // News
-  const newsText = d.newsText || d.nextHighImpact || 'No events in next hour — clean window';
+  // News — filter out FRED API key warning from display
+  const rawNews = d.newsText || d.nextHighImpact || 'No events in next hour — clean window';
+  const newsText = rawNews.split('\n')
+    .filter(l => !l.includes('FRED') && !l.includes('fred.stlouisfed') && l.trim())
+    .join(' ').substring(0, 120);
   const dangerous = d.newsDangerZone;
-  el('news-text').textContent = newsText.substring(0, 100);
+  el('news-text').textContent = newsText || 'No major events — clean technical window';
   el('news-dot').className = 'news-dot ' + (dangerous ? 'red' : 'green');
 
   // Store for market status bar
@@ -757,9 +760,8 @@ function getMarketState(d) {
     nextMins: nextSession };
 }
 
-// Today's session timeline (the 4 key times)
+// Today's session timeline — always show weekday schedule as reference
 function getScheduleSlots(day) {
-  if (day === 0 || day === 6) return ['CLOSED','—','—','—'];
   return ['PRE-MKT 8:30', 'AM PRIME 9:30', 'DEAD 11:00', 'PM PRIME 1:30'];
 }
 
@@ -810,21 +812,23 @@ function updateMarketStatus(dashData) {
     headEl.textContent = '';
   }
 
-  // Schedule slots
+  // Schedule slots — show daily session times, highlight current on weekdays
   const slots = getScheduleSlots(d.day);
   const mins  = d.mins;
-  // Which slot is active?
   const boundaries = [8*60+30, 9*60+30, 11*60, 13*60+30];
-  let activeIdx = 0;
-  for (let i = 0; i < boundaries.length; i++) {
-    if (mins >= boundaries[i]) activeIdx = i;
+  let activeIdx = -1;
+  const isWeekday = d.day >= 1 && d.day <= 5;
+  if (isWeekday && mins >= 8*60+30 && mins < 17*60) {
+    for (let i = 0; i < boundaries.length; i++) {
+      if (mins >= boundaries[i]) activeIdx = i;
+    }
   }
   for (let i = 1; i <= 4; i++) {
     const el = document.getElementById(`ms-s${i}`);
     if (!el) continue;
     el.textContent = slots[i-1];
     el.className   = 'ms-slot';
-    if (i-1 === activeIdx && d.day > 0 && d.day < 6) el.classList.add('active');
+    if (i-1 === activeIdx) el.classList.add('active');
     else if (i-1 === activeIdx + 1) el.classList.add('next');
   }
 }

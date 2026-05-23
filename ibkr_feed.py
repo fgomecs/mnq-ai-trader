@@ -532,14 +532,23 @@ class IBKRFeed:
                     bars_15min = list(self._bars_15min)
                     bars_daily = list(self._bars_daily)
 
-            # Live price from ticker
-            # Generic tick 292 = live news headlines (requires IBKR news subscription)
-            ticker = self.ib.reqMktData(self.contract, "292", False, False)
+            # Live price from MNQ futures — no generic ticks (futures don't support tick 292)
+            ticker = self.ib.reqMktData(self.contract, "", False, False)
             self._mkt_ticker = ticker
 
-            # Wire tickNews handler for live IBKR headlines
+            # V4.1 — Subscribe to news via QQQ (Nasdaq ETF) using tick 292.
+            # IBKR only allows news subscriptions on stocks/ETFs, not futures.
+            # QQQ is the closest liquid proxy for Nasdaq news flow.
             if not hasattr(self, '_news_handler_wired'):
-                self.ib.tickNewsEvent += self._on_tick_news
+                try:
+                    from ib_insync import Stock
+                    qqq = Stock("QQQ", "SMART", "USD")
+                    self.ib.qualifyContracts(qqq)
+                    self._news_ticker = self.ib.reqMktData(qqq, "292", False, False)
+                    self.ib.tickNewsEvent += self._on_tick_news
+                    logger.info("IBKR live news: subscribed via QQQ (tick 292)")
+                except Exception as e:
+                    logger.debug(f"IBKR news subscription failed: {e}")
                 self._news_handler_wired = True
 
             self.ib.sleep(0.3)   # 0.3s vs 1.0s before

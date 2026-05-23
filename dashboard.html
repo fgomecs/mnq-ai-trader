@@ -407,8 +407,6 @@ function render(d) {
   if (!d) return;
   _lastDashData = d;
 
-  // Clock
-  el('clock').textContent = d.time_et || '—';
   el('data-mode').textContent = d.data_mode || 'DELAYED';
   el('data-mode').style.color = (d.data_mode || '').includes('LIVE') ? 'var(--green)' : 'var(--yellow)';
 
@@ -834,6 +832,8 @@ function updateMarketStatus(dashData) {
 }
 
 setInterval(() => updateMarketStatus(_lastDashData), 1000);
+setInterval(updateClock, 1000);
+updateClock();
 
 
 </script>

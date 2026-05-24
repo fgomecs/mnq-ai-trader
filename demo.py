@@ -328,6 +328,24 @@ class MarketSim:
             "botVersion": "4.3.0-DEMO",
             "maxLoss": 5000.0,
             "account": {"net_liquidation": round(50000 + total_pnl, 2), "unrealized_pnl": unrealized, "realized_pnl": round(self.daily_pnl, 2)},
+            "fvg_levels": [
+                {"high": self.price + 15, "low": self.price + 8,  "type": "BULL", "filled": False},
+                {"high": self.price - 10, "low": self.price - 18, "type": "BEAR", "filled": False},
+            ],
+            "ob_levels": [
+                {"high": self.price + 25, "low": self.price + 18, "type": "BEAR"},
+                {"high": self.price - 20, "low": self.price - 28, "type": "BULL"},
+            ],
+            "liq_levels": [
+                {"price": self.price + 35, "side": "buy"},
+                {"price": self.price - 35, "side": "sell"},
+            ],
+            "prev_day_high":  self.price + 50,
+            "prev_day_low":   self.price - 50,
+            "prev_week_high": self.price + 80,
+            "prev_week_low":  self.price - 80,
+            "supply_levels":  [{"high": self.price + 60, "low": self.price + 52}],
+            "demand_levels":  [{"high": self.price - 48, "low": self.price - 56}],
         }
 
 

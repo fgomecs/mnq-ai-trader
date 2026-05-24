@@ -1024,6 +1024,13 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     if "[OR aligned]" in _cp and any(p in _cp for p in ("BEARISH ENGULFING", "SHOOTING STAR", "INSIDE BAR BREAKOUT DOWN", "EVENING STAR")):
         bear_signals += 1; bear_reasons.append("OR-aligned candle pattern")
 
+    # Tape / large print signals
+    _tape_bias = snapshot.get("tape_bias", "NEUTRAL")
+    if _tape_bias == "AGGRESSIVE_BUYING":
+        bull_signals += 2; bull_reasons.append("large block buying on tape")
+    elif _tape_bias == "AGGRESSIVE_SELLING":
+        bear_signals += 2; bear_reasons.append("large block selling on tape")
+
     # V3.0 direction gating:
     # NEUTRAL or invalidated bias → both directions allowed, pass stronger side
     # LONG_PREFERRED → bull signals pass freely; bear signals need extra strength (5+)
@@ -1258,6 +1265,7 @@ Candle Patterns: {snapshot.get('candle_patterns', 'N/A')}
 Change of Character (1-min): {snapshot.get('choch', 'N/A')}
 Inducement: {snapshot.get('inducement', 'N/A')}
 Delta Trend: {snapshot.get('delta_trend', 'N/A')} {'(true bid/ask classification)' if snapshot.get('delta_is_live') else '(signed-volume approximation — delayed data, less reliable)'}
+{snapshot.get('tape_text', '')}
 
 ═══════════════════════════════════════
 PRICE ACTION

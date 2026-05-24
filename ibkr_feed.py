@@ -37,7 +37,7 @@ from config import (
     DOM_BUY_PRESSURE_BULL_THRESHOLD, DOM_SELL_PRESSURE_BEAR_THRESHOLD,
     DOM_CLUSTER_TOLERANCE_POINTS, DOM_VACUUM_THRESHOLD_SIZE,
     DOM_ICEBERG_SHRINK_PCT, DOM_ICEBERG_RECOVERY_PCT,
-    DOM_SWEEP_LEVEL_THRESHOLD,
+    DOM_SWEEP_LEVEL_THRESHOLD, LARGE_PRINT_THRESHOLD,
     VOLUME_PROFILE_TARGET_PCT, POC_PROXIMITY_POINTS,
     FVG_PROXIMITY_POINTS, OB_PROXIMITY_POINTS, LIQUIDITY_POOL_TOLERANCE,
     OR_PULLBACK_THRESHOLD_PCT,
@@ -106,6 +106,13 @@ class IBKRFeed:
         self._last_trade_price = 0.0
         self._delta_last_bar   = 0
         self._last_bar_start   = None
+
+        # ── Tape / large print detection ───────────────────
+        self._large_prints:        list  = []   # last 20 [{time, price, size, side}]
+        self._large_print_threshold: int = LARGE_PRINT_THRESHOLD
+        self._tape_bull_pressure:  int   = 0    # large buy prints in last 60s
+        self._tape_bear_pressure:  int   = 0    # large sell prints in last 60s
+        self._tape_last_reset: datetime  = datetime.now(eastern)
 
         # ── DOM ────────────────────────────────────────────
         self.dom_ticker              = None
@@ -490,6 +497,28 @@ class IBKRFeed:
                     rounded = round(price * 4) / 4
                     self.volume_profile[rounded] = self.volume_profile.get(rounded, 0) + size
 
+                    # Large print / tape detection
+                    if size >= self._large_print_threshold:
+                        side = "BUY" if signed_size > 0 else "SELL"
+                        self._large_prints.append({
+                            "time":  datetime.now(eastern).strftime("%H:%M:%S"),
+                            "price": price,
+                            "size":  size,
+                            "side":  side,
+                        })
+                        self._large_prints = self._large_prints[-20:]
+                        if side == "BUY":
+                            self._tape_bull_pressure += 1
+                        else:
+                            self._tape_bear_pressure += 1
+
+                # Reset tape pressure counts every 60s
+                now_et = datetime.now(eastern)
+                if (now_et - self._tape_last_reset).total_seconds() >= 60:
+                    self._tape_bull_pressure = 0
+                    self._tape_bear_pressure = 0
+                    self._tape_last_reset    = now_et
+
                 # Note: do NOT clear ticker.tickByTicks here. ib_insync
                 # replaces the list with each updateEvent, so clearing would
                 # actually be a no-op or could race with the next update.
@@ -501,6 +530,51 @@ class IBKRFeed:
             logger.info("Tick stream started — true bid/ask delta classification active")
         except Exception as e:
             logger.error(f"Tick stream error: {e}")
+
+    def _get_tape_analysis(self) -> dict:
+        """Summarise large-print tape activity from the last 60-second window."""
+        try:
+            bull = self._tape_bull_pressure
+            bear = self._tape_bear_pressure
+            total = bull + bear
+
+            if bull > bear * 1.5:
+                bias = "AGGRESSIVE_BUYING"
+                bias_text = "AGGRESSIVE BUYING"
+            elif bear > bull * 1.5:
+                bias = "AGGRESSIVE_SELLING"
+                bias_text = "AGGRESSIVE SELLING"
+            else:
+                bias = "NEUTRAL"
+                bias_text = "NEUTRAL"
+
+            if total == 0:
+                tape_text = f"TAPE: no large prints (≥{self._large_print_threshold}ct) in last 60s"
+            else:
+                tape_text = (
+                    f"TAPE: {bull} large buy{'s' if bull != 1 else ''} vs "
+                    f"{bear} large sell{'s' if bear != 1 else ''} (60s) — {bias_text}"
+                )
+
+            recent = self._large_prints[-5:]
+
+            return {
+                "large_print_count_60s": total,
+                "tape_bull_pressure":    bull,
+                "tape_bear_pressure":    bear,
+                "tape_bias":             bias,
+                "tape_text":             tape_text,
+                "recent_large_prints":   recent,
+            }
+        except Exception as e:
+            return {
+                "large_print_count_60s": 0,
+                "tape_bull_pressure":    0,
+                "tape_bear_pressure":    0,
+                "tape_bias":             "NEUTRAL",
+                "tape_text":             f"Tape error: {e}",
+                "recent_large_prints":   [],
+            }
 
     def _start_dom_stream(self) -> None:
         if not self.contract or not getattr(self.contract, "conId", None):
@@ -618,8 +692,14 @@ class IBKRFeed:
             # Delta
             if self._tick_stream_available and LIVE_DATA_ACTIVE:
                 delta_info = self._get_true_delta()
+                tape_info  = self._get_tape_analysis()
             else:
                 delta_info = self._calculate_delta(bars_1min)
+                tape_info  = {
+                    "large_print_count_60s": 0, "tape_bull_pressure": 0,
+                    "tape_bear_pressure": 0, "tape_bias": "NEUTRAL",
+                    "tape_text": "N/A (live mode only)", "recent_large_prints": [],
+                }
 
             # Volume profile
             # Volume profile — structured signals
@@ -751,6 +831,11 @@ class IBKRFeed:
                 "delta_last_bar":   delta_info["delta_last_bar"],
                 "large_prints":     delta_info["large_prints"],
                 "delta_is_live":    LIVE_DATA_ACTIVE and self._tick_stream_available,
+
+                # Tape / large print analysis
+                "tape_analysis":    tape_info,
+                "tape_bias":        tape_info["tape_bias"],
+                "tape_text":        tape_info["tape_text"],
 
                 # News — scheduled events + IBKR live headlines
                 "news_text":          self._news_cache.get("news_text", "News unavailable"),

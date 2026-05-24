@@ -54,7 +54,7 @@ RECORDING_ENABLED = _env_bool("RECORDING_ENABLED", True)
 
 # ─── ACCOUNT ───────────────────────────────────────────────
 ACCOUNT_SIZE       = _env_int("ACCOUNT_SIZE", 50_000)
-MAX_DAILY_LOSS_PCT = _env_float("MAX_DAILY_LOSS_PCT", 0.01)
+MAX_DAILY_LOSS_PCT = _env_float("MAX_DAILY_LOSS_PCT", 0.1)
 MAX_DAILY_LOSS_USD = ACCOUNT_SIZE * MAX_DAILY_LOSS_PCT
 MAX_SESSION_R_LOSS = _env_float("MAX_SESSION_R_LOSS", 3.0)
 
@@ -138,6 +138,7 @@ DOM_HISTORY_MAX_SNAPSHOTS        = _env_int("DOM_HISTORY_MAX_SNAPSHOTS",        
 DOM_SIGNIFICANT_SIZE             = _env_int("DOM_SIGNIFICANT_SIZE",             30)
 DOM_LARGE_SIZE                   = _env_int("DOM_LARGE_SIZE",                   75)
 DOM_WHALE_SIZE                   = _env_int("DOM_WHALE_SIZE",                  200)
+LARGE_PRINT_THRESHOLD            = _env_int("LARGE_PRINT_THRESHOLD",            50)  # contracts — block print threshold for tape analysis
 DOM_BUY_PRESSURE_BULL_THRESHOLD  = _env_float("DOM_BUY_PRESSURE_BULL_THRESHOLD", 0.65)
 DOM_SELL_PRESSURE_BEAR_THRESHOLD = _env_float("DOM_SELL_PRESSURE_BEAR_THRESHOLD", 0.35)
 DOM_CLUSTER_TOLERANCE_POINTS     = _env_float("DOM_CLUSTER_TOLERANCE_POINTS",    1.25)

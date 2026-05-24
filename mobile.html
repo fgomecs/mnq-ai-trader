@@ -205,6 +205,7 @@
       <span id="bias-val" class="yellow">NEUTRAL</span>
     </div>
     <div id="reasoning">Waiting for analysis…</div>
+    <div id="tape-text" style="font-size:11px; color:var(--text3); margin-top:6px; min-height:14px;"></div>
   </div>
 </div>
 
@@ -424,6 +425,15 @@ async function poll() {
     reasonEl.textContent = reasonText.substring(0, 280);
     const isStale    = raw && raw.iso_ts ? (Date.now() - new Date(raw.iso_ts).getTime()) > 300000 : false;
     reasonEl.className   = isStale ? 'stale' : '';
+
+    const tapeEl = el('tape-text');
+    if (tapeEl) {
+      const tt = d.tape_text || '';
+      tapeEl.textContent = (tt && !tt.startsWith('N/A')) ? tt : '';
+      tapeEl.style.color = d.tape_bias === 'AGGRESSIVE_BUYING'  ? 'var(--green)'
+                         : d.tape_bias === 'AGGRESSIVE_SELLING' ? 'var(--red)'
+                         : 'var(--text3)';
+    }
 
     // Risk
     const maxLoss = parseFloat(d.maxLoss) || 500;

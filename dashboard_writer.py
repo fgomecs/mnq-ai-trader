@@ -204,6 +204,8 @@ def update_dashboard(
             "leftOnTable":  left_on_table or [],
             "sessionHigh":  s.get("session_high", 0),
             "sessionLow":   s.get("session_low",  0),
+            "premktHigh":   s.get("premarket_high"),
+            "premktLow":    s.get("premarket_low"),
 
             # ICT levels (dashboard reads these by these exact keys)
             "fair_value_gaps": s.get("fair_value_gaps", ""),

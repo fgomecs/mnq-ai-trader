@@ -54,7 +54,7 @@ RECORDING_ENABLED = _env_bool("RECORDING_ENABLED", True)
 
 # ─── ACCOUNT ───────────────────────────────────────────────
 ACCOUNT_SIZE       = _env_int("ACCOUNT_SIZE", 50_000)
-MAX_DAILY_LOSS_PCT = _env_float("MAX_DAILY_LOSS_PCT", 0.1)
+MAX_DAILY_LOSS_PCT = _env_float("MAX_DAILY_LOSS_PCT", 0.20)
 MAX_DAILY_LOSS_USD = ACCOUNT_SIZE * MAX_DAILY_LOSS_PCT
 MAX_SESSION_R_LOSS = _env_float("MAX_SESSION_R_LOSS", 3.0)
 
@@ -245,7 +245,9 @@ FEATURE_DELTA_LIVE     = _env_bool("FEATURE_DELTA_LIVE",     True)
 # V4.0: Block entries when thesis probability < MIN_THESIS_PROBABILITY
 FEATURE_THESIS_GATE    = _env_bool("FEATURE_THESIS_GATE",    True)
 # D.1: Stop new entries after MAX_SESSION_R_LOSS R units lost
-FEATURE_R_BUDGET       = _env_bool("FEATURE_R_BUDGET",       True)
+# Paper trading: set False to allow unlimited trades for data collection
+# Set True with real money to cap losses at MAX_SESSION_R_LOSS R units
+FEATURE_R_BUDGET       = _env_bool("FEATURE_R_BUDGET",       False)
 # Block entries within danger window around high-impact news
 FEATURE_NEWS_GATE      = _env_bool("FEATURE_NEWS_GATE",      True)
 # Reduce entry threshold during dead zone (11am-1:30pm ET)

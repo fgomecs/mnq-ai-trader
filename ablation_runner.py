@@ -273,7 +273,7 @@ def _build_report(date_str: str, baseline: dict, ablations: dict) -> str:
 
 
 def save_report(report_text: str, date_str: str) -> Path:
-    """Save ablation report to reports/ directory (committed to git)."""
+    """Save ablation report to reports/ directory."""
     base_dir    = Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"))
     reports_dir = base_dir / "reports"
     reports_dir.mkdir(exist_ok=True)

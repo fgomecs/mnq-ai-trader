@@ -12,6 +12,11 @@ tick_state.json
 data/
 memory/
 logs/
+reports/
+
+# Generated files
+*.log
+*.csv
 
 # Python compiled
 __pycache__/

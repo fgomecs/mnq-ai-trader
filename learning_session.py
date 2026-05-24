@@ -7,7 +7,7 @@ Runs at 4:00 PM ET after trading stops:
   1. Run ablation backtest on today's session
   2. Ask Claude to synthesize findings into actionable insights
   3. Save learning report to memory/ (injected into tomorrow's pre-market)
-  4. Auto-commit + push to GitHub via version_manager
+  4. Bump version in .env via version_manager
   5. Log session summary
 
 The learning is "soft" — Claude reads findings in tomorrow's pre-market prompt
@@ -27,7 +27,7 @@ from pathlib import Path
 BASE_DIR   = Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"))
 MEMORY_DIR = BASE_DIR / "memory"
 DATA_DIR   = BASE_DIR / "data"
-REPORTS_DIR = BASE_DIR / "reports"  # committed to git — analysis, not raw data
+REPORTS_DIR = BASE_DIR / "reports"
 
 sys.path.insert(0, str(BASE_DIR))
 
@@ -132,7 +132,6 @@ def run_learning_session(
     date_str: str,
     session_summary: str = "",
     trades: list = None,
-    auto_commit: bool = True,
 ) -> str:
     """
     Run full EOD learning session.
@@ -141,7 +140,6 @@ def run_learning_session(
         date_str:        Date string YYYY-MM-DD
         session_summary: One-line summary of the live session
         trades:          List of trade dicts from executor.trades_today
-        auto_commit:     Whether to auto-commit to GitHub
 
     Returns:
         Path to saved learning report
@@ -214,7 +212,7 @@ def run_learning_session(
 
     report_text = "\n".join(report_lines)
 
-    # Save to reports/ (committed to git) and memory/ (local context injection)
+    # Save to reports/ and memory/ (local context injection)
     report_path = REPORTS_DIR / f"learning_{date_str}.md"
     report_path.write_text(report_text, encoding="utf-8")
     # Also save to memory/ for pre-market injection (load_learning_for_premarket reads here)
@@ -229,19 +227,18 @@ def run_learning_session(
     print(insights[:800])
     print(f"{'─'*60}\n")
 
-    # ── 7. Auto-commit to GitHub ──────────────────────────────
-    if auto_commit:
-        try:
-            from version_manager import eod_commit
-            pnl_str = f"${baseline.get('daily_pnl', 0):+.2f}" if baseline else "no trades"
-            new_ver = eod_commit(
-                session_summary = f"{date_str} | {pnl_str} | "
-                                  f"{baseline.get('trade_count', 0)} trades",
-                bump = "patch",
-            )
-            print(f"[learning] Auto-committed as v{new_ver}")
-        except Exception as e:
-            print(f"[learning] Auto-commit failed: {e}")
+    # ── 7. Bump version ───────────────────────────────────────
+    try:
+        from version_manager import eod_commit
+        pnl_str = f"${baseline.get('daily_pnl', 0):+.2f}" if baseline else "no trades"
+        new_ver = eod_commit(
+            session_summary = f"{date_str} | {pnl_str} | "
+                              f"{baseline.get('trade_count', 0)} trades",
+            bump = "patch",
+        )
+        print(f"[learning] Version bumped to v{new_ver}")
+    except Exception as e:
+        print(f"[learning] Version bump failed: {e}")
 
     return str(report_path)
 
@@ -283,15 +280,12 @@ def load_learning_for_premarket(n_days: int = 3) -> str:
 def main():
     parser = argparse.ArgumentParser(description="MNQ Learning Session")
     parser.add_argument("--date", default=date.today().strftime("%Y-%m-%d"))
-    parser.add_argument("--no-commit", action="store_true",
-                        help="Skip auto-commit to GitHub")
     parser.add_argument("--summary", default="", help="Session summary text")
     args = parser.parse_args()
 
     run_learning_session(
-        date_str       = args.date,
+        date_str        = args.date,
         session_summary = args.summary,
-        auto_commit    = not args.no_commit,
     )
 
 

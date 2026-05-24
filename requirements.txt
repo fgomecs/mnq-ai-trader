@@ -1,0 +1,6 @@
+ib_insync
+anthropic
+pandas
+pytz
+python-dotenv
+schedule

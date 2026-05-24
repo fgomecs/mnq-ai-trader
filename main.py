@@ -756,6 +756,37 @@ def _patch_dashboard_live(feed: IBKRFeed, executor: Executor, price: float, acco
     )
 
 
+# ─── Pre-market sleep ──────────────────────────────────────
+
+def _wait_for_market_hours() -> None:
+    """
+    Sleep until 10 minutes before SESSION_PRE_MARKET_TIME (default 8:20 ET).
+    Wakes in 60s ticks so Ctrl+C is always responsive.
+    Returns immediately if it's already past the startup time.
+    """
+    _LEAD_MINS = 10
+    target_h   = SESSION_PRE_MARKET_TIME // 100
+    target_m   = SESSION_PRE_MARKET_TIME  % 100
+    start_total = target_h * 60 + target_m - _LEAD_MINS
+    start_h, start_m = divmod(start_total, 60)
+    start_mins = start_h * 60 + start_m
+
+    now_et  = datetime.now(eastern)
+    now_mins = now_et.hour * 60 + now_et.minute
+    if now_mins >= start_mins:
+        return
+
+    wake_str = f"{start_h:02d}:{start_m:02d} ET"
+    logger.info(f"Waiting for market hours — sleeping until {wake_str}")
+
+    while True:
+        now_et   = datetime.now(eastern)
+        now_mins = now_et.hour * 60 + now_et.minute
+        if now_mins >= start_mins:
+            break
+        time.sleep(60)
+
+
 # ─── Main ──────────────────────────────────────────────────
 
 def main() -> None:
@@ -782,6 +813,9 @@ def main() -> None:
             logger.info("Cleared stale dashboard state from previous session")
     except Exception as e:
         logger.warning(f"Could not clear dashboard state: {e}")
+
+    _wait_for_market_hours()
+    logger.info("Market hours — starting loops")
 
     feed = IBKRFeed()
     if not feed.connect():

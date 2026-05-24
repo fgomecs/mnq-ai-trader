@@ -87,6 +87,19 @@
 - Inject result into the first RTH entry prompt as additional context
 - Goal: sharpen the opening bias before the OR forms
 
+**TARGET_2 Executor Support**
+- Claude outputs TARGET_2 in every response but executor only uses TARGET_1
+- Add partial close at TARGET_1 (50% of position) then trail remainder to TARGET_2
+- Enables scale-out exits that lock in profits while letting winners run
+- Prerequisite: variable position sizing in V5.0 makes this more meaningful
+
+**First Candle OR Levels (1-min and 5-min)**
+- Track the 9:30 first 1-min candle high/low and 9:30 first 5-min candle high/low as named session levels separate from the 15-min OR
+- First 1-min candle: micro-OR, early momentum signal
+- First 5-min candle: intermediate level, fake move warning zone
+- Plot on chart and inject into Claude prompt as reference levels
+- Not entry triggers — context and S/R only
+
 ### V5.0 — Claude Vision Chart Analysis + Variable Position Sizing
 - Send a screenshot of the price chart to Claude Vision with each entry call
 - Claude describes what it sees (structure, patterns, key levels) and that text feeds into the reasoning block

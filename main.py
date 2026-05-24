@@ -756,31 +756,68 @@ def _patch_dashboard_live(feed: IBKRFeed, executor: Executor, price: float, acco
     )
 
 
+# ─── Trading hours gate ────────────────────────────────────
+
+def is_trading_hours(now_et: datetime) -> bool:
+    """Return False on Saturday (all day) and Sunday before 18:00 ET."""
+    wd   = now_et.weekday()          # Mon=0, Tue=1, …, Sat=5, Sun=6
+    mins = now_et.hour * 60 + now_et.minute
+    if wd == 5:                      # Saturday — Globex closed, no pre-market
+        return False
+    if wd == 6 and mins < 18 * 60:  # Sunday before 6 PM ET — Globex not yet open
+        return False
+    return True
+
+
 # ─── Pre-market sleep ──────────────────────────────────────
 
 def _wait_for_market_hours() -> None:
     """
-    Sleep until 10 minutes before SESSION_PRE_MARKET_TIME (default 8:20 ET).
-    Wakes in 60s ticks so Ctrl+C is always responsive.
-    Returns immediately if it's already past the startup time.
+    Sleep until trading hours begin, then sleep until 10 min before
+    SESSION_PRE_MARKET_TIME (08:20 ET by default).
+    Loops in 30-min ticks during weekend, 60s ticks on trading-day mornings.
+    IBKR is never contacted before this function returns.
     """
-    _LEAD_MINS = 10
-    target_h   = SESSION_PRE_MARKET_TIME // 100
-    target_m   = SESSION_PRE_MARKET_TIME  % 100
+    _LEAD_MINS  = 10
+    _SLEEP_SECS = 30 * 60           # 30-minute ticks during weekend sleep
+
+    target_h    = SESSION_PRE_MARKET_TIME // 100
+    target_m    = SESSION_PRE_MARKET_TIME  % 100
     start_total = target_h * 60 + target_m - _LEAD_MINS
     start_h, start_m = divmod(start_total, 60)
-    start_mins = start_h * 60 + start_m
+    start_mins  = start_h * 60 + start_m
 
-    now_et  = datetime.now(eastern)
+    # ── Phase 1: wait for a trading day ──────────────────────
+    while True:
+        now_et = datetime.now(eastern)
+        if is_trading_hours(now_et):
+            break
+        wd = now_et.weekday()
+        if wd == 5:                          # Saturday
+            wake_str = "Monday 08:20 ET"
+        elif wd == 6:                        # Sunday before 18:00
+            wake_str = "Sunday 18:00 ET"
+        else:
+            wake_str = "next trading window"
+        logger.info(f"Weekend — sleeping until {wake_str} (checking every 30 min)")
+        try:
+            update_dashboard(bot_sleeping=True, wake_time=wake_str,
+                             claude_status="BOT SLEEPING — WEEKEND")
+        except Exception:
+            pass
+        time.sleep(_SLEEP_SECS)
+
+    # ── Phase 2: trading day — wait for 08:20 ET ─────────────
+    now_et   = datetime.now(eastern)
     now_mins = now_et.hour * 60 + now_et.minute
     if now_mins >= start_mins:
-        return
+        return                               # already past 08:20, proceed immediately
 
     wake_str = f"{start_h:02d}:{start_m:02d} ET"
     logger.info(f"Waiting for market hours — sleeping until {wake_str}")
-
     try:
-        update_dashboard(bot_sleeping=True, wake_time=wake_str, claude_status="BOT SLEEPING")
+        update_dashboard(bot_sleeping=True, wake_time=wake_str,
+                         claude_status="BOT SLEEPING")
     except Exception:
         pass
 

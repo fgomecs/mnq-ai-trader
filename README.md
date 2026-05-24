@@ -4,7 +4,7 @@ An institutional-grade AI-driven futures trading bot for **MNQ (Micro E-Mini Nas
 
 > **Status:** Paper trading — production-ready architecture, not yet live money.
 > **Account:** $50,000 simulated | **Max risk:** $500/day | **Max size:** 1 contract
-> **Version:** 4.1.1 (auto-managed)
+> **Version:** 4.1.0 (auto-managed)
 
 ---
 
@@ -55,7 +55,7 @@ graph TD
     DATA --> LEARN[learning_session.py\nEOD Learning]
     LEARN --> ABL[ablation_runner.py\nFeature Ablation]
     LEARN --> MEM[memory/\nLearning Reports]
-    LEARN --> VER[version_manager.py\nAuto Git Commit]
+    LEARN --> VER[version_manager.py\nversion bump only]
     LEARN --> JEX[journal_exporter.py\nBuilds journal_data.json]
     JEX --> JHTML[journal.html\nEquity curve + analytics]
 ```
@@ -369,7 +369,7 @@ flowchart LR
     RANK --> SYN[Claude Sonnet\nSynthesizes findings]
     SYN --> RPT[reports/learning_YYYY-MM-DD.md\ncommitted to GitHub]
     RPT --> INJ[Tomorrow's pre-market\nreads last 3 reports]
-    RPT --> GIT[version_manager.py\nauto-commits + pushes\nbumps patch version]
+    RPT --> VER[version_manager.py\nbumps patch version\nin .env only]
 ```
 
 ### Ablation Testing
@@ -512,7 +512,7 @@ CLAUDE_USE_CACHING=true
 MIN_THESIS_PROBABILITY=70         # Block entries below this confidence
 
 # V4.1
-BOT_VERSION=4.1.1                 # Auto-managed by version_manager.py
+BOT_VERSION=4.1.0                 # Auto-managed by version_manager.py
 RECORDING_ENABLED=true
 ```
 

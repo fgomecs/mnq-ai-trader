@@ -326,7 +326,13 @@ class MarketSim:
 
 def write_price_data(sim, sim_time_str):
     try:
-        data = {"t": sim_time_str, "price": sim.price, "bid": round(sim.price-0.25,2), "ask": round(sim.price+0.25,2), "volume": sim.volume, "position": sim.position, "entry": sim.entry_price or 0, "stop": sim.stop_price or 0, "target": sim.target_price or 0, "pnl": round(sim.daily_pnl,2), "netLiq": round(50000+sim.daily_pnl,2), "unrealized": 0}
+        if sim.position == "LONG" and sim.entry_price > 0:
+            unrealized = round((sim.price - sim.entry_price) / 0.25 * 0.50, 2)
+        elif sim.position == "SHORT" and sim.entry_price > 0:
+            unrealized = round((sim.entry_price - sim.price) / 0.25 * 0.50, 2)
+        else:
+            unrealized = 0.0
+        data = {"t": sim_time_str, "price": sim.price, "bid": round(sim.price-0.25,2), "ask": round(sim.price+0.25,2), "volume": sim.volume, "position": sim.position, "entry": sim.entry_price or 0, "stop": sim.stop_price or 0, "target": sim.target_price or 0, "pnl": round(sim.daily_pnl + unrealized, 2), "netLiq": round(50000 + sim.daily_pnl + unrealized, 2), "unrealized": unrealized}
         with open(PRICE_FILE, "w", encoding="utf-8") as f:
             json.dump(data, f)
     except PermissionError:

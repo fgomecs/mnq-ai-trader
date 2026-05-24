@@ -227,7 +227,14 @@ def run_learning_session(
     print(insights[:800])
     print(f"{'─'*60}\n")
 
-    # ── 7. Bump version ───────────────────────────────────────
+    # ── 7. Export journal ─────────────────────────────────────
+    try:
+        from journal_exporter import run as export_journal
+        export_journal()
+    except Exception as e:
+        print(f"[learning] Journal export failed: {e}")
+
+    # ── 8. Bump version ───────────────────────────────────────
     try:
         from version_manager import eod_commit
         pnl_str = f"${baseline.get('daily_pnl', 0):+.2f}" if baseline else "no trades"

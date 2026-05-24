@@ -4,7 +4,7 @@ An institutional-grade AI-driven futures trading bot for **MNQ (Micro E-Mini Nas
 
 > **Status:** Paper trading — production-ready architecture, not yet live money.
 > **Account:** $50,000 simulated | **Max risk:** $500/day | **Max size:** 1 contract
-> **Version:** 4.1.0 (auto-managed)
+> **Version:** 4.1.1 (auto-managed)
 
 ---
 
@@ -396,8 +396,8 @@ Every EOD auto-commit bumps the patch version:
 
 ```
 4.1.0  → initial release
-4.1.1  → first EOD learning session (Tuesday)
-4.1.2  → Wednesday EOD
+4.1.1  → config audit — magic numbers → named constants
+4.1.2  → first EOD learning session
 ...
 4.2.0  → new feature shipped (minor bump)
 5.0.0  → architectural change (major bump)
@@ -415,7 +415,7 @@ Every EOD auto-commit bumps the patch version:
 | `claude_brain.py` | ~72KB | All Claude API calls. Prompts, watchlist, entry analysis, position management, cost tracking, skip-cache, feature-flagged pre-filter, learning injection. |
 | `ibkr_feed.py` | ~83KB | IBKR connection. Live ticks, bar cache, DOM stream (20 levels), snapshot assembly, ICT computation, OFI engine, OR tracking, IBKR news (QQQ tick 292). |
 | `executor.py` | ~40KB | Order placement. Entry, stop, target, trail, close. Race condition fixes, R-budget, broker reconciliation, dual-control trailing. |
-| `config.py` | ~12KB | All configuration. Reads `.env`, exposes typed constants, 15 feature flags, `get_active_features()`, `features_summary()`. |
+| `config.py` | ~18KB | All configuration. Reads `.env`, exposes ~120 typed constants across 20 sections, 15 feature flags, `get_active_features()`, `features_summary()`. |
 
 ### Support Modules
 
@@ -496,8 +496,123 @@ CLAUDE_USE_CACHING=true
 MIN_THESIS_PROBABILITY=70         # Block entries below this confidence
 
 # V4.1
-BOT_VERSION=4.1.0                 # Auto-managed by version_manager.py
+BOT_VERSION=4.1.1                 # Auto-managed by version_manager.py
 RECORDING_ENABLED=true
+```
+
+### Advanced Tuning (V4.1.1)
+
+All constants below are in `config.py` and overridable via `.env`. Defaults are production-tested — only adjust if ablation data or live session logs suggest a specific change.
+
+**Session Times (HHMM integers)**
+
+```env
+SESSION_PRE_MARKET_TIME=830       # Pre-market analysis window start
+SESSION_MARKET_OPEN_TIME=930      # RTH open, OR begins forming
+SESSION_OR_FORMING_END=935        # OR established after this
+SESSION_PRIME_WINDOW_END=1100     # NY AM prime window ends
+SESSION_DEAD_ZONE_END=1330        # Dead zone ends, PM prime begins
+SESSION_CLOSING_END=1600          # RTH close
+EOD_SCHEDULE_TIME=15:30           # Positions closed, EOD routine fires
+MAIN_LOOP_SLEEP_SECS=0.5          # Main cycle sleep between ticks
+```
+
+**Entry Gates**
+
+```env
+DEAD_ZONE_CONFLUENCE_THRESHOLD=8  # Signals required during dead zone
+POS_STRUCTURE_MIN_PROFIT_TICKS=20 # Min profit before structure CLOSE eligible
+POS_STRUCTURE_PULLBACK_TICKS=5    # Pullback that re-arms structure check
+```
+
+**Pre-filter Signal Scoring**
+
+```env
+PRE_FILTER_SIGNAL_THRESHOLD=3     # Signals needed with bias
+COUNTER_TREND_SIGNAL_THRESHOLD=5  # Signals needed counter-trend
+```
+
+**Skip-Cache Tuning (A.1)**
+
+```env
+SKIP_CACHE_PRICE_DELTA=5.0        # Price move that invalidates cache (pts)
+SKIP_CACHE_MAX_AGE_SECS=180       # Max cache age before forced refresh (3 min)
+SKIP_CACHE_WATCHLIST_AGE_SECS=60  # Watchlist age that invalidates cache
+SKIP_LOG_EVERY_N=5                # Log every Nth cache hit (reduces noise)
+```
+
+**OR Thesis**
+
+```env
+OR_THESIS_INVALIDATION_POINTS=80  # Price distance that flips bias to NEUTRAL
+OR_PULLBACK_THRESHOLD_PCT=0.3     # Pullback % of OR range to arm entry
+```
+
+**DOM Signal Thresholds**
+
+```env
+DOM_HISTORY_MAX_SNAPSHOTS=12      # Rolling DOM history (12 x 5s = 60s)
+DOM_SIGNIFICANT_SIZE=30           # Min size to flag as significant
+DOM_LARGE_SIZE=75                 # Institutional / wall threshold
+DOM_WHALE_SIZE=200                # Dominant order threshold
+DOM_BUY_PRESSURE_BULL_THRESHOLD=0.65   # DOM buy ratio for bull signal
+DOM_SELL_PRESSURE_BEAR_THRESHOLD=0.35  # DOM buy ratio for bear signal
+DOM_CLUSTER_TOLERANCE_POINTS=1.25      # Grouping tolerance for cluster magnet
+DOM_VACUUM_THRESHOLD_SIZE=5            # Size below which a level is "vacuum"
+DOM_ICEBERG_SHRINK_PCT=0.6             # Size shrink % to flag iceberg
+DOM_ICEBERG_RECOVERY_PCT=0.7           # Recovery % to confirm iceberg
+DOM_SWEEP_LEVEL_THRESHOLD=3            # Levels consumed to call a sweep
+```
+
+**OFI Thresholds**
+
+```env
+OFI_STRONG_THRESHOLD_CONTRACTS=500    # Raw OFI magnitude for STRONG signal
+OFI_ACCELERATION_THRESHOLD=1.3        # OFI ratio to call ACCELERATING
+OFI_DECELERATION_THRESHOLD=0.7        # OFI ratio to call DECELERATING
+OFI_STRONG_BUY_THRESHOLD=60           # Normalized score for STRONG_BUY
+OFI_BUY_THRESHOLD=25                  # Normalized score for BUY
+OFI_STRONG_SELL_THRESHOLD=-60         # Normalized score for STRONG_SELL
+OFI_SELL_THRESHOLD=-25                # Normalized score for SELL
+DELTA_DIVERGENCE_THRESHOLD=500        # Raw delta to flag direction divergence
+```
+
+**Volume Profile**
+
+```env
+VOLUME_PROFILE_TARGET_PCT=0.70    # Value area target (70% of session volume)
+POC_PROXIMITY_POINTS=5.0          # Distance to POC that triggers signal
+```
+
+**ICT Level Proximity**
+
+```env
+FVG_PROXIMITY_POINTS=100.0        # Distance to FVG that activates entry zone
+OB_PROXIMITY_POINTS=150.0         # Distance to OB that activates entry zone
+LIQUIDITY_POOL_TOLERANCE=2.0      # Cluster tolerance for liquidity pool detection
+```
+
+**Bar Cache & Streams**
+
+```env
+TICK_STATE_PERSIST_INTERVAL_SECS=30    # How often tick state writes to disk
+INIT_BARS_1MIN_DURATION=7200 S         # Historical 1-min bar request window
+INIT_BARS_5MIN_DURATION=86400 S        # Historical 5-min bar request window
+INIT_BARS_15MIN_DURATION=2 D           # Historical 15-min bar request window
+INIT_BARS_DAILY_DURATION=30 D          # Historical daily bar request window
+REALTIME_BARS_PER_MINUTE=12            # 5-sec bars accumulated per 1-min bar
+BARS_1MIN_CACHE_SIZE=120               # Max 1-min bars kept in memory
+SNAPSHOT_ASSEMBLY_SLEEP_SECS=0.3       # Pause after DOM request in snapshot
+NEWS_CACHE_TTL_SECS=600                # News freshness window (10 min)
+```
+
+**Executor Safety**
+
+```env
+PROTECTION_RECONCILE_EVERY_N_LOOPS=4      # Broker reconcile every N protection loops
+DELAYED_DATA_STALENESS_THRESHOLD_POINTS=20 # Price staleness alert threshold
+MAX_REASONABLE_PNL_PER_CONTRACT=1000.0    # P&L sanity bound — rejects above this
+RBUST_MAX_R_PER_TRADE=1.5                 # Max R gain per trade (R-budget cap)
 ```
 
 ---
@@ -729,6 +844,7 @@ stateDiagram-v2
 | V3.1 | 2026-05-22 | **DOM upgrade** — 20 levels, iceberg/spoof/sweep/cluster detection, MNQ absolute thresholds |
 | V4.0 | 2026-05-22 | **Predictive features** — thesis probability gate, OFI score, IBKR QQQ news (tick 292) |
 | V4.1 | 2026-05-23 | **Learning system** — 15 feature flags, ablation testing, EOD learning session, auto-versioning, mobile dashboard, market status bar |
+| V4.1.1 | 2026-05-23 | **Config audit** — ~60 magic numbers replaced with named constants in `config.py`, all `.env`-overridable; error handling normalized across all core files |
 
 ---
 

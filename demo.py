@@ -267,12 +267,19 @@ class MarketSim:
         ts     = now_et.strftime("%H:%M:%S")
         h      = now_et.hour
         ofi_score = max(-100, min(100, self.cum_delta // 5))
+        if self.position == "LONG" and self.entry_price > 0:
+            unrealized = round((self.price - self.entry_price) / 0.25 * 0.50, 2)
+        elif self.position == "SHORT" and self.entry_price > 0:
+            unrealized = round((self.entry_price - self.price) / 0.25 * 0.50, 2)
+        else:
+            unrealized = 0.0
+        total_pnl = round(self.daily_pnl + unrealized, 2)
         return {
             "timestamp": now_et.isoformat(), "time_et": ts, "data_mode": "LIVE L2 (DEMO)", "botVersion": "4.1.0-DEMO",
             "position": self.position, "entryPrice": self.entry_price or None,
             "stopPrice": self.stop_price or None, "targetPrice": self.target_price or None,
             "currentPrice": self.price, "bid": round(self.price-0.25,2), "ask": round(self.price+0.25,2),
-            "dailyPnl": round(self.daily_pnl,2), "maxLoss": 500.0, "netLiq": 50000+self.daily_pnl,
+            "dailyPnl": total_pnl, "maxLoss": 5000.0, "netLiq": round(50000 + total_pnl, 2), "unrealized": unrealized,
             "claudeStatus": ("ANALYZING" if self.phase=="ANALYSIS" else "IN POSITION" if self.position!="FLAT" else "SCANNING"),
             "lastDecision": self.decision, "lastConfidence": self.confidence,
             "lastStrategy": self.strategy, "lastConfluence": self.confluence,
@@ -320,7 +327,7 @@ class MarketSim:
             "market_structure": "BULLISH — HH/HL on 15m",
             "botVersion": "4.3.0-DEMO",
             "maxLoss": 5000.0,
-            "account": {"net_liquidation": 50000 + self.daily_pnl, "unrealized_pnl": 0, "realized_pnl": self.daily_pnl},
+            "account": {"net_liquidation": round(50000 + total_pnl, 2), "unrealized_pnl": unrealized, "realized_pnl": round(self.daily_pnl, 2)},
         }
 
 

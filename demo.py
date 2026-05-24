@@ -311,6 +311,15 @@ class MarketSim:
                 for tr in self.trades[-50:]
             ],
             "trades": self.trades[-10:],
+            "candle_patterns": random.choice(["5m: Bullish Engulfing at BULL OB | 1m: Hammer forming", "5m: Bearish Engulfing at BEAR OB | 1m: Shooting Star", "No patterns detected"]),
+            "tape_bias": random.choice(["AGGRESSIVE_BUYING", "AGGRESSIVE_SELLING", "NEUTRAL"]),
+            "tape_text": "TAPE: 4 large buys vs 1 large sell (60s)",
+            "premarket_high": 29672.50,
+            "premarket_low": 29618.25,
+            "market_structure": "BULLISH — HH/HL on 15m",
+            "botVersion": "4.3.0-DEMO",
+            "maxLoss": 5000.0,
+            "account": {"net_liquidation": 50000 + self.daily_pnl, "unrealized_pnl": 0, "realized_pnl": self.daily_pnl},
         }
 
 

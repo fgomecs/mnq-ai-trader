@@ -211,6 +211,7 @@ def update_dashboard(
             "liquidity_pools": s.get("liquidity_pools", ""),
             "choch":           s.get("choch",           ""),
             "inducement":      s.get("inducement",      ""),
+            "candle_patterns": s.get("candle_patterns", ""),
             "mtf_alignment":   s.get("mtf_alignment",   ""),
             "delta_trend":     s.get("delta_trend",     ""),
             "market_structure": s.get("market_structure", ""),
@@ -272,7 +273,7 @@ def update_dashboard(
                 # the full snapshot. Without this, the dashboard would clear
                 # FVG/OB/CHoCH/etc every 10s when the live patch fires.
                 for field in ("fair_value_gaps", "order_blocks", "liquidity_pools",
-                              "choch", "inducement", "mtf_alignment",
+                              "choch", "inducement", "candle_patterns", "mtf_alignment",
                               "delta_trend", "market_structure", "htfBias"):
                     if not data.get(field) and existing.get(field):
                         data[field] = existing[field]

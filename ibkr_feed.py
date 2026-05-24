@@ -742,7 +742,8 @@ class IBKRFeed:
                 "dom_sweep_down":      dom_signals.get("dom_sweep_down", False),
 
                 # Candles
-                "candles": self._format_candles(bars_1min, bars_5min),
+                "candles":          self._format_candles(bars_1min, bars_5min),
+                "candle_patterns":  self._detect_candle_patterns(bars_1min, bars_5min, last_price),
 
                 # Delta — C.2: label whether delta is real bid/ask classification
                 # or just signed-volume approximation (delayed data)
@@ -1355,6 +1356,133 @@ class IBKRFeed:
             return "\n".join(obs[-4:]) if obs else "No nearby order blocks"
         except Exception:
             return "OB unavailable"
+
+    def _detect_candle_patterns(
+        self, bars_1min: list, bars_5min: list, current_price: float
+    ) -> str:
+        """
+        Detect candlestick patterns on 5-min (last 3 bars) and 1-min (last 5 bars).
+        Returns a formatted string for the snapshot / Claude prompt.
+        """
+        try:
+            or_dir = self.or_direction or ""
+            patterns = []
+
+            def _body(b):
+                return abs(b.close - b.open)
+
+            def _upper_wick(b):
+                return b.high - max(b.open, b.close)
+
+            def _lower_wick(b):
+                return min(b.open, b.close) - b.low
+
+            def _is_bull(b):
+                return b.close >= b.open
+
+            def _is_bear(b):
+                return b.close < b.open
+
+            def _or_align(direction: str) -> str:
+                if not or_dir:
+                    return ""
+                if direction == "BULL" and "BULL" in or_dir.upper():
+                    return " [OR aligned]"
+                if direction == "BEAR" and "BEAR" in or_dir.upper():
+                    return " [OR aligned]"
+                return ""
+
+            # ── 5-min patterns (need at least 3 bars) ──────────────
+            if bars_5min and len(bars_5min) >= 3:
+                b0, b1, b2 = bars_5min[-3], bars_5min[-2], bars_5min[-1]
+
+                # Bullish engulfing (b2 engulfs b1)
+                if (_is_bear(b1) and _is_bull(b2)
+                        and b2.open < b1.close and b2.close > b1.open):
+                    patterns.append(f"BULLISH ENGULFING (5m){_or_align('BULL')}")
+
+                # Bearish engulfing
+                if (_is_bull(b1) and _is_bear(b2)
+                        and b2.open > b1.close and b2.close < b1.open):
+                    patterns.append(f"BEARISH ENGULFING (5m){_or_align('BEAR')}")
+
+                # Hammer — appears after downmove (b0 and b1 declining lows)
+                body2 = _body(b2)
+                if body2 > 0:
+                    lw2 = _lower_wick(b2)
+                    uw2 = _upper_wick(b2)
+                    down_move = b1.low < b0.low and b2.low <= b1.low
+                    if (lw2 >= 2 * body2 and uw2 <= 0.3 * body2 and down_move):
+                        patterns.append(f"HAMMER (5m){_or_align('BULL')}")
+
+                # Shooting star — appears after upmove
+                if body2 > 0:
+                    uw2 = _upper_wick(b2)
+                    lw2 = _lower_wick(b2)
+                    up_move = b1.high > b0.high and b2.high >= b1.high
+                    if (uw2 >= 2 * body2 and lw2 <= 0.3 * body2 and up_move):
+                        patterns.append(f"SHOOTING STAR (5m){_or_align('BEAR')}")
+
+                # Morning star (3-bar: bearish, small body, bullish)
+                small_body1 = _body(b1) < _body(b0) * 0.4
+                if (_is_bear(b0) and small_body1 and _is_bull(b2)
+                        and _body(b0) > 0 and _body(b2) >= _body(b0) * 0.6):
+                    patterns.append(f"MORNING STAR (5m){_or_align('BULL')}")
+
+                # Evening star
+                if (_is_bull(b0) and small_body1 and _is_bear(b2)
+                        and _body(b0) > 0 and _body(b2) >= _body(b0) * 0.6):
+                    patterns.append(f"EVENING STAR (5m){_or_align('BEAR')}")
+
+                # Inside bar — b2's range is inside b1's range
+                if b2.high < b1.high and b2.low > b1.low:
+                    # Check 1-min bars to see if price has broken out of b1's range
+                    if bars_1min and len(bars_1min) >= 1:
+                        last_1m = bars_1min[-1]
+                        if last_1m.close > b1.high:
+                            patterns.append(f"INSIDE BAR BREAKOUT UP (5m→1m){_or_align('BULL')}")
+                        elif last_1m.close < b1.low:
+                            patterns.append(f"INSIDE BAR BREAKOUT DOWN (5m→1m){_or_align('BEAR')}")
+                        else:
+                            patterns.append("INSIDE BAR (5m) — breakout pending")
+
+            # ── 1-min patterns (need at least 2 bars) ──────────────
+            if bars_1min and len(bars_1min) >= 3:
+                c0, c1, c2 = bars_1min[-3], bars_1min[-2], bars_1min[-1]
+
+                # Bullish engulfing
+                if (_is_bear(c1) and _is_bull(c2)
+                        and c2.open < c1.close and c2.close > c1.open):
+                    patterns.append(f"BULLISH ENGULFING (1m){_or_align('BULL')}")
+
+                # Bearish engulfing
+                if (_is_bull(c1) and _is_bear(c2)
+                        and c2.open > c1.close and c2.close < c1.open):
+                    patterns.append(f"BEARISH ENGULFING (1m){_or_align('BEAR')}")
+
+                # Hammer
+                body2 = _body(c2)
+                if body2 > 0:
+                    lw2 = _lower_wick(c2)
+                    uw2 = _upper_wick(c2)
+                    down_move = c1.low < c0.low
+                    if lw2 >= 2 * body2 and uw2 <= 0.3 * body2 and down_move:
+                        patterns.append(f"HAMMER (1m){_or_align('BULL')}")
+
+                # Shooting star
+                if body2 > 0:
+                    uw2 = _upper_wick(c2)
+                    lw2 = _lower_wick(c2)
+                    up_move = c1.high > c0.high
+                    if uw2 >= 2 * body2 and lw2 <= 0.3 * body2 and up_move:
+                        patterns.append(f"SHOOTING STAR (1m){_or_align('BEAR')}")
+
+            if not patterns:
+                return "No significant candle patterns"
+            return " | ".join(patterns)
+
+        except Exception as e:
+            return f"Candle pattern error: {e}"
 
     def _find_liquidity_pools(self, bars: list, current_price: float) -> str:
         try:

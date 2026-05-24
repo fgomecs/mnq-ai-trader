@@ -119,6 +119,16 @@ STEP 4 — NEWS DANGER ZONE
 If news_danger_zone is True → DO NOT ENTER under any circumstances.
 
 ═══════════════════════════════════════
+STEP 4.5 — CANDLESTICK CONFIRMATION
+═══════════════════════════════════════
+A bullish/bearish engulfing or hammer/shooting star at an OB or FVG level adds significant confluence. Inside bar breakouts at key levels are the cleanest ICT entry triggers.
+- Bullish engulfing or hammer AT an OB/FVG → strong long confluence, can substitute for weak CHoCH
+- Bearish engulfing or shooting star AT an OB/FVG → strong short confluence
+- Inside bar breakout: price breaks above prior bar high (1m) → long trigger; breaks below prior bar low → short trigger
+- Pattern labeled [OR aligned] means it reinforces the opening range thesis
+- Pattern alone (no OB/FVG nearby) is context, not entry justification
+
+═══════════════════════════════════════
 STEP 5 — CHOCH + DELTA CONFIRMATION
 ═══════════════════════════════════════
 For LONG: CHoCH must be BULLISH. Delta trend should be positive or neutral.
@@ -955,6 +965,16 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bull_signals += 1; bull_reasons.append("above VAH breakout")
     if vp_inside_va and price > snapshot.get("vp_poc", 0):
         bull_signals += 1; bull_reasons.append("above POC in VA")
+    # Candle patterns — bullish engulfing or hammer near OB/FVG = +2; OR-aligned pattern = +1
+    _cp = snapshot.get("candle_patterns", "")
+    _at_level = any(kw in snapshot.get("fair_value_gaps", "") or snapshot.get("order_blocks", "")
+                    for kw in ("★ INSIDE", "★ AT OB", "dist:0", "dist:1", "dist:2", "dist:3", "dist:4", "dist:5"))
+    if ("BULLISH ENGULFING" in _cp or "HAMMER" in _cp) and _at_level:
+        bull_signals += 2; bull_reasons.append("bullish pattern at OB/FVG")
+    if "MORNING STAR" in _cp:
+        bull_signals += 1; bull_reasons.append("morning star")
+    if "[OR aligned]" in _cp and any(p in _cp for p in ("BULLISH ENGULFING", "HAMMER", "INSIDE BAR BREAKOUT UP", "MORNING STAR")):
+        bull_signals += 1; bull_reasons.append("OR-aligned candle pattern")
 
     # Build bear signals
     bear_signals = 0
@@ -996,6 +1016,13 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bear_signals += 1; bear_reasons.append("below VAL breakdown")
     if vp_inside_va and price < snapshot.get("vp_poc", 999999):
         bear_signals += 1; bear_reasons.append("below POC in VA")
+    # Candle patterns — bearish engulfing or shooting star near OB/FVG = +2; OR-aligned = +1
+    if ("BEARISH ENGULFING" in _cp or "SHOOTING STAR" in _cp) and _at_level:
+        bear_signals += 2; bear_reasons.append("bearish pattern at OB/FVG")
+    if "EVENING STAR" in _cp:
+        bear_signals += 1; bear_reasons.append("evening star")
+    if "[OR aligned]" in _cp and any(p in _cp for p in ("BEARISH ENGULFING", "SHOOTING STAR", "INSIDE BAR BREAKOUT DOWN", "EVENING STAR")):
+        bear_signals += 1; bear_reasons.append("OR-aligned candle pattern")
 
     # V3.0 direction gating:
     # NEUTRAL or invalidated bias → both directions allowed, pass stronger side
@@ -1227,6 +1254,7 @@ quality than the same setup in a clean window.
 
 {snapshot.get('ibkr_headlines_text', '')}
 
+Candle Patterns: {snapshot.get('candle_patterns', 'N/A')}
 Change of Character (1-min): {snapshot.get('choch', 'N/A')}
 Inducement: {snapshot.get('inducement', 'N/A')}
 Delta Trend: {snapshot.get('delta_trend', 'N/A')} {'(true bid/ask classification)' if snapshot.get('delta_is_live') else '(signed-volume approximation — delayed data, less reliable)'}

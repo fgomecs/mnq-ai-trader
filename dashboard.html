@@ -1118,6 +1118,62 @@ updateClock();
       ctx.fillText(l, PAD_L+3, y);
     });
 
+    // ── Demand / Supply zones ────────────────────────────
+    (snapData?.demand_levels || []).forEach(z => {
+      const y1 = yForPrice(z.high), y2 = yForPrice(z.low);
+      ctx.fillStyle = 'rgba(76,175,80,0.13)';
+      ctx.fillRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
+      ctx.strokeStyle = 'rgba(76,175,80,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.strokeRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
+      ctx.fillStyle = 'rgba(76,175,80,0.85)'; ctx.font = '8px monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('DEMAND', PAD_L + 3, (y1 + y2) / 2);
+    });
+    (snapData?.supply_levels || []).forEach(z => {
+      const y1 = yForPrice(z.high), y2 = yForPrice(z.low);
+      ctx.fillStyle = 'rgba(229,57,53,0.13)';
+      ctx.fillRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
+      ctx.strokeStyle = 'rgba(229,57,53,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.strokeRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
+      ctx.fillStyle = 'rgba(229,57,53,0.85)'; ctx.font = '8px monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText('SUPPLY', PAD_L + 3, (y1 + y2) / 2);
+    });
+
+    // ── Prev Day H/L ──────────────────────────────────────
+    [[snapData?.prev_day_high,'PDH'],[snapData?.prev_day_low,'PDL']].forEach(([p,l]) => {
+      if (!p) return;
+      const y = yForPrice(p);
+      ctx.strokeStyle = 'rgba(180,180,180,0.7)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
+      ctx.fillStyle = 'rgba(180,180,180,0.85)'; ctx.font = '9px monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText(l, PAD_L+3, y);
+    });
+
+    // ── Prev Week H/L ─────────────────────────────────────
+    [[snapData?.prev_week_high,'PWH'],[snapData?.prev_week_low,'PWL']].forEach(([p,l]) => {
+      if (!p) return;
+      const y = yForPrice(p);
+      ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.setLineDash([]);
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
+      ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '9px monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText(l, PAD_L+3, y);
+    });
+
+    // ── Premarket H/L ─────────────────────────────────────
+    [[snapData?.premarket_high,'PMH'],[snapData?.premarket_low,'PML']].forEach(([p,l]) => {
+      if (!p) return;
+      const y = yForPrice(p);
+      ctx.strokeStyle = 'rgba(255,152,0,0.7)'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,152,0,0.9)'; ctx.font = '9px monospace';
+      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
+      ctx.fillText(l, PAD_L+3, y);
+    });
+
     // ── Volume bars ───────────────────────────────────────
     const volMax = Math.max(1, ...visible.map(b => b.v));
     visible.forEach((b, i) => {

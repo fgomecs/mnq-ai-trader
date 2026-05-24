@@ -1033,6 +1033,53 @@ updateClock();
       ctx.fillText(`OR L ${snapData.orLow.toFixed(2)}`, PAD_L+3, yL);
     }
 
+    // ── FVG bands ────────────────────────────────────────
+    (snapData?.fvg_levels || []).forEach(fvg => {
+      const y1 = yForPrice(fvg.high), y2 = yForPrice(fvg.low);
+      const isBull = fvg.type === 'BULL';
+      ctx.fillStyle = isBull ? 'rgba(76,175,80,0.10)' : 'rgba(229,57,53,0.10)';
+      ctx.fillRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
+      const midY = (y1 + y2) / 2;
+      ctx.strokeStyle = isBull ? 'rgba(76,175,80,0.45)' : 'rgba(229,57,53,0.45)';
+      ctx.lineWidth = 1; ctx.setLineDash([3,3]);
+      ctx.beginPath(); ctx.moveTo(PAD_L, midY); ctx.lineTo(PAD_L+cw, midY); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = isBull ? 'rgba(76,175,80,0.8)' : 'rgba(229,57,53,0.8)';
+      ctx.font = '8px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText((isBull ? 'FVG▲' : 'FVG▼'), PAD_L + cw - 2, midY);
+    });
+
+    // ── OB bands ─────────────────────────────────────────
+    (snapData?.ob_levels || []).forEach(ob => {
+      const y1 = yForPrice(ob.high), y2 = yForPrice(ob.low);
+      const isBull = ob.type === 'BULL';
+      ctx.fillStyle = isBull ? 'rgba(33,150,243,0.10)' : 'rgba(255,152,0,0.10)';
+      ctx.fillRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
+      ctx.strokeStyle = isBull ? 'rgba(33,150,243,0.5)' : 'rgba(255,152,0,0.5)';
+      ctx.lineWidth = 1; ctx.setLineDash([4,2]);
+      [y1, y2].forEach(y => {
+        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
+      });
+      ctx.setLineDash([]);
+      const midY = (y1 + y2) / 2;
+      ctx.fillStyle = isBull ? 'rgba(33,150,243,0.8)' : 'rgba(255,152,0,0.8)';
+      ctx.font = '8px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.fillText((isBull ? 'OB▲' : 'OB▼'), PAD_L + cw - 2, midY);
+    });
+
+    // ── Liquidity levels ─────────────────────────────────
+    (snapData?.liq_levels || []).forEach(liq => {
+      const y = yForPrice(liq.price);
+      const isBuy = liq.side === 'buy';
+      ctx.strokeStyle = isBuy ? 'rgba(255,214,0,0.55)' : 'rgba(255,214,0,0.55)';
+      ctx.lineWidth = 1; ctx.setLineDash([2,5]);
+      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = 'rgba(255,214,0,0.75)';
+      ctx.font = '8px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.fillText((isBuy ? 'BSL' : 'SSL'), PAD_L + 2, y - 4);
+    });
+
     // ── VWAP curve (per-bar) ─────────────────────────────
     ctx.strokeStyle = 'rgba(255,214,0,0.85)'; ctx.lineWidth = 1.5;
     ctx.setLineDash([]);

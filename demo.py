@@ -318,10 +318,14 @@ class MarketSim:
             "bars1min": self._make_bars(now_et, 1, 195),
             "bars5min": self._make_bars(now_et, 5, 195),
             "tradeMarkers": [
-                {"t": tr.get("entry_time", now_et.strftime("%Y-%m-%dT%H:%M")),
-                 "exit_t": tr.get("exit_time", ""),
-                 "price": tr["entry"],
-                 "dir": tr["direction"], "exit": tr.get("exit"), "pnl": tr.get("pnl", 0)}
+                {
+                    "t":      tr.get("entry_time", ""),
+                    "exit_t": tr.get("exit_time", ""),
+                    "price":  tr["entry"],
+                    "exit":   tr.get("exit"),
+                    "dir":    tr["direction"],
+                    "pnl":    tr.get("pnl", 0),
+                }
                 for tr in self.trades[-50:]
             ],
             "trades": self.trades[-10:],

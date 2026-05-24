@@ -86,10 +86,11 @@ class IBKRFeed:
         self._rt_subscription = None
 
         # ── Session levels ─────────────────────────────────
-        self.asia_high      = self.asia_low      = None
-        self.london_high    = self.london_low    = None
-        self.prev_day_high  = self.prev_day_low  = None
-        self.prev_week_high = self.prev_week_low = None
+        self.asia_high       = self.asia_low       = None
+        self.london_high     = self.london_low     = None
+        self.prev_day_high   = self.prev_day_low   = None
+        self.prev_week_high  = self.prev_week_low  = None
+        self.premarket_high  = self.premarket_low  = None
 
         # ── VWAP ───────────────────────────────────────────
         self.vwap_cum_vol = 0.0
@@ -757,6 +758,8 @@ class IBKRFeed:
                 "order_blocks":    ict.get("order_blocks", ""),
                 "liquidity_pools": ict.get("liquidity_pools", ""),
                 "session_levels":  self._format_session_levels(last_price),
+                "premarket_high":  self.premarket_high,
+                "premarket_low":   self.premarket_low,
                 "daily_zones":     ict.get("daily_zones", {
                     "demand_zones": [], "supply_zones": [],
                     "near_demand": False, "near_supply": False, "zones_text": "",
@@ -1158,7 +1161,7 @@ class IBKRFeed:
             prev_week_mon = week_mon - timedelta(days=7)
             prev_week_fri = prev_week_mon + timedelta(days=4)
 
-            asia_bars, london_bars, prev_day_bars, prev_week_bars = [], [], [], []
+            asia_bars, london_bars, prev_day_bars, prev_week_bars, premarket_bars = [], [], [], [], []
 
             for bar in bars_1min:
                 bt   = _bar_et(bar)
@@ -1172,6 +1175,8 @@ class IBKRFeed:
                     prev_day_bars.append(bar)
                 if prev_week_mon <= date <= prev_week_fri and 9 <= h < 16:
                     prev_week_bars.append(bar)
+                if date == today and 4 <= h < 9:
+                    premarket_bars.append(bar)
 
             if asia_bars:
                 self.asia_high = max(b.high for b in asia_bars)
@@ -1185,6 +1190,9 @@ class IBKRFeed:
             if prev_week_bars:
                 self.prev_week_high = max(b.high for b in prev_week_bars)
                 self.prev_week_low  = min(b.low  for b in prev_week_bars)
+            if premarket_bars:
+                self.premarket_high = max(b.high for b in premarket_bars)
+                self.premarket_low  = min(b.low  for b in premarket_bars)
         except Exception as e:
             logger.error(f"Session levels error: {e}")
 
@@ -2174,14 +2182,16 @@ class IBKRFeed:
     def _format_session_levels(self, current_price) -> str:
         lines = ["KEY SESSION LEVELS:"]
         pairs = [
-            ("Prev Week High", self.prev_week_high, "ABOVE — support",        "BELOW — resistance"),
-            ("Prev Week Low",  self.prev_week_low,  "ABOVE — support",        "BELOW — resistance"),
-            ("Prev Day High",  self.prev_day_high,  "ABOVE — broken, support","BELOW — resistance"),
-            ("Prev Day Low",   self.prev_day_low,   "ABOVE — support",        "BELOW — broken, resistance"),
-            ("Asia High",      self.asia_high,      "SWEPT — bullish",        "buy-side liquidity above"),
-            ("Asia Low",       self.asia_low,       "SWEPT — bearish",        "sell-side liquidity below"),
-            ("London High",    self.london_high,    "SWEPT",                  "buy-side above"),
-            ("London Low",     self.london_low,     "SWEPT",                  "sell-side below"),
+            ("Prev Week High", self.prev_week_high, "ABOVE — support",          "BELOW — resistance"),
+            ("Prev Week Low",  self.prev_week_low,  "ABOVE — support",          "BELOW — resistance"),
+            ("Prev Day High",  self.prev_day_high,  "ABOVE — broken, support",  "BELOW — resistance"),
+            ("Prev Day Low",   self.prev_day_low,   "ABOVE — support",          "BELOW — broken, resistance"),
+            ("PM High",        self.premarket_high, "ABOVE — broken, support",  "BELOW — resistance"),
+            ("PM Low",         self.premarket_low,  "ABOVE — support",          "BELOW — broken, resistance"),
+            ("Asia High",      self.asia_high,      "SWEPT — bullish",          "buy-side liquidity above"),
+            ("Asia Low",       self.asia_low,       "SWEPT — bearish",          "sell-side liquidity below"),
+            ("London High",    self.london_high,    "SWEPT",                    "buy-side above"),
+            ("London Low",     self.london_low,     "SWEPT",                    "sell-side below"),
         ]
         found = False
         for label, level, above_txt, below_txt in pairs:

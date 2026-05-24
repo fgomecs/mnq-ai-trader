@@ -1040,6 +1040,20 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     if "[OR aligned]" in _cp and any(p in _cp for p in ("BEARISH ENGULFING", "SHOOTING STAR", "INSIDE BAR BREAKOUT DOWN", "EVENING STAR")):
         bear_signals += 1; bear_reasons.append("OR-aligned candle pattern")
 
+    # Pre-market high / low signals
+    pm_high = snapshot.get("premarket_high") or 0
+    pm_low  = snapshot.get("premarket_low")  or 0
+    if pm_high > 0:
+        if price > pm_high:
+            bull_signals += 1; bull_reasons.append("above PM high")
+        elif abs(price - pm_high) <= 5:
+            bear_signals += 1; bear_reasons.append("testing PM high resistance")
+    if pm_low > 0:
+        if price < pm_low:
+            bear_signals += 1; bear_reasons.append("below PM low")
+        elif abs(price - pm_low) <= 5:
+            bull_signals += 1; bull_reasons.append("testing PM low support")
+
     # Daily demand / supply zones
     _daily_zones = snapshot.get("daily_zones", {})
     if _daily_zones.get("near_demand"):

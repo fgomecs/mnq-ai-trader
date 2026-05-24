@@ -1589,12 +1589,12 @@ class IBKRFeed:
                 # Bullish engulfing (b2 engulfs b1)
                 if (_is_bear(b1) and _is_bull(b2)
                         and b2.open < b1.close and b2.close > b1.open):
-                    patterns.append(f"BULLISH ENGULFING (5m){_or_align('BULL')}")
+                    patterns.append(f"BULLISH ENGULFING (5m){_or_align('BULL')}{_vol_confirm(b2, b1)}")
 
                 # Bearish engulfing
                 if (_is_bull(b1) and _is_bear(b2)
                         and b2.open > b1.close and b2.close < b1.open):
-                    patterns.append(f"BEARISH ENGULFING (5m){_or_align('BEAR')}")
+                    patterns.append(f"BEARISH ENGULFING (5m){_or_align('BEAR')}{_vol_confirm(b2, b1)}")
 
                 # Hammer — appears after downmove (b0 and b1 declining lows)
                 body2 = _body(b2)
@@ -1603,7 +1603,7 @@ class IBKRFeed:
                     uw2 = _upper_wick(b2)
                     down_move = b1.low < b0.low and b2.low <= b1.low
                     if (lw2 >= 2 * body2 and uw2 <= 0.3 * body2 and down_move):
-                        patterns.append(f"HAMMER (5m){_or_align('BULL')}")
+                        patterns.append(f"HAMMER (5m){_or_align('BULL')}{_vol_confirm(b2, b1)}")
 
                 # Shooting star — appears after upmove
                 if body2 > 0:
@@ -1611,18 +1611,18 @@ class IBKRFeed:
                     lw2 = _lower_wick(b2)
                     up_move = b1.high > b0.high and b2.high >= b1.high
                     if (uw2 >= 2 * body2 and lw2 <= 0.3 * body2 and up_move):
-                        patterns.append(f"SHOOTING STAR (5m){_or_align('BEAR')}")
+                        patterns.append(f"SHOOTING STAR (5m){_or_align('BEAR')}{_vol_confirm(b2, b1)}")
 
                 # Morning star (3-bar: bearish, small body, bullish)
                 small_body1 = _body(b1) < _body(b0) * 0.4
                 if (_is_bear(b0) and small_body1 and _is_bull(b2)
                         and _body(b0) > 0 and _body(b2) >= _body(b0) * 0.6):
-                    patterns.append(f"MORNING STAR (5m){_or_align('BULL')}")
+                    patterns.append(f"MORNING STAR (5m){_or_align('BULL')}{_vol_confirm(b2, b0)}")
 
                 # Evening star
                 if (_is_bull(b0) and small_body1 and _is_bear(b2)
                         and _body(b0) > 0 and _body(b2) >= _body(b0) * 0.6):
-                    patterns.append(f"EVENING STAR (5m){_or_align('BEAR')}")
+                    patterns.append(f"EVENING STAR (5m){_or_align('BEAR')}{_vol_confirm(b2, b0)}")
 
                 # Inside bar — b2's range is inside b1's range
                 if b2.high < b1.high and b2.low > b1.low:
@@ -1630,9 +1630,9 @@ class IBKRFeed:
                     if bars_1min and len(bars_1min) >= 1:
                         last_1m = bars_1min[-1]
                         if last_1m.close > b1.high:
-                            patterns.append(f"INSIDE BAR BREAKOUT UP (5m→1m){_or_align('BULL')}")
+                            patterns.append(f"INSIDE BAR BREAKOUT UP (5m→1m){_or_align('BULL')}{_vol_confirm(last_1m, b2)}")
                         elif last_1m.close < b1.low:
-                            patterns.append(f"INSIDE BAR BREAKOUT DOWN (5m→1m){_or_align('BEAR')}")
+                            patterns.append(f"INSIDE BAR BREAKOUT DOWN (5m→1m){_or_align('BEAR')}{_vol_confirm(last_1m, b2)}")
                         else:
                             patterns.append("INSIDE BAR (5m) — breakout pending")
 
@@ -1643,12 +1643,12 @@ class IBKRFeed:
                 # Bullish engulfing
                 if (_is_bear(c1) and _is_bull(c2)
                         and c2.open < c1.close and c2.close > c1.open):
-                    patterns.append(f"BULLISH ENGULFING (1m){_or_align('BULL')}")
+                    patterns.append(f"BULLISH ENGULFING (1m){_or_align('BULL')}{_vol_confirm(c2, c1)}")
 
                 # Bearish engulfing
                 if (_is_bull(c1) and _is_bear(c2)
                         and c2.open > c1.close and c2.close < c1.open):
-                    patterns.append(f"BEARISH ENGULFING (1m){_or_align('BEAR')}")
+                    patterns.append(f"BEARISH ENGULFING (1m){_or_align('BEAR')}{_vol_confirm(c2, c1)}")
 
                 # Hammer
                 body2 = _body(c2)
@@ -1657,7 +1657,7 @@ class IBKRFeed:
                     uw2 = _upper_wick(c2)
                     down_move = c1.low < c0.low
                     if lw2 >= 2 * body2 and uw2 <= 0.3 * body2 and down_move:
-                        patterns.append(f"HAMMER (1m){_or_align('BULL')}")
+                        patterns.append(f"HAMMER (1m){_or_align('BULL')}{_vol_confirm(c2, c1)}")
 
                 # Shooting star
                 if body2 > 0:
@@ -1665,7 +1665,7 @@ class IBKRFeed:
                     lw2 = _lower_wick(c2)
                     up_move = c1.high > c0.high
                     if uw2 >= 2 * body2 and lw2 <= 0.3 * body2 and up_move:
-                        patterns.append(f"SHOOTING STAR (1m){_or_align('BEAR')}")
+                        patterns.append(f"SHOOTING STAR (1m){_or_align('BEAR')}{_vol_confirm(c2, c1)}")
 
             if not patterns:
                 return "No significant candle patterns"

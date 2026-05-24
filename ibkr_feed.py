@@ -1061,8 +1061,12 @@ class IBKRFeed:
         try:
             today     = now_et.date()
             yesterday = (now_et - timedelta(days=1)).date()
-            asia_bars = london_bars = prev_day_bars = []
-            asia_bars, london_bars, prev_day_bars = [], [], []
+
+            week_mon      = today - timedelta(days=today.weekday())
+            prev_week_mon = week_mon - timedelta(days=7)
+            prev_week_fri = prev_week_mon + timedelta(days=4)
+
+            asia_bars, london_bars, prev_day_bars, prev_week_bars = [], [], [], []
 
             for bar in bars_1min:
                 bt   = _bar_et(bar)
@@ -1074,6 +1078,8 @@ class IBKRFeed:
                     london_bars.append(bar)
                 if date == yesterday and 9 <= h < 16:
                     prev_day_bars.append(bar)
+                if prev_week_mon <= date <= prev_week_fri and 9 <= h < 16:
+                    prev_week_bars.append(bar)
 
             if asia_bars:
                 self.asia_high = max(b.high for b in asia_bars)
@@ -1084,6 +1090,9 @@ class IBKRFeed:
             if prev_day_bars:
                 self.prev_day_high = max(b.high for b in prev_day_bars)
                 self.prev_day_low  = min(b.low  for b in prev_day_bars)
+            if prev_week_bars:
+                self.prev_week_high = max(b.high for b in prev_week_bars)
+                self.prev_week_low  = min(b.low  for b in prev_week_bars)
         except Exception as e:
             logger.error(f"Session levels error: {e}")
 

@@ -163,7 +163,7 @@ Computed in `_update_session_levels()` in `ibkr_feed.py` and injected into the s
 | Level | Source |
 |---|---|
 | Session high / low | Rolling intraday extremes |
-| OR high / low | First 5-min candle (9:30–9:35 ET) |
+| OR high / low | First 15 minutes of RTH (9:30–9:45 ET) — three 5-min bars |
 | VWAP | Volume-weighted average price |
 | Previous week high / low | `prev_week_high` / `prev_week_low` — calculated from the daily bar cache and included in Claude's snapshot as reference levels for weekly liquidity |
 
@@ -525,7 +525,7 @@ All constants below are in `config.py` and overridable via `.env`. Defaults are 
 ```env
 SESSION_PRE_MARKET_TIME=830       # Pre-market analysis window start
 SESSION_MARKET_OPEN_TIME=930      # RTH open, OR begins forming
-SESSION_OR_FORMING_END=935        # OR established after this
+SESSION_OR_FORMING_END=945        # OR established after this (end of 15-min window)
 SESSION_PRIME_WINDOW_END=1100     # NY AM prime window ends
 SESSION_DEAD_ZONE_END=1330        # Dead zone ends, PM prime begins
 SESSION_CLOSING_END=1600          # RTH close
@@ -668,7 +668,7 @@ Or use `start_trading.bat` to launch both with one double-click.
 8:20 ET  → py -3.11 main.py
 8:30 ET  → Pre-market analysis (Opus) — injects last 3 learning reports
 9:30 ET  → OR forms, bias sets
-9:35 ET  → Active scanning begins
+9:45 ET  → OR complete, active scanning begins
 11:00 ET → Dead zone (8+ confluence required if FEATURE_DEAD_ZONE=true)
 13:30 ET → NY PM prime window
 15:30 ET → EOD: close positions, save memory
@@ -834,7 +834,7 @@ stateDiagram-v2
     [*] --> PRE_SESSION: before 8:30 ET
     PRE_SESSION --> PRE_MARKET: 8:30 ET
     PRE_MARKET --> OR_FORMING: 9:30 ET
-    OR_FORMING --> NY_AM: 9:35 ET
+    OR_FORMING --> NY_AM: 9:45 ET
     NY_AM --> DEAD_ZONE: 11:00 ET
     DEAD_ZONE --> NY_PM: 1:30 PM ET
     NY_PM --> AFTER_HOURS: 4:00 PM ET

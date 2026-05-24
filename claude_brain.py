@@ -92,7 +92,7 @@ If MTF is BULLISH_ALIGNED, do NOT enter short regardless of OR direction.
 ═══════════════════════════════════════
 STEP 3 — OPENING RANGE CONTEXT
 ═══════════════════════════════════════
-The OR first-5-min candle gives institutional intent at the open.
+The OR is the first 15 minutes of RTH (9:30-9:45 ET) — three 5-min bars. High = range high, Low = range low. This filters out the opening manipulation spike that typically fakes direction in the first 5 minutes.
 It is a STARTING POINT, not a prison.
 
 OR direction matters most: within the first 90 minutes, and when price is

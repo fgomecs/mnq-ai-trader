@@ -1568,6 +1568,20 @@ class IBKRFeed:
                     return " [OR aligned]"
                 return ""
 
+            def _vol_confirm(b_signal, b_prior):
+                if not hasattr(b_signal, 'volume') or not b_signal.volume:
+                    return ""
+                if not hasattr(b_prior, 'volume') or not b_prior.volume:
+                    return ""
+                ratio = b_signal.volume / b_prior.volume if b_prior.volume > 0 else 1.0
+                if ratio >= 1.5:
+                    return " ✓VOL"
+                if ratio >= 1.2:
+                    return " ~VOL"
+                if ratio < 0.7:
+                    return " ✗VOL"
+                return ""
+
             # ── 5-min patterns (need at least 3 bars) ──────────────
             if bars_5min and len(bars_5min) >= 3:
                 b0, b1, b2 = bars_5min[-3], bars_5min[-2], bars_5min[-1]

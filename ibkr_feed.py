@@ -1829,30 +1829,26 @@ class IBKRFeed:
 
     def _get_killzone(self, now_et: datetime) -> str:
         t = now_et.hour * 100 + now_et.minute
-        if t >= 2000 or t < 200:
-            return "ASIAN KILLZONE (8pm-12am ET)"
-        if t < 500:
-            return "LONDON KILLZONE (2am-5am ET) ★ — sweeps Asia range"
-        if t < 830:
-            return "OUTSIDE KILLZONE (5am-8:30am ET)"
+        if t >= 1900 or t < 300:
+            return "ASIAN KILLZONE (7pm-3am ET)"
+        if t < 800:
+            return "LONDON KILLZONE (3am-8am ET) ★ — sweeps Asia range, pre-NY accumulation"
         if t < 1100:
-            return "NY AM KILLZONE (8:30am-11am ET) ★★ — PRIME"
+            return "LONDON-NY OVERLAP (8am-11am ET) ★★ PRIME — highest liquidity"
         if t < 1330:
             return "DEAD ZONE (11am-1:30pm ET) — avoid"
         if t < 1600:
             return "NY PM KILLZONE (1:30pm-4pm ET) ★ — power hour"
-        return "OUTSIDE KILLZONE (4pm-8pm ET)"
+        return "OUTSIDE KILLZONE (4pm-7pm ET)"
 
     def _determine_amd_phase(self, now_et: datetime) -> str:
         t = now_et.hour * 100 + now_et.minute
-        if t >= 2000 or t < 200:
-            return "ACCUMULATION (Asian KZ)"
-        if t < 500:
-            return "MANIPULATION (London KZ) — stop hunts active"
-        if t < 830:
-            return "PRE-NY — awaiting 8:30am"
+        if t >= 1900 or t < 300:
+            return "ACCUMULATION (Asian session)"
+        if t < 800:
+            return "MANIPULATION (London) — stop hunts, Asia range sweeps"
         if t < 1100:
-            return "DISTRIBUTION (NY AM KZ) — real institutional move"
+            return "DISTRIBUTION (London-NY overlap) — real institutional move"
         if t < 1330:
             return "DEAD ZONE — no new entries"
         if t < 1600:
@@ -1861,8 +1857,9 @@ class IBKRFeed:
 
     def _get_session_phase(self, now_et: datetime) -> str:
         t = now_et.hour * 100 + now_et.minute
-        if t < 700:   return "ASIA SESSION"
-        if t < 930:   return "LONDON / PRE-MARKET"
+        if t < 300:   return "ASIA SESSION"
+        if t < 800:   return "LONDON SESSION"
+        if t < 930:   return "LONDON-NY OVERLAP"
         if t < 945:   return "OPENING AUCTION"
         if t < 1130:  return "NY AM PRIME"
         if t < 1330:  return "MIDDAY / CAUTION"

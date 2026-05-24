@@ -1074,7 +1074,7 @@ updateClock();
       const x      = PAD_L + i * barPx + barPx * 0.5;
       const isLong = m.dir === 'LONG';
       const entryCol = isLong ? '#00873a' : '#b71c1c';
-      const exitCol  = '#888888';
+      const exitCol  = isLong ? '#ff1744' : '#00c853';
       const entryY   = yForPrice(m.price);
       const exitY    = m.exit ? yForPrice(m.exit) : null;
       const S        = 7;   // triangle half-size
@@ -1124,9 +1124,9 @@ updateClock();
         const exitX = PAD_L + exitI * barPx + barPx * 0.5;
 
         // Horizontal dotted line from entry to exit at entry price height
-        ctx.strokeStyle = entryCol + '66';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 4]);
+        ctx.strokeStyle = entryCol;
+        ctx.lineWidth = 2;
+        ctx.setLineDash([5, 3]);
         ctx.beginPath();
         ctx.moveTo(x, entryY);
         ctx.lineTo(exitX, entryY);

@@ -198,6 +198,7 @@ DECISION: [BUY / SELL / HOLD]
 CONFIDENCE: [LOW / MEDIUM / HIGH]
 THESIS_PROBABILITY: [0-100]
 MODE: [SCALP / SWING / NONE]
+ENTRY_PRICE: [ideal limit price — the OB midpoint, FVG midpoint, or pullback retest level. If no specific level, use 0.]
 STOP_PRICE: [actual price level]
 TARGET_1: [first key level price]
 TARGET_2: [second key level price or TRAIL]
@@ -1672,6 +1673,7 @@ def parse_decision(text: str, allow_zero_stop: bool = False) -> dict:
     """
     d = {
         "decision": "HOLD", "mode": "NONE", "contracts": 1,
+        "entry_price": 0.0,
         "stop_price": 0.0, "target_1": 0.0, "target_2": 0.0,
         "stop_ticks": 100, "target_ticks": 200,
         "confidence": "LOW",
@@ -1693,6 +1695,8 @@ def parse_decision(text: str, allow_zero_stop: bool = False) -> dict:
             d["mode"] = _first_match(val, ["SCALP", "SWING", "MOMENTUM", "NONE"]) or "NONE"
         elif key == "CONTRACTS":
             d["contracts"] = _extract_int(val, 1)
+        elif key == "ENTRY_PRICE":
+            d["entry_price"] = _extract_float(val, 0.0)
         elif key == "STOP_PRICE":
             d["stop_price"] = _extract_float(val, 0.0)
         elif key == "STOP_TICKS":

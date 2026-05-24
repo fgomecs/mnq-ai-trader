@@ -686,7 +686,6 @@ def end_of_day(feed: IBKRFeed, executor: Executor) -> None:
                 date_str        = date_str,
                 session_summary = session_summary,
                 trades          = executor.trades_today,
-                auto_commit     = True,
             )
         except Exception as e:
             logger.warning(f"EOD learning session failed: {e}")

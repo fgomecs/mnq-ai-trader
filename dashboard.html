@@ -749,6 +749,32 @@ function render(d) {
   }
   el('ict-mtf').textContent   = d.mtf_alignment || '—';
 
+  // ── Feature badges ────────────────────────────────────────
+  const badgeEl = el('feature-badges');
+  if (badgeEl) {
+    const cp  = (d.candle_patterns || '').toUpperCase();
+    const tb  = d.tape_bias || '';
+    const dz  = d.daily_zones || {};
+    const badges = [
+      { label: 'FVG',    on: !!(d.fair_value_gaps && d.fair_value_gaps !== '—') },
+      { label: 'OB',     on: !!(d.order_blocks    && d.order_blocks    !== '—') },
+      { label: 'CHoCH',  on: !!(d.choch           && d.choch           !== '—') },
+      { label: 'LIQ',    on: !!(d.liquidity_pools && d.liquidity_pools !== '—') },
+      { label: 'TAPE',   on: tb === 'AGGRESSIVE_BUYING' || tb === 'AGGRESSIVE_SELLING', bear: tb === 'AGGRESSIVE_SELLING' },
+      { label: 'ENGULF', on: cp.includes('ENGULFING') },
+      { label: 'HAMMER', on: cp.includes('HAMMER') },
+      { label: 'STAR',   on: cp.includes('STAR') },
+      { label: 'INSIDE', on: cp.includes('INSIDE') },
+      { label: 'MTF',    on: !!(d.mtf_alignment && d.mtf_alignment.includes('ALIGNED')) },
+      { label: 'ZONE',   on: !!(dz.near_demand || dz.near_supply), bear: !!dz.near_supply && !dz.near_demand },
+    ];
+    badgeEl.innerHTML = badges.map(b => {
+      const bg  = b.on ? (b.bear ? '#ff4444' : '#00e676') : '#222';
+      const col = b.on ? '#000' : '#444';
+      return `<span style="padding:2px 6px;border-radius:3px;font-size:10px;font-weight:bold;background:${bg};color:${col}">${b.label}</span>`;
+    }).join('');
+  }
+
   // ── Bottom panel: IBKR headlines (left) + Economic calendar (right) ──
   const dangerous = d.newsDangerZone;
   const alertDiv = el('news-danger-alert');

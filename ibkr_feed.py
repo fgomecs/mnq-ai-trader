@@ -24,6 +24,24 @@ from config import (
     CONTRACT_CONID, CONTRACT_EXPIRY, CURRENCY, EXCHANGE,
     IBKR_CLIENT_ID, IBKR_HOST, IBKR_PORT, LIVE_DATA_ACTIVE, SYMBOL,
     FEATURE_OFI, FEATURE_DOM_ADVANCED, FEATURE_MTF_SCORE, FEATURE_DELTA_LIVE,
+    DOM_HISTORY_MAX_SNAPSHOTS, TICK_STATE_PERSIST_INTERVAL_SECS,
+    INIT_BARS_1MIN_DURATION, INIT_BARS_5MIN_DURATION,
+    INIT_BARS_15MIN_DURATION, INIT_BARS_DAILY_DURATION,
+    REALTIME_BARS_PER_MINUTE, BARS_1MIN_CACHE_SIZE,
+    SNAPSHOT_ASSEMBLY_SLEEP_SECS, NEWS_CACHE_TTL_SECS,
+    OFI_STRONG_THRESHOLD_CONTRACTS, OFI_ACCELERATION_THRESHOLD,
+    OFI_DECELERATION_THRESHOLD, OFI_STRONG_BUY_THRESHOLD,
+    OFI_BUY_THRESHOLD, OFI_STRONG_SELL_THRESHOLD, OFI_SELL_THRESHOLD,
+    DELTA_DIVERGENCE_THRESHOLD,
+    DOM_SIGNIFICANT_SIZE, DOM_LARGE_SIZE, DOM_WHALE_SIZE,
+    DOM_BUY_PRESSURE_BULL_THRESHOLD, DOM_SELL_PRESSURE_BEAR_THRESHOLD,
+    DOM_CLUSTER_TOLERANCE_POINTS, DOM_VACUUM_THRESHOLD_SIZE,
+    DOM_ICEBERG_SHRINK_PCT, DOM_ICEBERG_RECOVERY_PCT,
+    DOM_SWEEP_LEVEL_THRESHOLD,
+    VOLUME_PROFILE_TARGET_PCT, POC_PROXIMITY_POINTS,
+    FVG_PROXIMITY_POINTS, OB_PROXIMITY_POINTS, LIQUIDITY_POOL_TOLERANCE,
+    OR_PULLBACK_THRESHOLD_PCT,
+    SESSION_MARKET_OPEN_TIME,
 )
 from logger import logger
 from news_calendar import get_news_snapshot
@@ -97,7 +115,7 @@ class IBKRFeed:
         # Stores snapshots of (price→size) dicts for asks and bids
         # Keyed by time.time() — last 10 snapshots (~50s at 5s cadence)
         self._dom_history: list[dict] = []   # [{ts, asks:{p:s}, bids:{p:s}}]
-        self._dom_history_max = 12           # keep last 60s of snapshots
+        self._dom_history_max = DOM_HISTORY_MAX_SNAPSHOTS
 
         # ── News cache (10-min TTL) ────────────────────────
         self._news_cache:      dict  = {}
@@ -139,7 +157,7 @@ class IBKRFeed:
         # if same trading day so CUM Δ survives restarts.
         self._persist_path      = None
         self._persist_last_save = 0.0
-        self._persist_interval  = 30   # seconds
+        self._persist_interval  = TICK_STATE_PERSIST_INTERVAL_SECS
 
     # ─── Tick State Persistence (B.1, B.2, B.3) ────────────
 
@@ -266,13 +284,13 @@ class IBKRFeed:
             if LIVE_DATA_ACTIVE and self.dom_subscription_active:
                 try:
                     self.ib.cancelMktDepth(self.contract)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"DOM cancel on disconnect: {e}")
             if self._rt_subscription:
                 try:
                     self.ib.cancelRealTimeBars(self._rt_subscription)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"RT bars cancel on disconnect: {e}")
             self.ib.disconnect()
             logger.info("Disconnected from IBKR")
 
@@ -299,10 +317,10 @@ class IBKRFeed:
                 return []
 
         with self._bar_lock:
-            self._bars_1min  = _fetch("7200 S", "1 min")
-            self._bars_5min  = _fetch("86400 S", "5 mins")
-            self._bars_15min = _fetch("2 D",     "15 mins")
-            self._bars_daily = _fetch("30 D",    "1 day", use_rth=True)
+            self._bars_1min  = _fetch(INIT_BARS_1MIN_DURATION,  "1 min")
+            self._bars_5min  = _fetch(INIT_BARS_5MIN_DURATION,  "5 mins")
+            self._bars_15min = _fetch(INIT_BARS_15MIN_DURATION, "15 mins")
+            self._bars_daily = _fetch(INIT_BARS_DAILY_DURATION, "1 day", use_rth=True)
             self._last_bars_1min = list(self._bars_1min)
 
         logger.info(
@@ -334,9 +352,9 @@ class IBKRFeed:
 
                 self._rt_bar_buffer.append(last)
 
-                # Accumulate 12 × 5-sec bars → one 1-min bar
-                if len(self._rt_bar_buffer) >= 12:
-                    buf = self._rt_bar_buffer[-12:]
+                # Accumulate REALTIME_BARS_PER_MINUTE × 5-sec bars → one 1-min bar
+                if len(self._rt_bar_buffer) >= REALTIME_BARS_PER_MINUTE:
+                    buf = self._rt_bar_buffer[-REALTIME_BARS_PER_MINUTE:]
                     self._rt_bar_buffer = []
 
                     # Build synthetic 1-min bar
@@ -353,7 +371,7 @@ class IBKRFeed:
 
                     with self._bar_lock:
                         self._bars_1min.append(bar_1m)
-                        self._bars_1min = self._bars_1min[-120:]  # keep 2 hours
+                        self._bars_1min = self._bars_1min[-BARS_1MIN_CACHE_SIZE:]
                         self._last_bars_1min = list(self._bars_1min)
 
                         # Refresh delta and VWAP on new bar
@@ -551,7 +569,7 @@ class IBKRFeed:
                     logger.debug(f"IBKR news subscription failed: {e}")
                 self._news_handler_wired = True
 
-            self.ib.sleep(0.3)   # 0.3s vs 1.0s before
+            self.ib.sleep(SNAPSHOT_ASSEMBLY_SLEEP_SECS)
 
             last_price = ticker.last or ticker.close or (bars_1min[-1].close if bars_1min else 0)
             bid        = ticker.bid  or 0
@@ -560,7 +578,7 @@ class IBKRFeed:
 
             # News cache (10-min TTL — events list itself rarely changes,
             # but the time-sensitive fields need to be fresh)
-            if time.time() - self._news_cache_time > 600:
+            if time.time() - self._news_cache_time > NEWS_CACHE_TTL_SECS:
                 try:
                     self._news_cache      = get_news_snapshot(self.ib)
                     self._news_cache_time = time.time()
@@ -579,8 +597,8 @@ class IBKRFeed:
                         "next_event_minutes": fresh.get("next_event_minutes", None),
                         "recent_event":       fresh.get("recent_event",       None),
                     })
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"News timing refresh failed: {e}")
 
             # Session levels
             self._update_session_levels(bars_1min, now_et)
@@ -797,7 +815,7 @@ class IBKRFeed:
 
             if self.or_breakout_candle_low:
                 # Check if price has pulled back toward OR high
-                if price < (self.or_high + (self.or_high - self.or_low) * 0.3):
+                if price < (self.or_high + (self.or_high - self.or_low) * OR_PULLBACK_THRESHOLD_PCT):
                     self.or_pullback_in_progress = True
                     # Track the lowest point of the pullback
                     if self.or_pullback_low is None or price < self.or_pullback_low:
@@ -820,7 +838,7 @@ class IBKRFeed:
                             break
 
             if self.or_breakout_candle_high:
-                if price > (self.or_low - (self.or_high - self.or_low) * 0.3):
+                if price > (self.or_low - (self.or_high - self.or_low) * OR_PULLBACK_THRESHOLD_PCT):
                     self.or_pullback_in_progress = True
                     if self.or_pullback_low is None or price > self.or_pullback_low:
                         self.or_pullback_low = price
@@ -992,7 +1010,7 @@ class IBKRFeed:
             rth_bars = []
             for bar in bars:
                 bt = _bar_et(bar)
-                if bt.date() == today and (bt.hour > 9 or (bt.hour == 9 and bt.minute >= 30)):
+                if bt.date() == today and bt.hour * 100 + bt.minute >= SESSION_MARKET_OPEN_TIME:
                     rth_bars.append(bar)
             if not rth_bars:
                 return 0.0
@@ -1009,9 +1027,9 @@ class IBKRFeed:
             return self._calculate_delta(self._last_bars_1min)
         cum = self.tick_delta
         bar = getattr(self, "_delta_last_bar", 0)
-        if cum > 0 and bar < -500:
+        if cum > 0 and bar < -DELTA_DIVERGENCE_THRESHOLD:
             div = "⚠️ DIVERGENCE: cumulative bullish but last bar selling hard"
-        elif cum < 0 and bar > 500:
+        elif cum < 0 and bar > DELTA_DIVERGENCE_THRESHOLD:
             div = "⚠️ DIVERGENCE: cumulative bearish but last bar buying hard"
         else:
             div = "Aligned"
@@ -1294,12 +1312,12 @@ class IBKRFeed:
                 prev, nxt = bars[i-1], bars[i+1]
                 if nxt.low > prev.high:
                     mid = (nxt.low + prev.high) / 2
-                    if abs(current_price - mid) < 100:
+                    if abs(current_price - mid) < FVG_PROXIMITY_POINTS:
                         inside = prev.high <= current_price <= nxt.low
                         fvgs.append(f"BULL FVG: {prev.high:.2f}-{nxt.low:.2f} (mid:{mid:.2f}) {'★ INSIDE' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
                 if nxt.high < prev.low:
                     mid = (prev.low + nxt.high) / 2
-                    if abs(current_price - mid) < 100:
+                    if abs(current_price - mid) < FVG_PROXIMITY_POINTS:
                         inside = nxt.high <= current_price <= prev.low
                         fvgs.append(f"BEAR FVG: {nxt.high:.2f}-{prev.low:.2f} (mid:{mid:.2f}) {'★ INSIDE' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
             return "\n".join(fvgs[-4:]) if fvgs else "No nearby FVGs"
@@ -1316,13 +1334,13 @@ class IBKRFeed:
                 if (c.close < c.open and n1.close > n1.open and n2.close > n2.open
                         and n1.close - n1.open > (c.open - c.close) * 1.5):
                     mid  = (c.open + c.close) / 2
-                    if abs(current_price - mid) < 150:
+                    if abs(current_price - mid) < OB_PROXIMITY_POINTS:
                         inside = c.close <= current_price <= c.open
                         obs.append(f"BULL OB: {c.close:.2f}-{c.open:.2f} {'★ AT OB' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
                 if (c.close > c.open and n1.close < n1.open and n2.close < n2.open
                         and n1.open - n1.close > (c.close - c.open) * 1.5):
                     mid  = (c.close + c.open) / 2
-                    if abs(current_price - mid) < 150:
+                    if abs(current_price - mid) < OB_PROXIMITY_POINTS:
                         inside = c.open <= current_price <= c.close
                         obs.append(f"BEAR OB: {c.open:.2f}-{c.close:.2f} {'★ AT OB' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
             return "\n".join(obs[-4:]) if obs else "No nearby order blocks"
@@ -1337,7 +1355,7 @@ class IBKRFeed:
             highs     = [b.high for b in recent]
             lows      = [b.low  for b in recent]
             pools     = []
-            tolerance = 2.0
+            tolerance = LIQUIDITY_POOL_TOLERANCE
             seen_h: set = set()
             seen_l: set = set()
 
@@ -1444,24 +1462,23 @@ class IBKRFeed:
                 return empty
 
             raw_ofi = sum(ofi_series)
-            STRONG   = 500   # MNQ "strong" OFI threshold in contracts
-            score    = max(-100, min(100, int(raw_ofi / STRONG * 100)))
+            score   = max(-100, min(100, int(raw_ofi / OFI_STRONG_THRESHOLD_CONTRACTS * 100)))
 
             mid         = len(ofi_series) // 2
             first_half  = sum(ofi_series[:mid]) if mid > 0 else 0
             second_half = sum(ofi_series[mid:])
-            if abs(second_half) > abs(first_half) * 1.3:
+            if abs(second_half) > abs(first_half) * OFI_ACCELERATION_THRESHOLD:
                 acceleration = "ACCELERATING"
-            elif abs(second_half) < abs(first_half) * 0.7:
+            elif abs(second_half) < abs(first_half) * OFI_DECELERATION_THRESHOLD:
                 acceleration = "DECELERATING"
             else:
                 acceleration = "STABLE"
 
-            if score >= 60:   signal = "STRONG_BUY"
-            elif score >= 25: signal = "BUY"
-            elif score <= -60:signal = "STRONG_SELL"
-            elif score <= -25:signal = "SELL"
-            else:             signal = "NEUTRAL"
+            if score >= OFI_STRONG_BUY_THRESHOLD:    signal = "STRONG_BUY"
+            elif score >= OFI_BUY_THRESHOLD:          signal = "BUY"
+            elif score <= OFI_STRONG_SELL_THRESHOLD:  signal = "STRONG_SELL"
+            elif score <= OFI_SELL_THRESHOLD:         signal = "SELL"
+            else:                                     signal = "NEUTRAL"
 
             divergence = False
             if hasattr(self, '_bars_1min') and self._bars_1min and len(self._bars_1min) >= 3:
@@ -1540,11 +1557,10 @@ class IBKRFeed:
                 if len(self._dom_history) > self._dom_history_max:
                     self._dom_history.pop(0)
 
-            # MNQ-tuned absolute size thresholds
-            # Retail: 1-10ct | Active: 10-50ct | Institutional: 50-200ct | Whale: 200+ct
-            SIGNIFICANT = 30
-            LARGE       = 75
-            WHALE       = 200
+            # MNQ-tuned absolute size thresholds (from config)
+            SIGNIFICANT = DOM_SIGNIFICANT_SIZE
+            LARGE       = DOM_LARGE_SIZE
+            WHALE       = DOM_WHALE_SIZE
 
             # Pressure metrics
             total_ask_vol = sum(s for _, s in asks)
@@ -1552,9 +1568,9 @@ class IBKRFeed:
             total_vol     = total_ask_vol + total_bid_vol
             buy_pressure  = total_bid_vol / total_vol if total_vol else 0.5
 
-            if buy_pressure > 0.65:
+            if buy_pressure > DOM_BUY_PRESSURE_BULL_THRESHOLD:
                 imbalance = "BID_HEAVY"
-            elif buy_pressure < 0.35:
+            elif buy_pressure < DOM_SELL_PRESSURE_BEAR_THRESHOLD:
                 imbalance = "ASK_HEAVY"
             else:
                 imbalance = "NEUTRAL"
@@ -1581,7 +1597,7 @@ class IBKRFeed:
                 while i < len(s_orders):
                     cp, cs = s_orders[i][0], s_orders[i][1]
                     j = i + 1
-                    while j < len(s_orders) and s_orders[j][0] - cp <= 1.25:  # 5 ticks
+                    while j < len(s_orders) and s_orders[j][0] - cp <= DOM_CLUSTER_TOLERANCE_POINTS:
                         cs += s_orders[j][1]
                         j  += 1
                     if cs >= min_total:
@@ -1597,8 +1613,8 @@ class IBKRFeed:
             # Vacuum: near-book levels are very thin (< 5ct each)
             near_asks    = sorted(asks)[:3]
             near_bids    = sorted(bids, reverse=True)[:3]
-            vacuum_above = bool(near_asks) and all(s < 5 for _, s in near_asks)
-            vacuum_below = bool(near_bids) and all(s < 5 for _, s in near_bids)
+            vacuum_above = bool(near_asks) and all(s < DOM_VACUUM_THRESHOLD_SIZE for _, s in near_asks)
+            vacuum_below = bool(near_bids) and all(s < DOM_VACUUM_THRESHOLD_SIZE for _, s in near_bids)
 
             # Iceberg, spoof, sweep — only when DOM_ADVANCED enabled
             iceberg_ask = iceberg_bid = None
@@ -1612,14 +1628,14 @@ class IBKRFeed:
                 # Iceberg: level shrank then recovered
                 for p in set(h0["asks"]) & set(h1["asks"]) & set(h2["asks"]):
                     if (h0["asks"][p] >= SIGNIFICANT
-                            and h1["asks"][p] < h0["asks"][p] * 0.6
-                            and h2["asks"][p] >= h0["asks"][p] * 0.7):
+                            and h1["asks"][p] < h0["asks"][p] * DOM_ICEBERG_SHRINK_PCT
+                            and h2["asks"][p] >= h0["asks"][p] * DOM_ICEBERG_RECOVERY_PCT):
                         iceberg_ask = p
                         break
                 for p in set(h0["bids"]) & set(h1["bids"]) & set(h2["bids"]):
                     if (h0["bids"][p] >= SIGNIFICANT
-                            and h1["bids"][p] < h0["bids"][p] * 0.6
-                            and h2["bids"][p] >= h0["bids"][p] * 0.7):
+                            and h1["bids"][p] < h0["bids"][p] * DOM_ICEBERG_SHRINK_PCT
+                            and h2["bids"][p] >= h0["bids"][p] * DOM_ICEBERG_RECOVERY_PCT):
                         iceberg_bid = p
                         break
                 # Spoof: large order appeared then vanished
@@ -1643,8 +1659,8 @@ class IBKRFeed:
                     1 for p in prev["bids"]
                     if p not in curr["bids"] and prev["bids"][p] >= SIGNIFICANT
                 )
-                sweep_up   = ask_consumed >= 3
-                sweep_down = bid_consumed >= 3
+                sweep_up   = ask_consumed >= DOM_SWEEP_LEVEL_THRESHOLD
+                sweep_down = bid_consumed >= DOM_SWEEP_LEVEL_THRESHOLD
 
             # Build text output
             bar = "█" * int(buy_pressure * 10) + "░" * (10 - int(buy_pressure * 10))
@@ -1711,7 +1727,9 @@ class IBKRFeed:
             if not asks and not bids:
                 return "DOM pending — requires CME Level 2 subscription"
 
-            SIGNIFICANT, LARGE, WHALE = 30, 75, 200
+            SIGNIFICANT = DOM_SIGNIFICANT_SIZE
+            LARGE       = DOM_LARGE_SIZE
+            WHALE       = DOM_WHALE_SIZE
             all_orders = asks + bids
             lines = ["ASKS (resistance):"]
             for price, size in sorted(asks):
@@ -1731,7 +1749,8 @@ class IBKRFeed:
             if large_asks: lines.append(f"Resistance magnet: {min(large_asks)}")
             if large_bids: lines.append(f"Support magnet: {max(large_bids)}")
             return "\n".join(lines)
-        except Exception:
+        except Exception as e:
+            logger.debug(f"DOM text error: {e}")
             return "DOM unavailable"
 
     def _compute_volume_profile(self, current_price: float) -> dict:
@@ -1753,7 +1772,7 @@ class IBKRFeed:
             poc         = max(self.volume_profile, key=self.volume_profile.get)
             total_vol   = sum(self.volume_profile.values())
             sorted_px   = sorted(self.volume_profile)
-            target_vol  = total_vol * 0.70
+            target_vol  = total_vol * VOLUME_PROFILE_TARGET_PCT
             poc_idx     = sorted_px.index(poc)
             upper = lower = poc_idx
             captured    = self.volume_profile.get(poc, 0)
@@ -1780,7 +1799,7 @@ class IBKRFeed:
                 status = f"ABOVE VAH {vah} — breakout, strong bullish"
             elif below_val:
                 status = f"BELOW VAL {val} — breakdown, strong bearish"
-            elif abs(poc_dist) < 5:
+            elif abs(poc_dist) < POC_PROXIMITY_POINTS:
                 status = f"AT POC {poc} — equilibrium, expect rotation"
             elif poc_dist > 0:
                 status = f"ABOVE POC {poc} by {poc_dist:.1f}pts — mild bullish"
@@ -1798,7 +1817,8 @@ class IBKRFeed:
                 "vp_inside_va": inside_va,
                 "vp_text":      f"POC:{poc} | VAH:{vah} | VAL:{val} | {status}",
             }
-        except Exception:
+        except Exception as e:
+            logger.debug(f"Volume profile error: {e}")
             return empty
 
     def _get_volume_profile(self, current_price: float) -> str:

@@ -20,6 +20,10 @@ from config import (
     SCALP_STOP_TICKS, SCALP_TARGET_TICKS,
     PROTECTION_LOOP_SECS,
     FEATURE_R_BUDGET, FEATURE_DUAL_TRAIL,
+    PROTECTION_RECONCILE_EVERY_N_LOOPS,
+    DELAYED_DATA_STALENESS_THRESHOLD_POINTS,
+    MAX_REASONABLE_PNL_PER_CONTRACT,
+    RBUST_MAX_R_PER_TRADE,
 )
 from logger import logger
 
@@ -96,7 +100,7 @@ class Executor:
         and submit nonsense orders.
         """
         loop_count = 0
-        RECONCILE_EVERY_N = 4   # every 20s at 5s cadence
+        RECONCILE_EVERY_N = PROTECTION_RECONCILE_EVERY_N_LOOPS
 
         while self._running:
             try:
@@ -373,7 +377,7 @@ class Executor:
                 return False
 
             # Sanity-check: delayed data can be 50-100 pts stale
-            if self._last_price and abs(self._last_price - actual_fill) > 20:
+            if self._last_price and abs(self._last_price - actual_fill) > DELAYED_DATA_STALENESS_THRESHOLD_POINTS:
                 logger.warning(
                     f"Price mismatch: fill={actual_fill}, last={self._last_price} "
                     f"(diff {abs(self._last_price - actual_fill):.1f}pts) — using last_price"
@@ -443,6 +447,10 @@ class Executor:
 
         except Exception as e:
             logger.error(f"Entry error: {e}")
+            try:
+                self._cancel_all_orders_and_wait()
+            except Exception:
+                pass
             return False
 
     # ─── Close position ────────────────────────────────────
@@ -460,8 +468,7 @@ class Executor:
         # Anything wildly larger means corrupted entry_price or exit_price
         # (e.g. entry_price=0 because state was reset prematurely). Reject
         # rather than poison daily_pnl which gates further trading.
-        MAX_REASONABLE_SINGLE_PNL = 1000.0   # USD per contract
-        if abs(pnl) > MAX_REASONABLE_SINGLE_PNL * contracts:
+        if abs(pnl) > MAX_REASONABLE_PNL_PER_CONTRACT * contracts:
             logger.error(
                 f"P&L sanity REJECT: ${pnl:.2f} on {contracts} contracts is impossible "
                 f"(entry={entry_price}, exit={exit_price}, was_long={was_long}). "
@@ -490,7 +497,7 @@ class Executor:
             # to handle partial losses (e.g. Claude CLOSE before stop).
             stop_dollar = abs(self.entry_price - self.stop_price) / TICK_SIZE * TICK_VALUE * contracts
             if stop_dollar > 0:
-                r_this_trade = min(abs(pnl) / stop_dollar, 1.5)  # cap at 1.5R
+                r_this_trade = min(abs(pnl) / stop_dollar, RBUST_MAX_R_PER_TRADE)
             else:
                 r_this_trade = 1.0   # assume 1R if stop not recorded
             self.session_r_spent += r_this_trade
@@ -674,7 +681,7 @@ class Executor:
                 if not was_long and exec_obj.side == "BOT":
                     return float(exec_obj.price)
         except Exception as e:
-            logger.debug(f"Could not infer exit fill: {e}")
+            logger.warning(f"Could not infer exit fill — using fallback price: {e}")
         # Fall back to cached last_price or stop_price as best estimate
         return self._last_price or self.stop_price or entry_price
 
@@ -807,6 +814,8 @@ class Executor:
 
         except Exception as e:
             logger.error(f"Stop/target check error: {e}")
+            if not self._needs_close:
+                self._needs_close = "PROTECTION: stop/target check failed — review position"
 
     def _auto_trail_long(self, price: float) -> None:
         """

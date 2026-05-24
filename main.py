@@ -31,6 +31,15 @@ from config import (
     FEATURE_DUAL_TRAIL, FEATURE_EARLY_EXIT, FEATURE_NEWS_GATE,
     FEATURE_DEAD_ZONE, FEATURE_LEARNING_EOD,
     VERSION, features_summary,
+    SESSION_PRE_MARKET_TIME, SESSION_MARKET_OPEN_TIME,
+    SESSION_OR_FORMING_END, SESSION_OR_ESTABLISHED_END,
+    SESSION_PRIME_WINDOW_END, SESSION_DEAD_ZONE_END,
+    SESSION_AFTERNOON_PRIME_END, SESSION_CLOSING_END,
+    EOD_SCHEDULE_TIME, MAIN_LOOP_SLEEP_SECS,
+    DEAD_ZONE_CONFLUENCE_THRESHOLD,
+    POS_STRUCTURE_MIN_PROFIT_TICKS, POS_STRUCTURE_PULLBACK_TICKS,
+    DASHBOARD_ACCOUNT_REFRESH_SECS, DASHBOARD_LIVE_PATCH_SECS,
+    PRE_FILTER_LOG_INTERVAL_SECS,
 )
 
 from logger import logger, log_daily_summary
@@ -78,26 +87,26 @@ class SessionState(Enum):
 
 def get_session_state(now_et: datetime) -> SessionState:
     t = now_et.hour * 100 + now_et.minute
-    if t < 830:    return SessionState.PRE_SESSION
-    if t < 930:    return SessionState.PRE_MARKET
-    if t < 935:    return SessionState.OR_FORMING
-    if t < 1000:   return SessionState.OR_ESTABLISHED
-    if t < 1100:   return SessionState.PRIME_WINDOW
-    if t < 1330:   return SessionState.DEAD_ZONE
-    if t < 1530:   return SessionState.AFTERNOON_PRIME
-    if t < 1600:   return SessionState.CLOSING
+    if t < SESSION_PRE_MARKET_TIME:    return SessionState.PRE_SESSION
+    if t < SESSION_MARKET_OPEN_TIME:   return SessionState.PRE_MARKET
+    if t < SESSION_OR_FORMING_END:     return SessionState.OR_FORMING
+    if t < SESSION_OR_ESTABLISHED_END: return SessionState.OR_ESTABLISHED
+    if t < SESSION_PRIME_WINDOW_END:   return SessionState.PRIME_WINDOW
+    if t < SESSION_DEAD_ZONE_END:      return SessionState.DEAD_ZONE
+    if t < SESSION_AFTERNOON_PRIME_END:return SessionState.AFTERNOON_PRIME
+    if t < SESSION_CLOSING_END:        return SessionState.CLOSING
     return SessionState.AFTER_HOURS
 
 
 def can_enter(state: SessionState, confluence_score: int = 0) -> tuple[bool, str]:
-    """Return (allowed, reason). Dead zone requires score 8+."""
+    """Return (allowed, reason). Dead zone requires DEAD_ZONE_CONFLUENCE_THRESHOLD+."""
     if state in (SessionState.OR_ESTABLISHED, SessionState.PRIME_WINDOW,
                  SessionState.AFTERNOON_PRIME):
         return True, ""
     if state == SessionState.DEAD_ZONE:
-        if confluence_score >= 8:
-            return True, "dead zone override — score 8+"
-        return False, f"dead zone (score {confluence_score}/8 needed)"
+        if confluence_score >= DEAD_ZONE_CONFLUENCE_THRESHOLD:
+            return True, f"dead zone override — score {DEAD_ZONE_CONFLUENCE_THRESHOLD}+"
+        return False, f"dead zone (score {confluence_score}/{DEAD_ZONE_CONFLUENCE_THRESHOLD} needed)"
     if state == SessionState.CLOSING:
         return False, "closing — exit only"
     return False, f"no entries in {state.value}"
@@ -178,7 +187,7 @@ def _should_call_claude_now(executor: Executor, snapshot: dict) -> tuple[bool, s
     if _peak_profit_ticks >= POS_GIVEBACK_PEAK_TICKS and giveback >= POS_GIVEBACK_AMOUNT_TICKS:
         return True, f"GIVEBACK: was +{_peak_profit_ticks:.0f}t, now +{profit_ticks:.0f}t"
 
-    if profit_ticks > 20 and adverse_move >= 5 and executor.current_position > 0:
+    if profit_ticks > POS_STRUCTURE_MIN_PROFIT_TICKS and adverse_move >= POS_STRUCTURE_PULLBACK_TICKS and executor.current_position > 0:
         return True, f"STRUCTURE: +{profit_ticks:.0f}t profit but pulling back {adverse_move:.0f}t"
 
     _last_position_price = price
@@ -206,8 +215,8 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
         if ticker_ref[0] is None:
             try:
                 ticker_ref[0] = feed.ib.reqMktData(feed.contract, "", False, False)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Ticker request error: {e}")
         return ticker_ref[0]
 
     while _fast_ticker_running:
@@ -256,7 +265,7 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
             if price > 0:
                 executor.update_price(price)
 
-            if int(time.time()) % 5 == 0:
+            if int(time.time()) % DASHBOARD_ACCOUNT_REFRESH_SECS == 0:
                 account_data = feed.get_account_data()
                 with _last_snapshot_lock:
                     _last_snapshot["account_data"] = account_data
@@ -274,12 +283,12 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                 account=account_data,
             )
 
-            # Every 10s — patch dashboard with live OR + position data
-            if int(time.time()) % 10 == 0:
+            # Every DASHBOARD_LIVE_PATCH_SECS — patch dashboard with live OR + position data
+            if int(time.time()) % DASHBOARD_LIVE_PATCH_SECS == 0:
                 try:
                     _patch_dashboard_live(feed, executor, price, account_data)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.debug(f"Dashboard live patch error: {e}")
         except Exception as e:
             logger.debug(f"Ticker error: {e}")
         time.sleep(1)
@@ -548,7 +557,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
     # ── Pre-filter ────────────────────────────────────────
     worth_calling, filter_reason = pre_filter_signal(snapshot)
     if not worth_calling:
-        if int(now_ts) % 30 < ENTRY_SCAN_INTERVAL_SECS:
+        if int(now_ts) % PRE_FILTER_LOG_INTERVAL_SECS < ENTRY_SCAN_INTERVAL_SECS:
             logger.info(f"Pre-filter: SKIP — {filter_reason}")
             # Refresh dashboard periodically during pre-filter rejects too
             _refresh_dashboard_with_snapshot(f"WAITING — {filter_reason[:40]}")
@@ -835,14 +844,14 @@ def main() -> None:
         snapshot       = _news,
     )
 
-    schedule.every().day.at("15:30").do(end_of_day, feed=feed, executor=executor)
+    schedule.every().day.at(EOD_SCHEDULE_TIME).do(end_of_day, feed=feed, executor=executor)
     logger.info(f"System ready. Session state: {state.value}")
 
     try:
         while True:
             schedule.run_pending()
             run_cycle(feed, executor)
-            time.sleep(0.5)
+            time.sleep(MAIN_LOOP_SLEEP_SECS)
 
     except KeyboardInterrupt:
         logger.info("Shutdown requested")

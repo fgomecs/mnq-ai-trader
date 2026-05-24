@@ -34,6 +34,12 @@ from config import (
     FEATURE_NEWS_GATE, FEATURE_DEAD_ZONE, FEATURE_EARLY_EXIT,
     FEATURE_LEARNING_INJECT,
     VERSION,
+    PRE_FILTER_SIGNAL_THRESHOLD, COUNTER_TREND_SIGNAL_THRESHOLD,
+    SKIP_CACHE_PRICE_DELTA, SKIP_CACHE_MAX_AGE_SECS,
+    SKIP_CACHE_WATCHLIST_AGE_SECS, SKIP_LOG_EVERY_N,
+    OR_THESIS_INVALIDATION_POINTS,
+    DOM_BUY_PRESSURE_BULL_THRESHOLD, DOM_SELL_PRESSURE_BEAR_THRESHOLD,
+    WATCHLIST_REFRESH_SECS,
 )
 from logger import logger
 from data_recorder import recorder as _recorder
@@ -41,7 +47,7 @@ from data_recorder import recorder as _recorder
 try:
     from strategy_stats import generate_performance_context as _get_perf_ctx
 except Exception:
-    _get_perf_ctx = None
+    _get_perf_ctx = None   # optional module — graceful degradation
 
 client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
 
@@ -395,8 +401,8 @@ def _log_cache_usage(resp, model: str = "", purpose: str = "") -> dict:
                 f"hit_rate={info['hit_rate']:.0f}% cost=${cost:.4f} "
                 f"session_total=${_cost_tracker['total_usd']:.2f}"
             )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.debug(f"Cache stats error: {e}")
     return info
 
 
@@ -496,7 +502,7 @@ def update_watchlist(snapshot: dict) -> dict:
     as context for entry calls. Uses Sonnet (cheap, structured JSON output).
     """
     global _session_watchlist, _watchlist_time
-    if time.time() - _watchlist_time < 300 and _session_watchlist:
+    if time.time() - _watchlist_time < WATCHLIST_REFRESH_SECS and _session_watchlist:
         return _session_watchlist
 
     dynamic = f"""
@@ -620,7 +626,7 @@ Produce the Watchlist JSON for this session.
             logger.info(f"V3.0 bias decay: SHORT_PREFERRED → NEUTRAL (OR expired + structure bullish, {mins_since_or:.0f}min elapsed)")
 
         # Rule 4 — Large adverse move against OR invalidates the thesis
-        elif or_dir == "BULL" and or_high > 0 and price < (or_high - 80):
+        elif or_dir == "BULL" and or_high > 0 and price < (or_high - OR_THESIS_INVALIDATION_POINTS):
             if current_bias == "LONG_PREFERRED":
                 watchlist["bias"] = "NEUTRAL"
                 watchlist["bias_invalidated"] = True
@@ -629,7 +635,7 @@ Produce the Watchlist JSON for this session.
                 )
                 logger.info(f"V3.0 bias invalidated: LONG_PREFERRED → NEUTRAL (price {or_high - price:.0f}pts below OR high)")
 
-        elif or_dir == "BEAR" and or_low > 0 and price > (or_low + 80):
+        elif or_dir == "BEAR" and or_low > 0 and price > (or_low + OR_THESIS_INVALIDATION_POINTS):
             if current_bias == "SHORT_PREFERRED":
                 watchlist["bias"] = "NEUTRAL"
                 watchlist["bias_invalidated"] = True
@@ -930,7 +936,7 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bull_signals += 1; bull_reasons.append("DOM bid heavy")
     if dom_vacuum_up:
         bull_signals += 1; bull_reasons.append("DOM vacuum above")
-    if dom_bp > 0.65:
+    if dom_bp > DOM_BUY_PRESSURE_BULL_THRESHOLD:
         bull_signals += 1; bull_reasons.append(f"buy pressure {dom_bp:.0%}")
     if dom_sweep_up:
         bull_signals += 2; bull_reasons.append("DOM ask sweep — aggressive buyers")
@@ -971,7 +977,7 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bear_signals += 1; bear_reasons.append("DOM ask heavy")
     if dom_vacuum_dn:
         bear_signals += 1; bear_reasons.append("DOM vacuum below")
-    if dom_bp < 0.35:
+    if dom_bp < DOM_SELL_PRESSURE_BEAR_THRESHOLD:
         bear_signals += 1; bear_reasons.append(f"sell pressure {1-dom_bp:.0%}")
     if dom_sweep_dn:
         bear_signals += 2; bear_reasons.append("DOM bid sweep — aggressive sellers")
@@ -1000,8 +1006,8 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     is_long_pref  = watchlist_bias == "LONG_PREFERRED"
     is_short_pref = watchlist_bias == "SHORT_PREFERRED"
 
-    THRESHOLD      = 3   # normal pass threshold
-    COUNTER_THRESH = 5   # threshold to go against preference
+    THRESHOLD      = PRE_FILTER_SIGNAL_THRESHOLD
+    COUNTER_THRESH = COUNTER_TREND_SIGNAL_THRESHOLD
 
     bull_passes = bull_signals >= THRESHOLD
     bear_passes = bear_signals >= THRESHOLD
@@ -1040,12 +1046,7 @@ def pre_filter_signal(snapshot: dict) -> tuple:
 
 # ─── Entry Analysis ────────────────────────────────────────
 
-# A.1 — Skip-cache state for analyze_market
-# Captures the conditions under which we last got a HOLD so we can short-circuit
-# subsequent calls with identical conditions.
-_SKIP_PRICE_DELTA   = 5.0    # points — must move this much to re-call Opus
-_SKIP_MAX_AGE_SECS  = 180    # seconds — re-call even on no change after 3 min
-_SKIP_WATCHLIST_AGE = 60     # seconds — re-call if watchlist refreshed in last 60s
+# A.1 — Skip-cache state for analyze_market (thresholds now live in config.py)
 
 _last_entry_call: dict = {
     "ts":           0.0,
@@ -1080,12 +1081,12 @@ def _maybe_skip_call(snapshot: dict) -> dict | None:
 
     now = time.time()
     age = now - cached["ts"]
-    if age >= _SKIP_MAX_AGE_SECS:
+    if age >= SKIP_CACHE_MAX_AGE_SECS:
         return None
 
     cur_price = snapshot.get("last_price", 0) or 0
     prev_price = cached.get("price", 0) or 0
-    if abs(cur_price - prev_price) > _SKIP_PRICE_DELTA:
+    if abs(cur_price - prev_price) > SKIP_CACHE_PRICE_DELTA:
         return None
 
     # New 1-min bar closed? Look at the candles section — first bar is newest
@@ -1094,13 +1095,13 @@ def _maybe_skip_call(snapshot: dict) -> dict | None:
         return None
 
     # Watchlist freshly refreshed?
-    if (now - _watchlist_time) < _SKIP_WATCHLIST_AGE:
+    if (now - _watchlist_time) < SKIP_CACHE_WATCHLIST_AGE_SECS:
         return None
 
     # All checks passed — return the cached decision and increment counter
     _cost_tracker["skipped_calls"] += 1
-    if _cost_tracker["skipped_calls"] % 5 == 1:
-        # Log every 5th skip so the log doesn't drown in skip lines
+    if _cost_tracker["skipped_calls"] % SKIP_LOG_EVERY_N == 1:
+        # Log every SKIP_LOG_EVERY_N skips so the log doesn't drown in skip lines
         logger.info(
             f"Skip Opus: conditions unchanged "
             f"(price {prev_price:.2f}→{cur_price:.2f}, age {age:.0f}s, "
@@ -1162,8 +1163,8 @@ def analyze_market(snapshot: dict) -> dict:
     if _get_perf_ctx:
         try:
             perf_context = _get_perf_ctx()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Performance context error: {e}")
 
     # A.2 — Static block: watchlist (5-min TTL) + stable session context.
     # perf_context is moved to DYNAMIC because it changes whenever a trade

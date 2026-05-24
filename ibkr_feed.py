@@ -408,10 +408,16 @@ class IBKRFeed:
         price = self._get_last_price()
 
         daily_zones = self._find_daily_zones(self._bars_daily, price)
+        fvg_levels, fvg_text   = self._find_fvgs(bars_5, price)
+        ob_levels,  ob_text    = self._find_order_blocks(bars_5, price)
+        liq_levels, liq_text   = self._find_liquidity_pools(bars_5, price)
         self._ict_cache = {
-            "fvgs":           self._find_fvgs(bars_5, price),
-            "order_blocks":   self._find_order_blocks(bars_5, price),
-            "liquidity_pools":self._find_liquidity_pools(bars_5, price),
+            "fvgs":           fvg_text,
+            "fvg_levels":     fvg_levels,
+            "order_blocks":   ob_text,
+            "ob_levels":      ob_levels,
+            "liquidity_pools":liq_text,
+            "liq_levels":     liq_levels,
             "choch":          self._detect_choch(bars_1),
             "inducement":     self._detect_inducement(bars_5, datetime.now(eastern)),
             "structure":      self._analyze_market_structure(bars_15, bars_5),
@@ -755,8 +761,11 @@ class IBKRFeed:
                 "choch":           ict.get("choch", ""),
                 "inducement":      ict.get("inducement", ""),
                 "fair_value_gaps": ict.get("fvgs", ""),
+                "fvg_levels":      ict.get("fvg_levels", []),
                 "order_blocks":    ict.get("order_blocks", ""),
+                "ob_levels":       ict.get("ob_levels", []),
                 "liquidity_pools": ict.get("liquidity_pools", ""),
+                "liq_levels":      ict.get("liq_levels", []),
                 "session_levels":  self._format_session_levels(last_price),
                 "premarket_high":  self.premarket_high,
                 "premarket_low":   self.premarket_low,
@@ -1412,26 +1421,31 @@ class IBKRFeed:
         except Exception as e:
             return f"Inducement error: {e}"
 
-    def _find_fvgs(self, bars: list, current_price: float) -> str:
+    def _find_fvgs(self, bars: list, current_price: float) -> tuple:
+        """Returns (list_of_dicts, text_str). Each dict: {high, low, type, filled}."""
         try:
             if not bars or len(bars) < 3:
-                return "No FVGs detected"
-            fvgs = []
+                return [], "No FVGs detected"
+            levels = []
+            lines  = []
             for i in range(1, len(bars) - 1):
                 prev, nxt = bars[i-1], bars[i+1]
                 if nxt.low > prev.high:
                     mid = (nxt.low + prev.high) / 2
                     if abs(current_price - mid) < FVG_PROXIMITY_POINTS:
                         inside = prev.high <= current_price <= nxt.low
-                        fvgs.append(f"BULL FVG: {prev.high:.2f}-{nxt.low:.2f} (mid:{mid:.2f}) {'★ INSIDE' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
+                        levels.append({"high": round(nxt.low, 2), "low": round(prev.high, 2), "type": "BULL", "filled": inside})
+                        lines.append(f"BULL FVG: {prev.high:.2f}-{nxt.low:.2f} (mid:{mid:.2f}) {'★ INSIDE' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
                 if nxt.high < prev.low:
                     mid = (prev.low + nxt.high) / 2
                     if abs(current_price - mid) < FVG_PROXIMITY_POINTS:
                         inside = nxt.high <= current_price <= prev.low
-                        fvgs.append(f"BEAR FVG: {nxt.high:.2f}-{prev.low:.2f} (mid:{mid:.2f}) {'★ INSIDE' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
-            return "\n".join(fvgs[-4:]) if fvgs else "No nearby FVGs"
+                        levels.append({"high": round(prev.low, 2), "low": round(nxt.high, 2), "type": "BEAR", "filled": inside})
+                        lines.append(f"BEAR FVG: {nxt.high:.2f}-{prev.low:.2f} (mid:{mid:.2f}) {'★ INSIDE' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
+            text = "\n".join(lines[-4:]) if lines else "No nearby FVGs"
+            return levels[-4:], text
         except Exception:
-            return "FVG unavailable"
+            return [], "FVG unavailable"
 
     def _find_daily_zones(self, bars_daily: list, current_price: float) -> dict:
         """
@@ -1510,11 +1524,13 @@ class IBKRFeed:
         except Exception as e:
             return {"demand_zones": [], "supply_zones": [], "near_demand": False, "near_supply": False, "zones_text": f"Zone error: {e}"}
 
-    def _find_order_blocks(self, bars: list, current_price: float) -> str:
+    def _find_order_blocks(self, bars: list, current_price: float) -> tuple:
+        """Returns (list_of_dicts, text_str). Each dict: {high, low, type}."""
         try:
             if not bars or len(bars) < 4:
-                return "No order blocks detected"
-            obs = []
+                return [], "No order blocks detected"
+            levels = []
+            lines  = []
             for i in range(1, len(bars) - 2):
                 c, n1, n2 = bars[i], bars[i+1], bars[i+2]
                 if (c.close < c.open and n1.close > n1.open and n2.close > n2.open
@@ -1522,16 +1538,19 @@ class IBKRFeed:
                     mid  = (c.open + c.close) / 2
                     if abs(current_price - mid) < OB_PROXIMITY_POINTS:
                         inside = c.close <= current_price <= c.open
-                        obs.append(f"BULL OB: {c.close:.2f}-{c.open:.2f} {'★ AT OB' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
+                        levels.append({"high": round(c.open, 2), "low": round(c.close, 2), "type": "BULL"})
+                        lines.append(f"BULL OB: {c.close:.2f}-{c.open:.2f} {'★ AT OB' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
                 if (c.close > c.open and n1.close < n1.open and n2.close < n2.open
                         and n1.open - n1.close > (c.close - c.open) * 1.5):
                     mid  = (c.close + c.open) / 2
                     if abs(current_price - mid) < OB_PROXIMITY_POINTS:
                         inside = c.open <= current_price <= c.close
-                        obs.append(f"BEAR OB: {c.open:.2f}-{c.close:.2f} {'★ AT OB' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
-            return "\n".join(obs[-4:]) if obs else "No nearby order blocks"
+                        levels.append({"high": round(c.close, 2), "low": round(c.open, 2), "type": "BEAR"})
+                        lines.append(f"BEAR OB: {c.open:.2f}-{c.close:.2f} {'★ AT OB' if inside else f'dist:{abs(current_price-mid):.1f}pts'}")
+            text = "\n".join(lines[-4:]) if lines else "No nearby order blocks"
+            return levels[-4:], text
         except Exception:
-            return "OB unavailable"
+            return [], "OB unavailable"
 
     def _detect_candle_patterns(
         self, bars_1min: list, bars_5min: list, current_price: float
@@ -1674,14 +1693,16 @@ class IBKRFeed:
         except Exception as e:
             return f"Candle pattern error: {e}"
 
-    def _find_liquidity_pools(self, bars: list, current_price: float) -> str:
+    def _find_liquidity_pools(self, bars: list, current_price: float) -> tuple:
+        """Returns (list_of_dicts, text_str). Each dict: {price, side}."""
         try:
             if not bars or len(bars) < 5:
-                return "No liquidity pools"
+                return [], "No liquidity pools"
             recent    = bars[-20:]
             highs     = [b.high for b in recent]
             lows      = [b.low  for b in recent]
-            pools     = []
+            levels    = []
+            lines     = []
             tolerance = LIQUIDITY_POOL_TOLERANCE
             seen_h: set = set()
             seen_l: set = set()
@@ -1693,7 +1714,8 @@ class IBKRFeed:
                         if level not in seen_h and abs(current_price - level) < 100:
                             seen_h.add(level)
                             swept = current_price > level
-                            pools.append(f"BUY-SIDE LIQ: {level} ({'SWEPT' if swept else 'stops above — target'})")
+                            levels.append({"price": level, "side": "buy"})
+                            lines.append(f"BUY-SIDE LIQ: {level} ({'SWEPT' if swept else 'stops above — target'})")
                         break
 
             for i in range(len(lows)):
@@ -1703,12 +1725,14 @@ class IBKRFeed:
                         if level not in seen_l and abs(current_price - level) < 100:
                             seen_l.add(level)
                             swept = current_price < level
-                            pools.append(f"SELL-SIDE LIQ: {level} ({'SWEPT' if swept else 'stops below — target'})")
+                            levels.append({"price": level, "side": "sell"})
+                            lines.append(f"SELL-SIDE LIQ: {level} ({'SWEPT' if swept else 'stops below — target'})")
                         break
 
-            return "\n".join(pools[:5]) if pools else "No liquidity pools nearby"
+            text = "\n".join(lines[:5]) if lines else "No liquidity pools nearby"
+            return levels[:5], text
         except Exception:
-            return "Liquidity unavailable"
+            return [], "Liquidity unavailable"
 
     # ─── V4.1: IBKR Live News (tick 292) ───────────────────
 

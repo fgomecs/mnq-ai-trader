@@ -317,18 +317,8 @@ class MarketSim:
             ],
             "bars1min": self._make_bars(now_et, 1, 195),
             "bars5min": self._make_bars(now_et, 5, 195),
-            "tradeMarkers": [
-                {
-                    "t":      tr.get("entry_time", ""),
-                    "exit_t": tr.get("exit_time", ""),
-                    "price":  tr["entry"],
-                    "exit":   tr.get("exit"),
-                    "dir":    tr["direction"],
-                    "pnl":    tr.get("pnl", 0),
-                }
-                for tr in self.trades[-50:]
-            ],
-            "trades": self.trades[-10:],
+            "tradeMarkers": [],
+            "trades": [],
             "candle_patterns": random.choice(["5m: Bullish Engulfing at BULL OB | 1m: Hammer forming", "5m: Bearish Engulfing at BEAR OB | 1m: Shooting Star", "No patterns detected"]),
             "tape_bias": random.choice(["AGGRESSIVE_BUYING", "AGGRESSIVE_SELLING", "NEUTRAL"]),
             "tape_text": "TAPE: 4 large buys vs 1 large sell (60s)",

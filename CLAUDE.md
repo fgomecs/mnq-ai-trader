@@ -1,5 +1,7 @@
 # CLAUDE.md
 
+*For AI reading this cold. Dense, accurate, no padding. Last verified: 2026-05-24 (V4.3).*
+
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
 ## What this is
@@ -87,9 +89,10 @@ Don't break field names without grepping — backtester JSONL files on disk use 
 **ICT / signal fields currently in the snapshot (V4.2+):**
 - `candle_patterns` — string describing detected patterns on 1m/5m bars (engulfing, hammer, shooting star, morning/evening star, inside bar breakout); empty string when none. Source: `_detect_candle_patterns()` in `ibkr_feed.py`.
 - `tape_bias` — `AGGRESSIVE_BUYING` / `AGGRESSIVE_SELLING` / `NEUTRAL`; derived from large-print rolling counts in `_get_tape_analysis()`. Pre-filter adds ±2 signals.
-- `tape_text` — human-readable tape summary string (e.g. "3 large buys / 1 large sell in last 60s"). Injected verbatim into the entry prompt.
-- `daily_zones` — dict `{"demand_zones": [...], "supply_zones": [...]}` built from daily bar reversals via `_find_daily_zones()`. Pre-filter adds +1 bull near demand, +1 bear near supply.
-- `premarket_high` / `premarket_low` — float or `None`; 4am–9am ET globex range extremes computed in `_update_session_levels()`. Pre-filter adds 4 signals (above/below/testing each level).
+- `tape_analysis` — dict: full output of `_get_tape_analysis()` (large_print_count_60s, tape_bull_pressure, tape_bear_pressure, tape_bias, tape_text, recent_large_prints).
+- `daily_zones` — dict: `{demand_zones, supply_zones, near_demand, near_supply, zones_text}` built from daily bar reversals via `_find_daily_zones()`. Pre-filter adds +1 bull near demand, +1 bear near supply.
+- `premarket_high` — float | None: 4am–9am ET globex high, computed in `_update_session_levels()`.
+- `premarket_low` — float | None: 4am–9am ET globex low. Pre-filter adds 4 signals (above/below/testing each level).
 
 ### Bidirectional OR bias (V3.0)
 

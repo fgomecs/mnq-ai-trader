@@ -22,6 +22,7 @@ import pytz
 
 BASE_DIR       = Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"))
 DASHBOARD_FILE = BASE_DIR / "dashboard_data.json"
+PRICE_FILE     = BASE_DIR / "price_data.json"
 eastern        = pytz.timezone("US/Eastern")
 
 
@@ -323,6 +324,15 @@ class MarketSim:
         }
 
 
+def write_price_data(sim, sim_time_str):
+    try:
+        data = {"t": sim_time_str, "price": sim.price, "bid": round(sim.price-0.25,2), "ask": round(sim.price+0.25,2), "volume": sim.volume, "position": sim.position, "entry": sim.entry_price or 0, "stop": sim.stop_price or 0, "target": sim.target_price or 0, "pnl": round(sim.daily_pnl,2), "netLiq": round(50000+sim.daily_pnl,2), "unrealized": 0}
+        with open(PRICE_FILE, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+    except PermissionError:
+        pass
+
+
 def write_dashboard(data: dict):
     try:
         with open(DASHBOARD_FILE, "w", encoding="utf-8") as f:
@@ -378,6 +388,7 @@ def main():
             snap['simMarketClass'] = mc
 
             write_dashboard(snap)
+            write_price_data(sim, sim_time_str)
             tick += 1
             if tick % 30 == 0:
                 wins   = sum(1 for t in sim.trades if t["pnl"] > 0)

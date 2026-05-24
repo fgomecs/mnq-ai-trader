@@ -113,6 +113,9 @@ MAIN_LOOP_SLEEP_SECS       = _env_float("MAIN_LOOP_SLEEP_SECS", 0.5)
 DEAD_ZONE_CONFLUENCE_THRESHOLD = _env_int("DEAD_ZONE_CONFLUENCE_THRESHOLD", 8)
 POS_STRUCTURE_MIN_PROFIT_TICKS = _env_int("POS_STRUCTURE_MIN_PROFIT_TICKS", 20)
 POS_STRUCTURE_PULLBACK_TICKS   = _env_int("POS_STRUCTURE_PULLBACK_TICKS",    5)
+ENTRY_MODE                     = os.getenv("ENTRY_MODE", "LIMIT")           # "LIMIT" or "MARKET"
+LIMIT_ORDER_MAX_SLIPPAGE       = _env_int("LIMIT_ORDER_MAX_SLIPPAGE",        4)  # ticks — fall back to MKT if price moves this far
+LIMIT_ORDER_TIMEOUT_SECS       = _env_int("LIMIT_ORDER_TIMEOUT_SECS",        5)  # seconds before limit falls back to MKT
 
 # ─── DASHBOARD REFRESH ─────────────────────────────────────
 DASHBOARD_ACCOUNT_REFRESH_SECS = _env_int("DASHBOARD_ACCOUNT_REFRESH_SECS", 5)

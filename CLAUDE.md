@@ -103,6 +103,49 @@ All knobs live in `config.py` and are environment-overridable via `.env` (templa
 
 **MNQ contract rolls quarterly.** `CONTRACT_EXPIRY` and `CONTRACT_CONID` in `.env` must be updated each quarter (Mar/Jun/Sep/Dec) or IBKR will reject orders. If a session won't connect, check expiry first.
 
+## Advanced Tuning
+
+All constants below live in `config.py` and are overridable via `.env`. Defaults are production-tested — change only when ablation data or live logs indicate a specific issue. See README.md for the full annotated list.
+
+**Entry Gates**
+```env
+ENTRY_MODE=LIMIT                  # "LIMIT" tries limit order first; "MARKET" always MKT
+LIMIT_ORDER_MAX_SLIPPAGE=4        # Ticks — falls back to MKT if price moves this far from entry_price
+LIMIT_ORDER_TIMEOUT_SECS=5        # Seconds before unfilled limit is cancelled and replaced with MKT
+DEAD_ZONE_CONFLUENCE_THRESHOLD=8  # Signals required to enter during dead zone (11am–1:30pm ET)
+```
+
+**Pre-filter Signal Scoring**
+```env
+PRE_FILTER_SIGNAL_THRESHOLD=3     # Signals needed to call Claude (bias-preferred side)
+COUNTER_TREND_SIGNAL_THRESHOLD=5  # Signals needed to call Claude (counter-bias or DOJI override)
+```
+
+**OR / Bias**
+```env
+OR_THESIS_INVALIDATION_POINTS=80  # Price distance that flips OR bias to NEUTRAL
+FEATURE_DOJI_MTF_OVERRIDE=true    # On DOJI OR days, allow trades when MTF is BULLISH/BEARISH_ALIGNED (5+ signals required)
+```
+
+**Skip-Cache (A.1)**
+```env
+SKIP_CACHE_PRICE_DELTA=5.0        # Price move (pts) that forces a fresh Claude call
+SKIP_CACHE_MAX_AGE_SECS=180       # Max cache age before forced refresh
+```
+
+**Auto-Trail Milestones (executor.py — D.2)**
+```env
+TRAIL_PROFIT_1_TICKS=120          # Ticks profit → trigger milestone-1 trail
+TRAIL_PROFIT_1_LOCK=30            # Ticks above entry to lock stop at milestone 1
+TRAIL_PROFIT_2_TICKS=180          # Ticks profit → trigger milestone-2 trail
+TRAIL_PROFIT_2_LOCK=60            # Ticks above entry to lock stop at milestone 2
+```
+
+**Tape / Large Print**
+```env
+LARGE_PRINT_THRESHOLD=50          # Min contracts for a tick to count as a large print
+```
+
 ## Logs / generated state (not committed; see `.gitignore`)
 
 - `logs/` — rotating log files; `_flush_log()` (C.4) is called after BUY/SELL/CLOSE so entries land on disk before any crash.

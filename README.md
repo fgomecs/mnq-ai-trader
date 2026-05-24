@@ -540,6 +540,9 @@ MAIN_LOOP_SLEEP_SECS=0.5          # Main cycle sleep between ticks
 DEAD_ZONE_CONFLUENCE_THRESHOLD=8  # Signals required during dead zone
 POS_STRUCTURE_MIN_PROFIT_TICKS=20 # Min profit before structure CLOSE eligible
 POS_STRUCTURE_PULLBACK_TICKS=5    # Pullback that re-arms structure check
+ENTRY_MODE=LIMIT                  # "LIMIT" tries a limit order first; "MARKET" always uses MKT
+LIMIT_ORDER_MAX_SLIPPAGE=4        # Ticks — if price moves this far from entry_price, skip limit and go MKT immediately
+LIMIT_ORDER_TIMEOUT_SECS=5        # Seconds to wait for limit fill before cancelling and falling back to MKT
 ```
 
 **Pre-filter Signal Scoring**

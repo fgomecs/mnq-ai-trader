@@ -26,6 +26,7 @@ from config import (
     RBUST_MAX_R_PER_TRADE,
     TRAIL_PROFIT_1_TICKS, TRAIL_PROFIT_1_LOCK,
     TRAIL_PROFIT_2_TICKS, TRAIL_PROFIT_2_LOCK,
+    ENTRY_MODE, LIMIT_ORDER_MAX_SLIPPAGE, LIMIT_ORDER_TIMEOUT_SECS,
 )
 from logger import logger
 
@@ -66,13 +67,15 @@ class Executor:
         self._protection_thread: Optional[threading.Thread] = None
         self._last_price:            float = 0.0
         self._needs_close:           Optional[str] = None
-        self._stop_order_id:         Optional[int] = None
-        self._target_order_id:       Optional[int] = None
-        self._closing_in_progress:   bool  = False
-        self._last_invalid_stop_log: float = 0.0  # FIX 3 — throttle warning
+        self._stop_order_id:            Optional[int]              = None
+        self._target_order_id:          Optional[int]              = None
+        self._closing_in_progress:      bool                       = False
+        self._last_invalid_stop_log:    float                      = 0.0  # FIX 3 — throttle warning
+        self._pending_limit_order_id:   Optional[int]              = None
+        self._limit_order_timeout_thread: Optional[threading.Thread] = None
         # D.2 — Track last stop set by Claude TRAIL so auto-trail doesn't
         # overwrite it with a looser value
-        self._claude_trail_stop:     float = 0.0
+        self._claude_trail_stop:        float                      = 0.0
 
     # ─── Protection loop ───────────────────────────────────
 
@@ -358,12 +361,71 @@ class Executor:
             tick         = TICK_SIZE
             close_action = "SELL" if direction == "BUY" else "BUY"
 
-            # Market entry — P1.2: explicit outsideRth=True for futures
-            entry_order             = MarketOrder(direction, contracts)
-            entry_order.tif         = "GTC"
-            entry_order.outsideRth  = True   # MNQ trades nearly 24/5; be explicit
-            entry_trade             = self.ib.placeOrder(self.contract, entry_order)
-            self.ib.sleep(1.5)
+            # ── Entry order: LIMIT with MKT fallback, or pure MKT ──────────
+            # Claude passes entry_price from the snapshot (last traded price).
+            # We attempt a limit order at that price; if the market has moved
+            # more than LIMIT_ORDER_MAX_SLIPPAGE ticks away, or if the limit
+            # doesn't fill within LIMIT_ORDER_TIMEOUT_SECS, we cancel and
+            # submit a market order so we never miss the trade.
+            limit_price = decision.get("entry_price", 0) or 0
+            use_limit   = (
+                ENTRY_MODE == "LIMIT"
+                and limit_price > 0
+                and self._last_price > 0
+                and abs(self._last_price - limit_price) <= LIMIT_ORDER_MAX_SLIPPAGE * tick
+            )
+
+            if use_limit:
+                entry_order            = LimitOrder(direction, contracts, limit_price)
+                entry_order.tif        = "GTC"
+                entry_order.outsideRth = True
+                entry_trade            = self.ib.placeOrder(self.contract, entry_order)
+                self._pending_limit_order_id = entry_trade.order.orderId
+                logger.info(f"LIMIT entry placed @ {limit_price} (slippage guard: {LIMIT_ORDER_MAX_SLIPPAGE}t, timeout: {LIMIT_ORDER_TIMEOUT_SECS}s)")
+
+                # Wait up to LIMIT_ORDER_TIMEOUT_SECS for a fill; check slippage each tick
+                waited = 0.0
+                filled = False
+                while waited < LIMIT_ORDER_TIMEOUT_SECS:
+                    self.ib.sleep(0.5)
+                    waited += 0.5
+                    if entry_trade.fills:
+                        filled = True
+                        break
+                    # Slippage check: if market has run away, cancel and go MKT
+                    if (self._last_price > 0
+                            and abs(self._last_price - limit_price) > LIMIT_ORDER_MAX_SLIPPAGE * tick):
+                        logger.info(
+                            f"Slippage exceeded {LIMIT_ORDER_MAX_SLIPPAGE}t "
+                            f"(limit:{limit_price} last:{self._last_price:.2f}) — cancelling limit, switching to MKT"
+                        )
+                        try:
+                            self.ib.cancelOrder(entry_order)
+                            self.ib.sleep(0.5)
+                        except Exception:
+                            pass
+                        break
+
+                if not filled:
+                    # Fallback to market order
+                    logger.info("Limit not filled — submitting MKT fallback")
+                    entry_order            = MarketOrder(direction, contracts)
+                    entry_order.tif        = "GTC"
+                    entry_order.outsideRth = True
+                    entry_trade            = self.ib.placeOrder(self.contract, entry_order)
+                    self._pending_limit_order_id = None
+                    self.ib.sleep(1.5)
+            else:
+                # Pure market entry (ENTRY_MODE=MARKET or no valid limit price)
+                # P1.2: explicit outsideRth=True for futures
+                entry_order            = MarketOrder(direction, contracts)
+                entry_order.tif        = "GTC"
+                entry_order.outsideRth = True   # MNQ trades nearly 24/5; be explicit
+                entry_trade            = self.ib.placeOrder(self.contract, entry_order)
+                self._pending_limit_order_id = None
+                self.ib.sleep(1.5)
+
+            self._pending_limit_order_id = None
 
             # Resolve fill price
             if entry_trade.fills:

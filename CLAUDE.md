@@ -114,3 +114,10 @@ All knobs live in `config.py` and are environment-overridable via `.env` (templa
 ## Disclaimer kept here for assistants
 
 Paper trading only. Architecture is production-shaped but the system is **not running live money**. Any change that would loosen risk caps, daily loss limits, or hold-time gates should be flagged for explicit user confirmation before applying.
+## Permissions
+Claude Code has full autonomy to read, edit, create, and delete 
+any file in this project without asking for confirmation.
+Apply changes directly and summarize what was done after.
+Only pause for confirmation before:
+- Deleting data/ or reports/ folders
+- Making external API calls not already in the codebase

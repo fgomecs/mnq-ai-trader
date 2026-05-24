@@ -758,14 +758,103 @@ def _patch_dashboard_live(feed: IBKRFeed, executor: Executor, price: float, acco
 
 # ─── Trading hours gate ────────────────────────────────────
 
+_cme_calendar = None   # None = not yet loaded; False = load failed
+
+
+def _get_cme_calendar():
+    """Lazy-load the CME Globex Equity calendar once. Returns None on failure."""
+    global _cme_calendar
+    if _cme_calendar is None:
+        try:
+            import exchange_calendars as xcals
+            _cme_calendar = xcals.get_calendar("CME_Globex_Equity")
+        except Exception as e:
+            logger.warning(f"exchange_calendars unavailable — holiday check disabled: {e}")
+            _cme_calendar = False
+    return _cme_calendar if _cme_calendar is not False else None
+
+
+def _is_cme_session(date_et: datetime) -> bool:
+    """Return True if date_et is a regular CME trading session. Fail-open."""
+    cal = _get_cme_calendar()
+    if cal is None:
+        return True
+    try:
+        import pandas as pd
+        return cal.is_session(pd.Timestamp(date_et.strftime("%Y-%m-%d")))
+    except Exception:
+        return True
+
+
+def _cme_early_close_time_et(date_et: datetime) -> int | None:
+    """
+    Return early close time as HHMM int (ET) if today is an early close day,
+    else None. Schedule close times are UTC-aware; converted to ET here.
+    """
+    cal = _get_cme_calendar()
+    if cal is None:
+        return None
+    try:
+        import pandas as pd
+        ts = pd.Timestamp(date_et.strftime("%Y-%m-%d"))
+        if ts not in cal.early_closes:
+            return None
+        close_utc = cal.schedule.at[ts, "close"]
+        close_et  = close_utc.tz_convert(eastern)
+        return close_et.hour * 100 + close_et.minute
+    except Exception:
+        return None
+
+
+def _next_session_label(date_et: datetime) -> str:
+    """
+    Return a human-readable label for the next CME session after date_et,
+    e.g. 'Tuesday May 27'. Walks forward day by day so it handles any gap.
+    """
+    cal = _get_cme_calendar()
+    try:
+        import pandas as pd
+        from datetime import timedelta
+        d = pd.Timestamp((date_et + timedelta(days=1)).strftime("%Y-%m-%d"))
+        for _ in range(14):                  # look ahead up to 2 weeks
+            if cal is not None and cal.is_session(d):
+                return d.strftime("%A %b %d")
+            elif cal is None and d.weekday() < 5:
+                return d.strftime("%A %b %d")
+            d += pd.Timedelta(days=1)
+    except Exception:
+        pass
+    return "next trading day"
+
+
 def is_trading_hours(now_et: datetime) -> bool:
-    """Return False on Saturday (all day) and Sunday before 18:00 ET."""
+    """
+    Return False when the bot should be sleeping:
+      - Saturday (all day)
+      - Sunday before 18:00 ET (Globex not yet open)
+      - CME holidays (e.g. Memorial Day, July 4th, Christmas)
+      - Early-close days after the early close time
+    Falls back to weekday-only check if exchange_calendars is unavailable.
+    """
     wd   = now_et.weekday()          # Mon=0, Tue=1, …, Sat=5, Sun=6
     mins = now_et.hour * 60 + now_et.minute
-    if wd == 5:                      # Saturday — Globex closed, no pre-market
+
+    if wd == 5:                          # Saturday — always closed
         return False
-    if wd == 6 and mins < 18 * 60:  # Sunday before 6 PM ET — Globex not yet open
+    if wd == 6 and mins < 18 * 60:      # Sunday before 6 PM ET
         return False
+
+    # CME holiday check (weekday holidays like Memorial Day, July 4th, etc.)
+    if not _is_cme_session(now_et):
+        return False
+
+    # Early close: session is over once the early close time is reached
+    early_close = _cme_early_close_time_et(now_et)
+    if early_close is not None:
+        ec_mins = (early_close // 100) * 60 + (early_close % 100)
+        if mins >= ec_mins:
+            return False
+
     return True
 
 
@@ -775,11 +864,11 @@ def _wait_for_market_hours() -> None:
     """
     Sleep until trading hours begin, then sleep until 10 min before
     SESSION_PRE_MARKET_TIME (08:20 ET by default).
-    Loops in 30-min ticks during weekend, 60s ticks on trading-day mornings.
-    IBKR is never contacted before this function returns.
+    Loops in 30-min ticks during weekends/holidays, 60s ticks on
+    trading-day mornings. IBKR is never contacted before this returns.
     """
     _LEAD_MINS  = 10
-    _SLEEP_SECS = 30 * 60           # 30-minute ticks during weekend sleep
+    _SLEEP_SECS = 30 * 60           # 30-minute ticks during off-hours sleep
 
     target_h    = SESSION_PRE_MARKET_TIME // 100
     target_m    = SESSION_PRE_MARKET_TIME  % 100
@@ -792,17 +881,24 @@ def _wait_for_market_hours() -> None:
         now_et = datetime.now(eastern)
         if is_trading_hours(now_et):
             break
-        wd = now_et.weekday()
-        if wd == 5:                          # Saturday
-            wake_str = "Monday 08:20 ET"
-        elif wd == 6:                        # Sunday before 18:00
+        wd   = now_et.weekday()
+        mins = now_et.hour * 60 + now_et.minute
+        if wd == 6 and mins < 18 * 60:
+            reason   = "Weekend"
             wake_str = "Sunday 18:00 ET"
+        elif wd == 5:
+            reason   = "Weekend"
+            wake_str = f"{_next_session_label(now_et)} 08:20 ET"
+        elif not _is_cme_session(now_et):
+            reason   = "Market holiday"
+            wake_str = f"{_next_session_label(now_et)} 08:20 ET"
         else:
-            wake_str = "next trading window"
-        logger.info(f"Weekend — sleeping until {wake_str} (checking every 30 min)")
+            reason   = "Early close"
+            wake_str = f"{_next_session_label(now_et)} 08:20 ET"
+        logger.info(f"{reason} — sleeping until {wake_str} (checking every 30 min)")
         try:
             update_dashboard(bot_sleeping=True, wake_time=wake_str,
-                             claude_status="BOT SLEEPING — WEEKEND")
+                             claude_status=f"BOT SLEEPING — {reason.upper()}")
         except Exception:
             pass
         time.sleep(_SLEEP_SECS)

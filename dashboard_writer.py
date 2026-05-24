@@ -209,6 +209,7 @@ def update_dashboard(
             "fair_value_gaps": s.get("fair_value_gaps", ""),
             "order_blocks":    s.get("order_blocks",    ""),
             "liquidity_pools": s.get("liquidity_pools", ""),
+            "daily_zones":     s.get("daily_zones",     {}),
             "choch":           s.get("choch",           ""),
             "inducement":      s.get("inducement",      ""),
             "candle_patterns": s.get("candle_patterns", ""),
@@ -274,7 +275,7 @@ def update_dashboard(
                 # Preserve ICT/structure fields when fast-ticker writes lack
                 # the full snapshot. Without this, the dashboard would clear
                 # FVG/OB/CHoCH/etc every 10s when the live patch fires.
-                for field in ("fair_value_gaps", "order_blocks", "liquidity_pools",
+                for field in ("fair_value_gaps", "order_blocks", "liquidity_pools", "daily_zones",
                               "choch", "inducement", "candle_patterns",
                               "tape_bias", "tape_text", "mtf_alignment",
                               "delta_trend", "market_structure", "htfBias"):

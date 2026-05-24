@@ -374,6 +374,7 @@
       <div class="ict-block green-left" id="ict-fvg">—</div>
       <div class="ict-block red-left"   id="ict-ob">—</div>
       <div class="ict-block yellow-left" id="ict-liq">—</div>
+      <div class="ict-block" id="ict-daily-zones" style="font-size:11px;">—</div>
     </div>
 
     <div class="panel-section">
@@ -698,6 +699,12 @@ function render(d) {
   el('ict-fvg').textContent  = d.fair_value_gaps  || '—';
   el('ict-ob').textContent   = d.order_blocks      || '—';
   el('ict-liq').textContent  = d.liquidity_pools   || '—';
+  const dzEl = el('ict-daily-zones');
+  if (dzEl) {
+    const dz = d.daily_zones || {};
+    dzEl.textContent = dz.zones_text && !dz.zones_text.startsWith('No daily') && !dz.zones_text.startsWith('Insufficient') ? dz.zones_text : '—';
+    dzEl.style.color = dz.near_demand ? 'var(--green)' : dz.near_supply ? 'var(--red)' : 'var(--text2)';
+  }
   el('ict-choch').textContent = d.choch ? 'CHoCH: ' + d.choch : '—';
   el('ict-ind').textContent   = d.inducement ? 'Inducement: ' + d.inducement : '—';
   const cpEl = el('ict-candle');

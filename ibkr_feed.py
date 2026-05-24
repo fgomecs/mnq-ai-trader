@@ -406,6 +406,7 @@ class IBKRFeed:
 
         price = self._get_last_price()
 
+        daily_zones = self._find_daily_zones(self._bars_daily, price)
         self._ict_cache = {
             "fvgs":           self._find_fvgs(bars_5, price),
             "order_blocks":   self._find_order_blocks(bars_5, price),
@@ -418,6 +419,7 @@ class IBKRFeed:
             "mtf_score":      self._check_mtf_score(bars_1, bars_5, bars_15) if FEATURE_MTF_SCORE else {"score": 0, "bull_tfs": 0, "bear_tfs": 0, "direction": "MIXED"},
             "delta_trend":    self._calculate_delta_trend(bars_1),
             "ofi":            self._compute_ofi() if FEATURE_OFI else {"score": 0, "signal": "NEUTRAL", "text": "OFI disabled"},
+            "daily_zones":    daily_zones,
         }
         self._ict_cache_time = time.time()
 
@@ -755,6 +757,10 @@ class IBKRFeed:
                 "order_blocks":    ict.get("order_blocks", ""),
                 "liquidity_pools": ict.get("liquidity_pools", ""),
                 "session_levels":  self._format_session_levels(last_price),
+                "daily_zones":     ict.get("daily_zones", {
+                    "demand_zones": [], "supply_zones": [],
+                    "near_demand": False, "near_supply": False, "zones_text": "",
+                }),
 
                 # MTF alignment (Improvement 8)
                 "mtf_alignment":   ict.get("mtf_alignment", ""),
@@ -1418,6 +1424,83 @@ class IBKRFeed:
             return "\n".join(fvgs[-4:]) if fvgs else "No nearby FVGs"
         except Exception:
             return "FVG unavailable"
+
+    def _find_daily_zones(self, bars_daily: list, current_price: float) -> dict:
+        """
+        Detect institutional demand/supply zones from daily bars.
+        Demand zone: daily bar where price dropped into it then reversed up strongly.
+        Supply zone: daily bar where price rallied into it then reversed down strongly.
+        Proximity threshold: 10 points (same as near-OB feel on daily TF for MNQ).
+        """
+        PROXIMITY = 10.0
+        try:
+            if not bars_daily or len(bars_daily) < 4:
+                return {"demand_zones": [], "supply_zones": [], "near_demand": False, "near_supply": False, "zones_text": "Insufficient daily data"}
+
+            demand_zones = []
+            supply_zones = []
+
+            # Scan last 20 daily bars for zone formation
+            lookback = bars_daily[-20:] if len(bars_daily) >= 20 else bars_daily
+            for i in range(1, len(lookback) - 1):
+                prev, cur, nxt = lookback[i-1], lookback[i], lookback[i+1]
+                cur_body = abs(cur.close - cur.open)
+                nxt_body = abs(nxt.close - nxt.open)
+
+                # Demand zone: bearish daily bar followed by strong bullish reversal
+                # Zone = low to open of the bearish bar (institutional accumulation)
+                if (cur.close < cur.open              # current bar bearish
+                        and nxt.close > nxt.open      # next bar bullish
+                        and nxt_body > cur_body * 0.8):  # reversal has substance
+                    zone_low  = cur.low
+                    zone_high = cur.open
+                    mid = (zone_low + zone_high) / 2
+                    near = abs(current_price - mid) <= PROXIMITY or zone_low <= current_price <= zone_high
+                    demand_zones.append({
+                        "low": round(zone_low, 2), "high": round(zone_high, 2),
+                        "mid": round(mid, 2), "near": near,
+                    })
+
+                # Supply zone: bullish daily bar followed by strong bearish reversal
+                # Zone = open to high of the bullish bar
+                if (cur.close > cur.open              # current bar bullish
+                        and nxt.close < nxt.open      # next bar bearish
+                        and nxt_body > cur_body * 0.8):
+                    zone_low  = cur.open
+                    zone_high = cur.high
+                    mid = (zone_low + zone_high) / 2
+                    near = abs(current_price - mid) <= PROXIMITY or zone_low <= current_price <= zone_high
+                    supply_zones.append({
+                        "low": round(zone_low, 2), "high": round(zone_high, 2),
+                        "mid": round(mid, 2), "near": near,
+                    })
+
+            # Keep the 3 closest zones each side
+            demand_zones = sorted(demand_zones, key=lambda z: abs(current_price - z["mid"]))[:3]
+            supply_zones = sorted(supply_zones, key=lambda z: abs(current_price - z["mid"]))[:3]
+
+            near_demand = any(z["near"] for z in demand_zones)
+            near_supply = any(z["near"] for z in supply_zones)
+
+            lines = []
+            for z in demand_zones:
+                tag = " ★ INSIDE" if z["low"] <= current_price <= z["high"] else (f" (dist:{abs(current_price - z['mid']):.1f}pts)" if not z["near"] else " ★ NEAR")
+                lines.append(f"DEMAND ZONE (D): {z['low']:.2f}–{z['high']:.2f}{tag}")
+            for z in supply_zones:
+                tag = " ★ INSIDE" if z["low"] <= current_price <= z["high"] else (f" (dist:{abs(current_price - z['mid']):.1f}pts)" if not z["near"] else " ★ NEAR")
+                lines.append(f"SUPPLY ZONE (D): {z['low']:.2f}–{z['high']:.2f}{tag}")
+
+            zones_text = "\n".join(lines) if lines else "No daily demand/supply zones detected"
+
+            return {
+                "demand_zones": demand_zones,
+                "supply_zones": supply_zones,
+                "near_demand":  near_demand,
+                "near_supply":  near_supply,
+                "zones_text":   zones_text,
+            }
+        except Exception as e:
+            return {"demand_zones": [], "supply_zones": [], "near_demand": False, "near_supply": False, "zones_text": f"Zone error: {e}"}
 
     def _find_order_blocks(self, bars: list, current_price: float) -> str:
         try:

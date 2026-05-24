@@ -90,6 +90,11 @@ If MTF is BEARISH_ALIGNED, do NOT enter long regardless of OR direction.
 If MTF is BULLISH_ALIGNED, do NOT enter short regardless of OR direction.
 
 ═══════════════════════════════════════
+STEP 2.5 — DAILY DEMAND / SUPPLY ZONES
+═══════════════════════════════════════
+DEMAND ZONES (daily timeframe): These are higher-timeframe institutional zones. A demand zone below is stronger support than a 5-min OB. A supply zone above is stronger resistance. Prefer entries where daily demand zone aligns with 5-min OB/FVG.
+
+═══════════════════════════════════════
 STEP 3 — OPENING RANGE CONTEXT
 ═══════════════════════════════════════
 The OR is the first 15 minutes of RTH (9:30-9:45 ET) — three 5-min bars. High = range high, Low = range low. This filters out the opening manipulation spike that typically fakes direction in the first 5 minutes.
@@ -1024,6 +1029,13 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     if "[OR aligned]" in _cp and any(p in _cp for p in ("BEARISH ENGULFING", "SHOOTING STAR", "INSIDE BAR BREAKOUT DOWN", "EVENING STAR")):
         bear_signals += 1; bear_reasons.append("OR-aligned candle pattern")
 
+    # Daily demand / supply zones
+    _daily_zones = snapshot.get("daily_zones", {})
+    if _daily_zones.get("near_demand"):
+        bull_signals += 1; bull_reasons.append("daily demand zone")
+    if _daily_zones.get("near_supply"):
+        bear_signals += 1; bear_reasons.append("daily supply zone")
+
     # Tape / large print signals
     _tape_bias = snapshot.get("tape_bias", "NEUTRAL")
     if _tape_bias == "AGGRESSIVE_BUYING":
@@ -1284,6 +1296,7 @@ ICT LEVELS
 FVGs: {snapshot.get('fair_value_gaps', 'N/A')}
 OBs:  {snapshot.get('order_blocks', 'N/A')}
 Liq:  {snapshot.get('liquidity_pools', 'N/A')}
+{snapshot.get('daily_zones', {}).get('zones_text', '')}
 
 ═══════════════════════════════════════
 CANDLES

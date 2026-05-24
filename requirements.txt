@@ -4,4 +4,4 @@ pandas
 pytz
 python-dotenv
 schedule
-exchange_calendars
+exchange-calendars

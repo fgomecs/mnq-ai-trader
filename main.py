@@ -762,12 +762,16 @@ _cme_calendar = None   # None = not yet loaded; False = load failed
 
 
 def _get_cme_calendar():
-    """Lazy-load the CME Globex Equity calendar once. Returns None on failure."""
+    """Lazy-load the NYSE calendar once. Returns None on failure.
+    MNQ/NQ futures follow NYSE holiday schedule (not CME agricultural),
+    and XNYS is the exchange_calendars name that correctly captures
+    Memorial Day, July 4th, Christmas, etc.
+    """
     global _cme_calendar
     if _cme_calendar is None:
         try:
             import exchange_calendars as xcals
-            _cme_calendar = xcals.get_calendar("CME_Globex_Equity")
+            _cme_calendar = xcals.get_calendar("XNYS")
         except Exception as e:
             logger.warning(f"exchange_calendars unavailable — holiday check disabled: {e}")
             _cme_calendar = False
@@ -809,17 +813,27 @@ def _cme_early_close_time_et(date_et: datetime) -> int | None:
 def _next_session_label(date_et: datetime) -> str:
     """
     Return a human-readable label for the next CME session after date_et,
-    e.g. 'Tuesday May 27'. Walks forward day by day so it handles any gap.
+    e.g. 'Tuesday May 26'. Uses sessions_in_range() against the authoritative
+    XNYS session list so holidays are never returned as trading days.
     """
     cal = _get_cme_calendar()
     try:
         import pandas as pd
+        today    = pd.Timestamp(date_et.strftime("%Y-%m-%d"))
+        tomorrow = today + pd.Timedelta(days=1)
+        end      = today + pd.Timedelta(days=30)
+        sessions = cal.sessions_in_range(tomorrow, end)
+        if len(sessions) > 0:
+            return sessions[0].strftime("%A %b %d")
+    except Exception:
+        pass
+    # Fallback when calendar is unavailable: skip weekends only (no holiday knowledge)
+    try:
+        import pandas as pd
         from datetime import timedelta
         d = pd.Timestamp((date_et + timedelta(days=1)).strftime("%Y-%m-%d"))
-        for _ in range(14):                  # look ahead up to 2 weeks
-            if cal is not None and cal.is_session(d):
-                return d.strftime("%A %b %d")
-            elif cal is None and d.weekday() < 5:
+        for _ in range(14):
+            if d.weekday() < 5:
                 return d.strftime("%A %b %d")
             d += pd.Timedelta(days=1)
     except Exception:

@@ -293,6 +293,25 @@
       <div class="level-row"><span class="level-label">TRADES TODAY</span>   <span class="level-val" id="lv-trades">0</span></div>
       <div class="level-row"><span class="level-label">NET LIQ</span>        <span class="level-val" id="lv-netliq">—</span></div>
     </div>
+
+    <div class="panel-section">
+      <div class="section-title">Session Stats</div>
+      <div style="display:flex; gap:16px; padding:4px 0;">
+        <div class="stat-item"><div class="stat-num" id="stat-trades">0</div><div class="stat-lbl">TRADES</div></div>
+        <div class="stat-item"><div class="stat-num green" id="stat-wins">0</div><div class="stat-lbl">WINS</div></div>
+        <div class="stat-item"><div class="stat-num red"   id="stat-losses">0</div><div class="stat-lbl">LOSSES</div></div>
+        <div class="stat-item"><div class="stat-num yellow" id="stat-wr">—</div><div class="stat-lbl">W-RATE</div></div>
+      </div>
+    </div>
+
+    <div class="panel-section">
+      <div class="section-title">Session Levels</div>
+      <div style="font-size:12px; color:var(--text3);" id="session-levels-text">Building session levels…</div>
+      <div style="font-size:11px; margin-top:4px; display:flex; gap:12px;">
+        <span style="color:var(--text2);">PM High: <b id="lv-pmh" style="color:var(--red);">—</b></span>
+        <span style="color:var(--text2);">PM Low: <b id="lv-pml" style="color:var(--green);">—</b></span>
+      </div>
+    </div>
   </div>
 
   <!-- CENTER: Claude Analysis -->

@@ -84,6 +84,13 @@ The **skip-when-unchanged cache** (A.1) returns the prior HOLD decision for free
 
 Don't break field names without grepping — backtester JSONL files on disk use the schema as of when they were recorded.
 
+**ICT / signal fields currently in the snapshot (V4.2+):**
+- `candle_patterns` — string describing detected patterns on 1m/5m bars (engulfing, hammer, shooting star, morning/evening star, inside bar breakout); empty string when none. Source: `_detect_candle_patterns()` in `ibkr_feed.py`.
+- `tape_bias` — `AGGRESSIVE_BUYING` / `AGGRESSIVE_SELLING` / `NEUTRAL`; derived from large-print rolling counts in `_get_tape_analysis()`. Pre-filter adds ±2 signals.
+- `tape_text` — human-readable tape summary string (e.g. "3 large buys / 1 large sell in last 60s"). Injected verbatim into the entry prompt.
+- `daily_zones` — dict `{"demand_zones": [...], "supply_zones": [...]}` built from daily bar reversals via `_find_daily_zones()`. Pre-filter adds +1 bull near demand, +1 bear near supply.
+- `premarket_high` / `premarket_low` — float or `None`; 4am–9am ET globex range extremes computed in `_update_session_levels()`. Pre-filter adds 4 signals (above/below/testing each level).
+
 ### Bidirectional OR bias (V3.0)
 
 The Opening Range direction is a **starting bias, not a law**. `feed.or_direction` plus `get_watchlist().bias` (LONG_PREFERRED / SHORT_PREFERRED / NEUTRAL / NO_TRADE) gate the pre-filter. Bias decays to NEUTRAL after 90 min, or immediately if MTF fully disagrees, or if price is 80+ pts against it. Pre-filter requires 3 signals to trade with bias, 5 signals to trade counter-bias. Don't reintroduce hard "LONG_ONLY" logic that blocks one side entirely.

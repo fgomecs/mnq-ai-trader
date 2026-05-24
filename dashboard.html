@@ -1101,11 +1101,11 @@ updateClock();
       // Entry triangle — below bar for long (pointing up), above bar for short (pointing down)
       if (isLong) {
         const bar = bars[idx];
-        const baseY = bar ? yForPrice(bar.l) + S + 4 : entryY + S + 4;
+        const baseY = entryY + S + 6;
         tri(x, baseY, true, entryCol);
       } else {
         const bar = bars[idx];
-        const baseY = bar ? yForPrice(bar.h) - S - 4 : entryY - S - 4;
+        const baseY = entryY - S - 6;
         tri(x, baseY, false, entryCol);
       }
 

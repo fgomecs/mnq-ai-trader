@@ -402,7 +402,6 @@
       <div class="ict-block" id="ict-choch">—</div>
       <div class="ict-block" id="ict-ind">—</div>
       <div class="ict-block" id="ict-candle" style="font-size:11px;">—</div>
-      <div class="ict-block" id="ict-tape" style="font-size:11px;">—</div>
       <div style="font-size:12px; color:var(--text2); margin-top:6px;" id="ict-mtf">—</div>
     </div>
 
@@ -738,14 +737,6 @@ function render(d) {
     const isBull = /BULLISH ENGULFING|HAMMER|MORNING STAR|BREAKOUT UP/i.test(cp);
     const isBear = /BEARISH ENGULFING|SHOOTING STAR|EVENING STAR|BREAKOUT DOWN/i.test(cp);
     cpEl.style.color = isBull ? 'var(--green)' : isBear ? 'var(--red)' : 'var(--text2)';
-  }
-  const tapeEl = el('ict-tape');
-  if (tapeEl) {
-    const tt = d.tape_text || '';
-    tapeEl.textContent = tt && !tt.startsWith('N/A') ? tt : '—';
-    tapeEl.style.color = d.tape_bias === 'AGGRESSIVE_BUYING'  ? 'var(--green)'
-                       : d.tape_bias === 'AGGRESSIVE_SELLING' ? 'var(--red)'
-                       : 'var(--text2)';
   }
   el('ict-mtf').textContent   = d.mtf_alignment || '—';
 

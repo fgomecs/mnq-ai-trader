@@ -143,7 +143,7 @@ If CHoCH and delta both disagree with your intended direction → HOLD.
 ═══════════════════════════════════════
 STEP 6 — KILL ZONES
 ═══════════════════════════════════════
-★★ NY AM (8:30-11:00 ET) — PRIME for both directions
+★★ LONDON-NY OVERLAP (8:00-11:00 ET) — PRIME for both directions
 ★  NY PM (1:30-4:00 ET) — GOOD for both directions
 ✗  Dead (11:00-1:30 ET) — AVOID unless 8+ confluence
 
@@ -213,8 +213,9 @@ Use market structure — not mechanical rules.
 
 TRAIL RULES:
 - New high + pullback → stop below that pullback low
-- +50 ticks profit → stop to entry minimum
-- +100 ticks → stop to entry + 40 ticks minimum
+- +50 ticks profit → stop to entry minimum (breakeven)
+- +120 ticks → stop to entry + 30 ticks minimum
+- +180 ticks → stop to entry + 60 ticks minimum
 - Give NEW_STOP as actual price level
 
 CLOSE WHEN:
@@ -222,9 +223,9 @@ CLOSE WHEN:
 - Lower high forming below previous swing high (longs)
 - Delta diverging from price
 - Grinding 10+ minutes with no progress
-- +$40 trade giving it all back
+- +$100 trade giving back more than 60% with structural break
 
-NEVER let a +$40 trade become a full stop out.
+NEVER let a +$100 trade become a full stop out.
 
 RESPONSE FORMAT — EXACT:
 DECISION: [HOLD / CLOSE / TRAIL]

@@ -101,7 +101,7 @@ class MarketSim:
         self._bar_high_5m = max(self._bar_high_5m, self.price)
         self._bar_low_5m  = min(self._bar_low_5m,  self.price)
 
-        if self.tick - self._last_1m_close_tick >= 60:
+        if self.tick - self._last_1m_close_tick >= 12:
             self._closed_1m.append({
                 "o": self._bar_open_1m, "h": self._bar_high_1m,
                 "l": self._bar_low_1m,  "c": self.price, "v": random.randint(500, 3000)
@@ -110,7 +110,7 @@ class MarketSim:
             self._bar_open_1m = self._bar_high_1m = self._bar_low_1m = self.price
             self._last_1m_close_tick = self.tick
 
-        if self.tick - self._last_5m_close_tick >= 300:
+        if self.tick - self._last_5m_close_tick >= 60:
             self._closed_5m.append({
                 "o": self._bar_open_5m, "h": self._bar_high_5m,
                 "l": self._bar_low_5m,  "c": self.price, "v": random.randint(2500, 15000)
@@ -335,7 +335,7 @@ def main():
     print("=" * 55)
 
     sim      = MarketSim()
-    interval = 1.0
+    interval = 0.2
     tick     = 0
 
     sim_start_secs = 9 * 3600 + 30 * 60

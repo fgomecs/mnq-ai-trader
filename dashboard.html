@@ -1114,29 +1114,36 @@ updateClock();
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(x - 4, entryY); ctx.lineTo(x + 4, entryY); ctx.stroke();
 
-      // Exit triangle + connecting dotted line
+      // Exit triangle + connecting horizontal line at entry price level
       if (exitY !== null) {
-        // Dotted line connecting entry price to exit price level
+        // Find exit bar x; fall back to last visible bar if no match
+        const exitTime = (m.exit_t || '').slice(0, 16);
+        let exitIdx = exitTime ? bars.findIndex(b => b.t?.slice(0,16) === exitTime) : -1;
+        if (exitIdx < 0) exitIdx = bars.length - 1;
+        const exitI = Math.max(0, Math.min(exitIdx - viewStart, viewBars - 1));
+        const exitX = PAD_L + exitI * barPx + barPx * 0.5;
+
+        // Horizontal dotted line from entry to exit at entry price height
         ctx.strokeStyle = entryCol + '66';
         ctx.lineWidth = 1;
         ctx.setLineDash([3, 4]);
         ctx.beginPath();
         ctx.moveTo(x, entryY);
-        ctx.lineTo(x, exitY);
+        ctx.lineTo(exitX, entryY);
         ctx.stroke();
         ctx.setLineDash([]);
 
-        // Exit: opposite triangle direction in grey
+        // Exit: opposite triangle direction in grey, at exit bar x
         if (isLong) {
-          tri(x, exitY - S - 4, false, exitCol);  // long exit = pointing down
+          tri(exitX, exitY - S - 4, false, exitCol);  // long exit = pointing down
         } else {
-          tri(x, exitY + S + 4, true, exitCol);   // short exit = pointing up
+          tri(exitX, exitY + S + 4, true, exitCol);   // short exit = pointing up
         }
 
-        // Exit price tick
+        // Exit price tick at exit bar x
         ctx.strokeStyle = exitCol + 'aa';
         ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x - 4, exitY); ctx.lineTo(x + 4, exitY); ctx.stroke();
+        ctx.beginPath(); ctx.moveTo(exitX - 4, exitY); ctx.lineTo(exitX + 4, exitY); ctx.stroke();
       }
     });
 

@@ -39,6 +39,7 @@ class MarketSim:
         self.daily_pnl    = 0.0
         self.position     = "FLAT"
         self.entry_price  = 0.0
+        self._entry_time  = ""
         self.stop_price   = 0.0
         self.target_price = 0.0
         self.trades       = []
@@ -185,6 +186,7 @@ class MarketSim:
         self.phase_ticks  = 0
         self.position     = "LONG" if self.decision == "BUY" else "SHORT"
         self.entry_price  = self.price
+        self._entry_time  = datetime.now(eastern).strftime("%Y-%m-%dT%H:%M")
         stop_dist         = random.uniform(8, 15)
         target_dist       = stop_dist * random.uniform(1.5, 2.5)
         if self.position == "LONG":
@@ -229,6 +231,8 @@ class MarketSim:
             "direction": self.position, "entry": self.entry_price, "exit": self.price,
             "pnl": pnl, "exit_reason": "Target hit" if pnl > 0 else "Stop hit", "strategy": self.strategy,
         })
+        self.trades[-1]["entry_time"] = self._entry_time
+        self.trades[-1]["exit_time"]  = datetime.now(eastern).strftime("%Y-%m-%dT%H:%M")
         self.reasoning  = f"CLOSED {self.position} at {self.price:.2f}. {'Target hit' if pnl>0 else 'Stop hit'}. P&L: ${pnl:+.2f}. Daily: ${self.daily_pnl:+.2f}."
         self.decision   = "CLOSE"
         self.position   = "FLAT"
@@ -314,7 +318,9 @@ class MarketSim:
             "bars1min": self._make_bars(now_et, 1, 195),
             "bars5min": self._make_bars(now_et, 5, 195),
             "tradeMarkers": [
-                {"t": now_et.strftime("%Y-%m-%dT%H:%M"), "price": tr["entry"],
+                {"t": tr.get("entry_time", now_et.strftime("%Y-%m-%dT%H:%M")),
+                 "exit_t": tr.get("exit_time", ""),
+                 "price": tr["entry"],
                  "dir": tr["direction"], "exit": tr.get("exit"), "pnl": tr.get("pnl", 0)}
                 for tr in self.trades[-50:]
             ],

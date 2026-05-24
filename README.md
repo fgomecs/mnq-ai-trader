@@ -56,6 +56,8 @@ graph TD
     LEARN --> ABL[ablation_runner.py\nFeature Ablation]
     LEARN --> MEM[memory/\nLearning Reports]
     LEARN --> VER[version_manager.py\nAuto Git Commit]
+    LEARN --> JEX[journal_exporter.py\nBuilds journal_data.json]
+    JEX --> JHTML[journal.html\nEquity curve + analytics]
 ```
 
 ### Three Loops
@@ -65,6 +67,7 @@ graph TD
 | Protection loop | 5 seconds | Stop/target checks, broker reconciliation |
 | Entry scan | 5 seconds | Python pre-filter → Claude Opus entry decisions |
 | Position management | 15–60 seconds | Claude Sonnet manages open trades |
+| Pre-market sleep | 30 minutes | Process stays alive nights/weekends; blocks weekends, CME holidays, early closes; dashboard shows `botSleeping=true` during sleep |
 
 ---
 
@@ -152,6 +155,17 @@ Based on Zarattini, Barbon & Aziz (2024).
 | **CHoCH** | HH/HL or LH/LL structural break | Entry confirmation |
 | **Liquidity pools** | Old highs/lows, equal highs | Price targets |
 | **Inducement** | Retail stop-hunt before real move | Wait signal |
+
+### Session Levels
+
+Computed in `_update_session_levels()` in `ibkr_feed.py` and injected into the snapshot each cycle:
+
+| Level | Source |
+|---|---|
+| Session high / low | Rolling intraday extremes |
+| OR high / low | First 5-min candle (9:30–9:35 ET) |
+| VWAP | Volume-weighted average price |
+| Previous week high / low | `prev_week_high` / `prev_week_low` — calculated from the daily bar cache and included in Claude's snapshot as reference levels for weekly liquidity |
 
 ### Pre-filter Signal Scoring
 
@@ -421,7 +435,7 @@ Every EOD auto-commit bumps the patch version:
 
 | File | Size | Purpose |
 |---|---|---|
-| `dashboard_writer.py` | ~12KB | Writes `dashboard_data.json` with merge logic. Includes version, thesis probability, IBKR headlines. |
+| `dashboard_writer.py` | ~12KB | Writes `dashboard_data.json` with merge logic. Includes version, thesis probability, IBKR headlines. `bot_sleeping`/`wake_time` fields drive dashboard sleeping state. |
 | `memory_manager.py` | ~15KB | Session memory. Loads last 5 days, saves EOD summary. |
 | `news_calendar.py` | ~27KB | Economic calendar. FRED + hardcoded recurring. Danger zone gating, countdown to next event. |
 | `strategy_stats.py` | ~18KB | Per-strategy win rate / expectancy. Wilson 95% CI. |
@@ -434,14 +448,16 @@ Every EOD auto-commit bumps the patch version:
 |---|---|---|
 | `version_manager.py` | ~7KB | Auto-versioning. Reads/writes BOT_VERSION in .env. Git add/commit/push/tag at EOD. |
 | `ablation_runner.py` | ~10KB | Ablation test engine. Disables each feature flag one at a time, runs backtest, returns HELPS/HURTS/NEUTRAL ranking. |
-| `learning_session.py` | ~11KB | EOD orchestrator. Runs ablation → Claude synthesis → save reports → auto-commit. |
+| `learning_session.py` | ~11KB | EOD orchestrator. Runs ablation → Claude synthesis → save reports → auto-commit → journal export. |
+| `journal_exporter.py` | ~8KB | Rebuilds `journal_data.json` from all `decisions_*.jsonl` JSONL files at EOD. Schema: equity curve, per-strategy stats, by-hour breakdown, OFI performance, thesis probability buckets. |
 
 ### Static Files
 
 | File | Purpose |
 |---|---|
 | `dashboard.html` | Desktop browser UI. Three-column layout, polls JSON every 2s. |
-| `mobile.html` | iPhone-optimized UI. Single column, big text, polls every 5s. Add to home screen. |
+| `mobile.html` | iPhone-optimized UI. Single column, big text, polls every 5s. Add to home screen. Shows yellow `BOT SLEEPING` with wake time when bot is dormant. |
+| `journal.html` | EOD analytics UI. Equity curve, full trade log, per-strategy/hour/OFI/thesis breakdowns. Reads `journal_data.json`. |
 | `.env` | API keys and config. **Never commit.** |
 | `.env.example` | Template — commit this. |
 

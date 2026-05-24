@@ -98,6 +98,8 @@
 - Round number awareness: flag proximity to 00/50/25/75 handles in pre-filter and prompt
 - Weekly and monthly high/low levels from bar history, injected into session levels
 - Enhanced candlestick patterns: 3-bar sequences, pattern quality scoring, context weighting
+- Hard kill conditions (FEATURE_HARD_KILL flag): low volume holiday weeks (volume < 50% of 20-day average), consecutive loss days (3+ red days in a row → reduce to 1 trade max). Already hardcoded as kills in some paths — enforce uniformly with flag and log reason when triggered.
+- Drawdown Curve Visualization in Journal: `journal.html` equity curve currently shows P&L. Add a second line showing rolling max drawdown so the relationship between features and risk is visible at a glance.
 
 ---
 

@@ -27,7 +27,9 @@ py -3.11 config.py
 ```
 
 No `requirements.txt` is checked in — deps installed manually via:
-`pip install ib_insync anthropic pandas pytz python-dotenv schedule`
+`pip install ib_insync anthropic pandas pytz python-dotenv schedule exchange-calendars`
+
+`exchange-calendars` enables CME holiday detection (Memorial Day, July 4th, etc.) and early-close days (day-before-Thanksgiving, Christmas Eve). The bot uses the `XNYS` calendar, which matches the NYSE holiday schedule that MNQ/NQ equity futures follow. Without the package the bot falls back to weekend-only gating and logs a warning.
 
 No test suite. **The backtester is the regression check.** When you change pre-filter logic, prompt structure, or the snapshot schema, run `backtester.py --date <recent>` before and after — the P&L / W-L delta is the validation signal.
 
@@ -40,6 +42,7 @@ No test suite. **The backtester is the regression check.** When you change pre-f
 | Main cycle | `main.run_cycle` on the main thread | 0.5s sleep, but pre-filter gated to `ENTRY_SCAN_INTERVAL_SECS` (5s) | Snapshot → pre-filter → Claude entry → executor |
 | Protection loop | `Executor._fast_protection_loop` daemon thread | 5s (`PROTECTION_LOOP_SECS`) | Stop/target checks, broker reconciliation, orphan detection |
 | Fast dashboard ticker | `main._fast_dashboard_ticker` daemon thread | 1 Hz | Writes `price_data.json` and patches `dashboard_data.json` every 10s |
+| Pre-market sleep | `main._wait_for_market_hours()` — blocks `main()` before IBKR connect | 30-min poll | Blocks weekends, CME holidays (via `exchange-calendars` XNYS), early closes; writes `botSleeping=true` to `dashboard_data.json` so dashboards show sleeping state |
 
 The same `Executor` instance is shared across threads — internal `_lock` guards mutation. Don't add code that grabs the lock and then makes an IBKR call inside it (P1.1 fix — `_get_market_price()` reads `_last_price` outside the lock).
 
@@ -61,6 +64,10 @@ ibkr_feed.get_snapshot() → snapshot dict (~50 fields)
   dashboard_writer.update_dashboard() — merges into dashboard_data.json
   data_recorder.record_snapshot/decision() — JSONL to data/ for backtesting
 ```
+
+**EOD journal flow:** `learning_session.py` calls `journal_exporter.py` after the ablation report. `journal_exporter.py` reads all `decisions_*.jsonl` files, rebuilds `journal_data.json` from scratch (equity curve, per-strategy stats, by-hour breakdown, OFI performance, thesis probability buckets), and writes it for `journal.html` at `localhost:8080/journal.html`.
+
+**Session levels:** `_update_session_levels()` in `ibkr_feed.py` computes and injects `prev_week_high` / `prev_week_low` (derived from the daily bar cache) into the snapshot each cycle. These appear in Claude's entry prompt as weekly liquidity reference levels. Follow the snapshot dict checklist above if you add more levels here.
 
 The **pre-filter** is the single biggest cost lever — it scores 10+ bullish/bearish signals (OR position, CHoCH, VWAP, delta, MTF, DOM intelligence, OFI) and needs 3+ to call Claude on the bias-preferred side, 5+ to go counter-bias. Most ticks never reach Claude.
 

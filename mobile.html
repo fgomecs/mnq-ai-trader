@@ -165,6 +165,7 @@
   <div class="card-body">
     <div id="ms-state">—</div>
     <div id="ms-countdown"></div>
+    <div id="ms-wake" style="font-size:12px; color:var(--text3); margin-top:4px; min-height:16px;"></div>
   </div>
 </div>
 
@@ -355,7 +356,10 @@ async function poll() {
     el('offline-badge').style.display = offline ? 'block' : 'none';
     const modeEl = el('data-mode');
     modeEl.textContent = offline ? 'BOT OFFLINE' : (d.data_mode || 'DELAYED');
-    modeEl.style.color = offline ? 'var(--red)' : (d.data_mode||'').includes('LIVE') ? 'var(--green)' : 'var(--yellow)';
+    modeEl.style.color = offline ? 'var(--red)'
+      : d.data_mode === 'BOT SLEEPING'        ? 'var(--yellow)'
+      : (d.data_mode||'').includes('LIVE')    ? 'var(--green)'
+      : 'var(--yellow)';
 
     // Version
     if (d.botVersion) el('version').textContent = `v${d.botVersion}`;
@@ -380,6 +384,8 @@ async function poll() {
     _dangerZone = d.newsDangerZone || false;
     _nextEvent  = d.nextEventFull  || null;
     tickMarketStatus();
+    const wakeEl = el('ms-wake');
+    if (wakeEl) wakeEl.textContent = d.botSleeping && d.wakeTime ? `Wakes: ${d.wakeTime}` : '';
 
     // Position
     const pos = d.position || 'FLAT';

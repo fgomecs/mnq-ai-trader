@@ -779,6 +779,11 @@ def _wait_for_market_hours() -> None:
     wake_str = f"{start_h:02d}:{start_m:02d} ET"
     logger.info(f"Waiting for market hours — sleeping until {wake_str}")
 
+    try:
+        update_dashboard(bot_sleeping=True, wake_time=wake_str, claude_status="BOT SLEEPING")
+    except Exception:
+        pass
+
     while True:
         now_et   = datetime.now(eastern)
         now_mins = now_et.hour * 60 + now_et.minute

@@ -118,6 +118,8 @@ def update_dashboard(
     claude_status: str = "ANALYZING",
     account: Optional[dict] = None,
     snapshot: Optional[dict] = None,
+    bot_sleeping: bool = False,
+    wake_time: str = "",
     **kwargs,
 ) -> None:
     """Write full state to dashboard JSON, merging with existing file
@@ -167,9 +169,11 @@ def update_dashboard(
         )
 
         data: dict = {
-            "timestamp": now.isoformat(),
-            "time_et":   now.strftime("%H:%M:%S"),
-            "data_mode": "LIVE L2" if LIVE_DATA_ACTIVE else "DELAYED",
+            "timestamp":   now.isoformat(),
+            "time_et":     now.strftime("%H:%M:%S"),
+            "data_mode":   "BOT SLEEPING" if bot_sleeping else ("LIVE L2" if LIVE_DATA_ACTIVE else "DELAYED"),
+            "botSleeping": bot_sleeping,
+            "wakeTime":    wake_time,
 
             "position":     pos_str,
             "entryPrice":   entry_price,

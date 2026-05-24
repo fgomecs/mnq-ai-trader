@@ -1069,6 +1069,8 @@ updateClock();
     markers.forEach(m => {
       const mTime = (m.t || '').slice(0, 16);
       const idx   = bars.findIndex(b => b.t?.slice(0,16) === mTime);
+      if (idx < 0) return;
+      if (bars[idx]?.forming) return;
       if (idx < viewStart || idx >= viewStart + viewBars) return;
       const i      = idx - viewStart;
       const x      = PAD_L + i * barPx + barPx * 0.5;

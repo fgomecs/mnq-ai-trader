@@ -29,7 +29,7 @@ from config import (
     CLAUDE_USE_CACHING,
     MIN_THESIS_PROBABILITY,
     TICK_SIZE, TICK_VALUE,
-    FEATURE_BIDIRECTIONAL, FEATURE_BIAS_DECAY, FEATURE_ORB_BIAS,
+    FEATURE_BIDIRECTIONAL, FEATURE_BIAS_DECAY, FEATURE_ORB_BIAS, FEATURE_DOJI_MTF_OVERRIDE,
     FEATURE_OFI, FEATURE_MTF_SCORE, FEATURE_THESIS_GATE,
     FEATURE_NEWS_GATE, FEATURE_DEAD_ZONE, FEATURE_EARLY_EXIT,
     FEATURE_LEARNING_INJECT,
@@ -878,8 +878,19 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         return False, "news danger zone"
 
     or_dir = snapshot.get("or_direction")
-    if not or_dir or or_dir == "DOJI":
-        return False, f"no OR direction ({or_dir})"
+    if not or_dir:
+        return False, "no OR direction"
+    if or_dir == "DOJI":
+        if not FEATURE_DOJI_MTF_OVERRIDE:
+            return False, "DOJI OR — no direction"
+        mtf_early = snapshot.get("mtf_alignment", "")
+        if "BULLISH_ALIGNED" in mtf_early:
+            # Allow bull trades on DOJI day when MTF strongly agrees — counter-trend threshold
+            pass  # fall through; signal scoring + COUNTER_THRESH gating handles it below
+        elif "BEARISH_ALIGNED" in mtf_early:
+            pass  # same — fall through
+        else:
+            return False, f"DOJI OR — MTF not strongly aligned ({mtf_early or 'N/A'})"
 
     watchlist_bias       = get_watchlist().get("bias", "")
     watchlist_invalidated = get_watchlist().get("bias_invalidated", False)
@@ -1047,7 +1058,9 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     # NEUTRAL or invalidated bias → both directions allowed, pass stronger side
     # LONG_PREFERRED → bull signals pass freely; bear signals need extra strength (5+)
     # SHORT_PREFERRED → bear signals pass freely; bull signals need extra strength (5+)
+    # DOJI + MTF override → both directions allowed but COUNTER_THRESH required on both sides
 
+    is_doji_override = (or_dir == "DOJI" and FEATURE_DOJI_MTF_OVERRIDE)
     is_neutral = (watchlist_bias == "NEUTRAL" or watchlist_invalidated)
     is_long_pref  = watchlist_bias == "LONG_PREFERRED"
     is_short_pref = watchlist_bias == "SHORT_PREFERRED"
@@ -1059,6 +1072,15 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     bear_passes = bear_signals >= THRESHOLD
     bull_counter_passes = bull_signals >= COUNTER_THRESH
     bear_counter_passes = bear_signals >= COUNTER_THRESH
+
+    if is_doji_override:
+        # DOJI day: MTF confirmed strong alignment required; both sides need 5+ signals
+        mtf_doji = snapshot.get("mtf_alignment", "")
+        if "BULLISH_ALIGNED" in mtf_doji and bull_counter_passes:
+            return True, f"BULL {bull_signals} signals (DOJI+MTF override) [{', '.join(bull_reasons[:4])}]"
+        if "BEARISH_ALIGNED" in mtf_doji and bear_counter_passes:
+            return True, f"BEAR {bear_signals} signals (DOJI+MTF override) [{', '.join(bear_reasons[:4])}]"
+        return False, f"DOJI OR — MTF override active but insufficient signals (bull:{bull_signals} bear:{bear_signals} need {COUNTER_THRESH})"
 
     if is_neutral:
         # Both sides eligible — pass the stronger signal if above threshold

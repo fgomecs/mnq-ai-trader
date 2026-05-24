@@ -221,6 +221,8 @@ FEATURE_ORB_BIAS       = _env_bool("FEATURE_ORB_BIAS",       True)
 FEATURE_BIDIRECTIONAL  = _env_bool("FEATURE_BIDIRECTIONAL",  True)
 # Bias decays to NEUTRAL after 90min if structure disagrees
 FEATURE_BIAS_DECAY     = _env_bool("FEATURE_BIAS_DECAY",     True)
+# On DOJI OR days, allow trades when MTF is strongly aligned (5+ signals required)
+FEATURE_DOJI_MTF_OVERRIDE = _env_bool("FEATURE_DOJI_MTF_OVERRIDE", True)
 
 # ── Predictive Signals ─────────────────────────────────────
 # V4.0: Order Flow Imbalance score from DOM history

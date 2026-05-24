@@ -182,6 +182,10 @@ PROTECTION_RECONCILE_EVERY_N_LOOPS      = _env_int("PROTECTION_RECONCILE_EVERY_N
 DELAYED_DATA_STALENESS_THRESHOLD_POINTS = _env_int("DELAYED_DATA_STALENESS_THRESHOLD_POINTS",  20)
 MAX_REASONABLE_PNL_PER_CONTRACT         = _env_float("MAX_REASONABLE_PNL_PER_CONTRACT",     1000.0)
 RBUST_MAX_R_PER_TRADE                   = _env_float("RBUST_MAX_R_PER_TRADE",                 1.5)
+TRAIL_PROFIT_1_TICKS                    = _env_int("TRAIL_PROFIT_1_TICKS",                    120)  # ticks profit to trigger milestone-1 trail
+TRAIL_PROFIT_1_LOCK                     = _env_int("TRAIL_PROFIT_1_LOCK",                      30)  # ticks above entry to lock stop at milestone 1
+TRAIL_PROFIT_2_TICKS                    = _env_int("TRAIL_PROFIT_2_TICKS",                    180)  # ticks profit to trigger milestone-2 trail
+TRAIL_PROFIT_2_LOCK                     = _env_int("TRAIL_PROFIT_2_LOCK",                      60)  # ticks above entry to lock stop at milestone 2
 
 # ─── IBKR CONNECTION ───────────────────────────────────────
 IBKR_HOST      = os.getenv("IBKR_HOST", "127.0.0.1")

@@ -24,6 +24,8 @@ from config import (
     DELAYED_DATA_STALENESS_THRESHOLD_POINTS,
     MAX_REASONABLE_PNL_PER_CONTRACT,
     RBUST_MAX_R_PER_TRADE,
+    TRAIL_PROFIT_1_TICKS, TRAIL_PROFIT_1_LOCK,
+    TRAIL_PROFIT_2_TICKS, TRAIL_PROFIT_2_LOCK,
 )
 from logger import logger
 
@@ -825,10 +827,10 @@ class Executor:
         """
         ticks = (price - self.entry_price) / TICK_SIZE
         proposed = None
-        if ticks >= 150:
-            proposed = round(self.entry_price + 50 * TICK_SIZE, 2)
-        elif ticks >= 100:
-            proposed = round(self.entry_price + 25 * TICK_SIZE, 2)
+        if ticks >= TRAIL_PROFIT_2_TICKS:
+            proposed = round(self.entry_price + TRAIL_PROFIT_2_LOCK * TICK_SIZE, 2)
+        elif ticks >= TRAIL_PROFIT_1_TICKS:
+            proposed = round(self.entry_price + TRAIL_PROFIT_1_LOCK * TICK_SIZE, 2)
         elif ticks >= 50 and self.stop_price < self.entry_price:
             proposed = self.entry_price
 
@@ -847,10 +849,10 @@ class Executor:
         """
         ticks = (self.entry_price - price) / TICK_SIZE
         proposed = None
-        if ticks >= 150:
-            proposed = round(self.entry_price - 50 * TICK_SIZE, 2)
-        elif ticks >= 100:
-            proposed = round(self.entry_price - 25 * TICK_SIZE, 2)
+        if ticks >= TRAIL_PROFIT_2_TICKS:
+            proposed = round(self.entry_price - TRAIL_PROFIT_2_LOCK * TICK_SIZE, 2)
+        elif ticks >= TRAIL_PROFIT_1_TICKS:
+            proposed = round(self.entry_price - TRAIL_PROFIT_1_LOCK * TICK_SIZE, 2)
         elif ticks >= 50 and self.stop_price > self.entry_price:
             proposed = self.entry_price
 

@@ -334,6 +334,7 @@ Every major feature can be toggled in `.env` for live trading and ablation testi
 FEATURE_ORB_BIAS=true        # OR direction as starting bias
 FEATURE_BIDIRECTIONAL=true   # Allow shorts on bull days
 FEATURE_BIAS_DECAY=true      # Bias decays to NEUTRAL after 90min
+FEATURE_DOJI_MTF_OVERRIDE=true # On DOJI OR days, allow trades when MTF is BULLISH_ALIGNED or BEARISH_ALIGNED (5+ signals required)
 
 # Predictive Signals
 FEATURE_OFI=true             # Order Flow Imbalance score
@@ -629,6 +630,10 @@ PROTECTION_RECONCILE_EVERY_N_LOOPS=4      # Broker reconcile every N protection 
 DELAYED_DATA_STALENESS_THRESHOLD_POINTS=20 # Price staleness alert threshold
 MAX_REASONABLE_PNL_PER_CONTRACT=1000.0    # P&L sanity bound — rejects above this
 RBUST_MAX_R_PER_TRADE=1.5                 # Max R gain per trade (R-budget cap)
+TRAIL_PROFIT_1_TICKS=120                  # Ticks profit to trigger milestone-1 trail
+TRAIL_PROFIT_1_LOCK=30                    # Ticks above entry to lock stop at milestone 1
+TRAIL_PROFIT_2_TICKS=180                  # Ticks profit to trigger milestone-2 trail
+TRAIL_PROFIT_2_LOCK=60                    # Ticks above entry to lock stop at milestone 2
 ```
 
 ---

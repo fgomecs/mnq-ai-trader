@@ -6,6 +6,14 @@ Edit C:\\trading\\mnq-ai-trader\\.env to change without code edits.
 V4.1 additions:
   - VERSION constant (auto-managed by version_manager.py)
   - FEATURE_* flags for ablation testing
+
+V4.4 additions:
+  - Phase 1-3 strategy expansion feature flags and thresholds
+  - Session classifier constants
+  - Gap classification thresholds
+  - Pivot point support
+  - VWAP reversion, OR extreme fade, dead zone VWAP magnet
+  - Opening drive fade, post-news refresh, sweep reversal
 """
 
 import os
@@ -39,7 +47,7 @@ def _env_bool(key: str, default: bool) -> bool:
 # Managed by version_manager.py — do not edit manually.
 # Format: MAJOR.MINOR.PATCH
 # MAJOR: architectural change | MINOR: new feature | PATCH: bug fix / tuning
-VERSION = os.getenv("BOT_VERSION", "4.3.0")
+VERSION = os.getenv("BOT_VERSION", "4.4.0")
 
 # ─── PATHS ─────────────────────────────────────────────────
 BASE_DIR       = os.getenv("BASE_DIR", "C:\\trading\\mnq-ai-trader")
@@ -113,9 +121,9 @@ MAIN_LOOP_SLEEP_SECS       = _env_float("MAIN_LOOP_SLEEP_SECS", 0.5)
 DEAD_ZONE_CONFLUENCE_THRESHOLD = _env_int("DEAD_ZONE_CONFLUENCE_THRESHOLD", 8)
 POS_STRUCTURE_MIN_PROFIT_TICKS = _env_int("POS_STRUCTURE_MIN_PROFIT_TICKS", 20)
 POS_STRUCTURE_PULLBACK_TICKS   = _env_int("POS_STRUCTURE_PULLBACK_TICKS",    5)
-ENTRY_MODE                     = os.getenv("ENTRY_MODE", "LIMIT")           # "LIMIT" or "MARKET"
-LIMIT_ORDER_MAX_SLIPPAGE       = _env_int("LIMIT_ORDER_MAX_SLIPPAGE",        4)  # ticks — fall back to MKT if price moves this far
-LIMIT_ORDER_TIMEOUT_SECS       = _env_int("LIMIT_ORDER_TIMEOUT_SECS",        5)  # seconds before limit falls back to MKT
+ENTRY_MODE                     = os.getenv("ENTRY_MODE", "LIMIT")
+LIMIT_ORDER_MAX_SLIPPAGE       = _env_int("LIMIT_ORDER_MAX_SLIPPAGE",        4)
+LIMIT_ORDER_TIMEOUT_SECS       = _env_int("LIMIT_ORDER_TIMEOUT_SECS",        5)
 
 # ─── DASHBOARD REFRESH ─────────────────────────────────────
 DASHBOARD_ACCOUNT_REFRESH_SECS = _env_int("DASHBOARD_ACCOUNT_REFRESH_SECS", 5)
@@ -141,7 +149,7 @@ DOM_HISTORY_MAX_SNAPSHOTS        = _env_int("DOM_HISTORY_MAX_SNAPSHOTS",        
 DOM_SIGNIFICANT_SIZE             = _env_int("DOM_SIGNIFICANT_SIZE",             30)
 DOM_LARGE_SIZE                   = _env_int("DOM_LARGE_SIZE",                   75)
 DOM_WHALE_SIZE                   = _env_int("DOM_WHALE_SIZE",                  200)
-LARGE_PRINT_THRESHOLD            = _env_int("LARGE_PRINT_THRESHOLD",            50)  # contracts — block print threshold for tape analysis
+LARGE_PRINT_THRESHOLD            = _env_int("LARGE_PRINT_THRESHOLD",            50)
 DOM_BUY_PRESSURE_BULL_THRESHOLD  = _env_float("DOM_BUY_PRESSURE_BULL_THRESHOLD", 0.65)
 DOM_SELL_PRESSURE_BEAR_THRESHOLD = _env_float("DOM_SELL_PRESSURE_BEAR_THRESHOLD", 0.35)
 DOM_CLUSTER_TOLERANCE_POINTS     = _env_float("DOM_CLUSTER_TOLERANCE_POINTS",    1.25)
@@ -185,10 +193,10 @@ PROTECTION_RECONCILE_EVERY_N_LOOPS      = _env_int("PROTECTION_RECONCILE_EVERY_N
 DELAYED_DATA_STALENESS_THRESHOLD_POINTS = _env_int("DELAYED_DATA_STALENESS_THRESHOLD_POINTS",  20)
 MAX_REASONABLE_PNL_PER_CONTRACT         = _env_float("MAX_REASONABLE_PNL_PER_CONTRACT",     1000.0)
 RBUST_MAX_R_PER_TRADE                   = _env_float("RBUST_MAX_R_PER_TRADE",                 1.5)
-TRAIL_PROFIT_1_TICKS                    = _env_int("TRAIL_PROFIT_1_TICKS",                    120)  # ticks profit to trigger milestone-1 trail
-TRAIL_PROFIT_1_LOCK                     = _env_int("TRAIL_PROFIT_1_LOCK",                      30)  # ticks above entry to lock stop at milestone 1
-TRAIL_PROFIT_2_TICKS                    = _env_int("TRAIL_PROFIT_2_TICKS",                    180)  # ticks profit to trigger milestone-2 trail
-TRAIL_PROFIT_2_LOCK                     = _env_int("TRAIL_PROFIT_2_LOCK",                      60)  # ticks above entry to lock stop at milestone 2
+TRAIL_PROFIT_1_TICKS                    = _env_int("TRAIL_PROFIT_1_TICKS",                    120)
+TRAIL_PROFIT_1_LOCK                     = _env_int("TRAIL_PROFIT_1_LOCK",                      30)
+TRAIL_PROFIT_2_TICKS                    = _env_int("TRAIL_PROFIT_2_TICKS",                    180)
+TRAIL_PROFIT_2_LOCK                     = _env_int("TRAIL_PROFIT_2_LOCK",                      60)
 
 # ─── IBKR CONNECTION ───────────────────────────────────────
 IBKR_HOST      = os.getenv("IBKR_HOST", "127.0.0.1")
@@ -216,122 +224,146 @@ MIN_THESIS_PROBABILITY = _env_int("MIN_THESIS_PROBABILITY", 70)
 # Each flag can be toggled in .env for live trading and
 # ablation testing. Safety features (stops, R-budget core,
 # race-condition fixes) are NOT flagged — they're always on.
-#
-# Ablation runner disables these one at a time to measure
-# each feature's isolated contribution to daily P&L.
 # ═══════════════════════════════════════════════════════════
 
 # ── Strategy / Bias ────────────────────────────────────────
-# ORB direction as LONG_PREFERRED / SHORT_PREFERRED starting bias
-FEATURE_ORB_BIAS       = _env_bool("FEATURE_ORB_BIAS",       True)
-# Allow shorts on bullish OR days and longs on bearish OR days
-FEATURE_BIDIRECTIONAL  = _env_bool("FEATURE_BIDIRECTIONAL",  True)
-# Bias decays to NEUTRAL after 90min if structure disagrees
-FEATURE_BIAS_DECAY     = _env_bool("FEATURE_BIAS_DECAY",     True)
-# On DOJI OR days, allow trades when MTF is strongly aligned (5+ signals required)
+FEATURE_ORB_BIAS          = _env_bool("FEATURE_ORB_BIAS",          True)
+FEATURE_BIDIRECTIONAL     = _env_bool("FEATURE_BIDIRECTIONAL",     True)
+FEATURE_BIAS_DECAY        = _env_bool("FEATURE_BIAS_DECAY",        True)
 FEATURE_DOJI_MTF_OVERRIDE = _env_bool("FEATURE_DOJI_MTF_OVERRIDE", True)
 
 # ── Predictive Signals ─────────────────────────────────────
-# V4.0: Order Flow Imbalance score from DOM history
-FEATURE_OFI            = _env_bool("FEATURE_OFI",            True)
-# V3.1: Iceberg / spoof / sweep / cluster detection (20 levels)
-FEATURE_DOM_ADVANCED   = _env_bool("FEATURE_DOM_ADVANCED",   True)
-# V3.0: Numeric MTF alignment score (0-100) alongside text label
-FEATURE_MTF_SCORE      = _env_bool("FEATURE_MTF_SCORE",      True)
-# True bid/ask delta classification (requires live L2)
-FEATURE_DELTA_LIVE     = _env_bool("FEATURE_DELTA_LIVE",     True)
-# Gap classification (prev daily close → today open) with fill-probability lookup
-FEATURE_GAP_CLASSIFICATION = _env_bool("FEATURE_GAP_CLASSIFICATION", True)
-GAP_SMALL_THRESHOLD    = _env_int("GAP_SMALL_THRESHOLD",     63)   # pts — <this = small gap (0.79 fill prob)
-GAP_MEDIUM_THRESHOLD   = _env_int("GAP_MEDIUM_THRESHOLD",   147)   # pts — <this = medium gap (0.52 fill prob)
-GAP_LARGE_THRESHOLD    = _env_int("GAP_LARGE_THRESHOLD",    210)   # pts — <this = large gap (0.28 fill prob); larger = 0.12
-# Classic daily pivot points from prior session H/L/C
-FEATURE_PIVOT_POINTS   = _env_bool("FEATURE_PIVOT_POINTS",   True)
+FEATURE_OFI          = _env_bool("FEATURE_OFI",          True)
+FEATURE_DOM_ADVANCED = _env_bool("FEATURE_DOM_ADVANCED", True)
+FEATURE_MTF_SCORE    = _env_bool("FEATURE_MTF_SCORE",    True)
+FEATURE_DELTA_LIVE   = _env_bool("FEATURE_DELTA_LIVE",   True)
 
 # ── Entry Gates ────────────────────────────────────────────
-# V4.0: Block entries when thesis probability < MIN_THESIS_PROBABILITY
-FEATURE_THESIS_GATE    = _env_bool("FEATURE_THESIS_GATE",    True)
-# D.1: Stop new entries after MAX_SESSION_R_LOSS R units lost
-# Paper trading: set False to allow unlimited trades for data collection
-# Set True with real money to cap losses at MAX_SESSION_R_LOSS R units
-FEATURE_R_BUDGET       = _env_bool("FEATURE_R_BUDGET",       False)
-# Block entries within danger window around high-impact news
-FEATURE_NEWS_GATE      = _env_bool("FEATURE_NEWS_GATE",      True)
-# Reduce entry threshold during dead zone (11am-1:30pm ET)
-FEATURE_DEAD_ZONE      = _env_bool("FEATURE_DEAD_ZONE",      True)
+FEATURE_THESIS_GATE = _env_bool("FEATURE_THESIS_GATE", True)
+FEATURE_R_BUDGET    = _env_bool("FEATURE_R_BUDGET",    False)
+FEATURE_NEWS_GATE   = _env_bool("FEATURE_NEWS_GATE",   True)
+FEATURE_DEAD_ZONE   = _env_bool("FEATURE_DEAD_ZONE",   True)
 
 # ── Position Management ────────────────────────────────────
-# D.2: Claude TRAIL decisions anchor auto-trail (Claude always wins)
-FEATURE_DUAL_TRAIL     = _env_bool("FEATURE_DUAL_TRAIL",     True)
-# Allow Claude to CLOSE positions early before stop/target
-FEATURE_EARLY_EXIT     = _env_bool("FEATURE_EARLY_EXIT",     True)
+FEATURE_DUAL_TRAIL  = _env_bool("FEATURE_DUAL_TRAIL",  True)
+FEATURE_EARLY_EXIT  = _env_bool("FEATURE_EARLY_EXIT",  True)
 
 # ── Learning ───────────────────────────────────────────────
-# V4.1: Run ablation backtest + learning session at EOD
-FEATURE_LEARNING_EOD   = _env_bool("FEATURE_LEARNING_EOD",   True)
-# Inject yesterday's learning findings into pre-market prompt
+FEATURE_LEARNING_EOD    = _env_bool("FEATURE_LEARNING_EOD",    True)
 FEATURE_LEARNING_INJECT = _env_bool("FEATURE_LEARNING_INJECT", True)
 
-# ── Phase 1-3 Strategy Expansion ──────────────────────────
-FEATURE_SESSION_CLASSIFIER    = _env_bool("FEATURE_SESSION_CLASSIFIER",    True)
-FEATURE_PIVOT_POINTS          = _env_bool("FEATURE_PIVOT_POINTS",          True)
-FEATURE_GAP_CLASSIFICATION    = _env_bool("FEATURE_GAP_CLASSIFICATION",    True)
-FEATURE_FIRST_CANDLE_LEVELS   = _env_bool("FEATURE_FIRST_CANDLE_LEVELS",   True)
-FEATURE_VWAP_REVERSION        = _env_bool("FEATURE_VWAP_REVERSION",        False)
+# ═══════════════════════════════════════════════════════════
+# V4.4 FEATURE FLAGS — Phase 1-3 Strategy Expansion
+# ═══════════════════════════════════════════════════════════
+# Phase 1 features default True  — active immediately.
+# Phase 2-3 features default False — activate after session
+# data confirms detection accuracy via backtester.
+# ═══════════════════════════════════════════════════════════
+
+# ── Phase 1 — Foundation (default True) ───────────────────
+# Classify session as TREND/RANGE/NEWS/HOLIDAY at OR_ESTABLISHED
+FEATURE_SESSION_CLASSIFIER  = _env_bool("FEATURE_SESSION_CLASSIFIER",  True)
+# Track first 1-min and 5-min candle H/L as named session levels
+FEATURE_FIRST_CANDLE_LEVELS = _env_bool("FEATURE_FIRST_CANDLE_LEVELS", True)
+# Compute gap size/direction/fill-probability at session start
+FEATURE_GAP_CLASSIFICATION  = _env_bool("FEATURE_GAP_CLASSIFICATION",  True)
+# Compute classic daily pivot points R1/R2/S1/S2 from prior day
+FEATURE_PIVOT_POINTS        = _env_bool("FEATURE_PIVOT_POINTS",        True)
+
+# ── Phase 2 — Range Day Strategies (default False) ────────
+# Detect price at 2x OR range extension — fade opportunity
 FEATURE_OR_EXTREME_FADE       = _env_bool("FEATURE_OR_EXTREME_FADE",       False)
-FEATURE_SWEEP_REVERSAL        = _env_bool("FEATURE_SWEEP_REVERSAL",        False)
-FEATURE_OPENING_DRIVE_FADE    = _env_bool("FEATURE_OPENING_DRIVE_FADE",    False)
-FEATURE_POST_NEWS_REFRESH     = _env_bool("FEATURE_POST_NEWS_REFRESH",     False)
+# Lower dead zone threshold when price is far from VWAP
 FEATURE_DEAD_ZONE_VWAP_MAGNET = _env_bool("FEATURE_DEAD_ZONE_VWAP_MAGNET", False)
-SESSION_RANGE_SIGNAL_THRESHOLD  = _env_int("SESSION_RANGE_SIGNAL_THRESHOLD", 7)
-SESSION_NEWS_THESIS_GATE        = _env_int("SESSION_NEWS_THESIS_GATE",       80)
-SESSION_NEWS_STOP_MULTIPLIER    = _env_float("SESSION_NEWS_STOP_MULTIPLIER", 1.5)
-SESSION_CLASSIFIER_TREND_OR_MIN = _env_int("SESSION_CLASSIFIER_TREND_OR_MIN", 50)
-SESSION_CLASSIFIER_RANGE_OR_MAX = _env_int("SESSION_CLASSIFIER_RANGE_OR_MAX", 35)
-SESSION_CLASSIFIER_NEWS_GAP_MIN = _env_int("SESSION_CLASSIFIER_NEWS_GAP_MIN", 100)
-GAP_SMALL_THRESHOLD          = _env_int("GAP_SMALL_THRESHOLD",           63)
-GAP_MEDIUM_THRESHOLD         = _env_int("GAP_MEDIUM_THRESHOLD",          147)
-GAP_LARGE_THRESHOLD          = _env_int("GAP_LARGE_THRESHOLD",           210)
-VWAP_REVERSION_MIN_EXTENSION = _env_int("VWAP_REVERSION_MIN_EXTENSION",  80)
-OR_EXTREME_FADE_MULTIPLIER   = _env_float("OR_EXTREME_FADE_MULTIPLIER",   2.0)
-DEAD_ZONE_VWAP_MAGNET_MIN_EXT   = _env_int("DEAD_ZONE_VWAP_MAGNET_MIN_EXT",   60)
-DEAD_ZONE_VWAP_MAGNET_THRESHOLD = _env_int("DEAD_ZONE_VWAP_MAGNET_THRESHOLD",  6)
-OPENING_DRIVE_MIN_POINTS        = _env_int("OPENING_DRIVE_MIN_POINTS",         80)
-OPENING_DRIVE_REJECTION_PCT     = _env_float("OPENING_DRIVE_REJECTION_PCT",    0.60)
-POST_NEWS_WINDOW_MINUTES        = _env_int("POST_NEWS_WINDOW_MINUTES",         45)
-POST_NEWS_WINDOW_DURATION       = _env_int("POST_NEWS_WINDOW_DURATION",        30)
+# VWAP reversion pre-filter signals (requires RANGE day context)
+FEATURE_VWAP_REVERSION        = _env_bool("FEATURE_VWAP_REVERSION",        False)
+
+# ── Phase 3 — Reversal Strategies (default False) ─────────
+# Promote DOM sweep to named strategy with extra pre-filter weight
+FEATURE_SWEEP_REVERSAL    = _env_bool("FEATURE_SWEEP_REVERSAL",    False)
+# Detect large first 5-min candle with rejection wick — fade setup
+FEATURE_OPENING_DRIVE_FADE = _env_bool("FEATURE_OPENING_DRIVE_FADE", False)
+# Refresh watchlist 45 min after high-impact news clears
+FEATURE_POST_NEWS_REFRESH  = _env_bool("FEATURE_POST_NEWS_REFRESH",  False)
 
 # ─── COMMISSIONS ───────────────────────────────────────────
-# Paper trading: set false (default). Set true to simulate realistic
-# net P&L during paper testing and enable commission-drag EOD analysis.
-# Live money: always true (actual IBKR fees applied).
-# IBKR MNQ rate: ~$0.85/side all-in (exchange + NFA + IBKR)
 SIMULATE_COMMISSIONS    = _env_bool("SIMULATE_COMMISSIONS",    False)
-COMMISSION_PER_SIDE_USD = _env_float("COMMISSION_PER_SIDE_USD", 0.85)  # per contract per side
+COMMISSION_PER_SIDE_USD = _env_float("COMMISSION_PER_SIDE_USD", 0.85)
 
-# ── Active feature set label (set by ablation runner during tests) ──
-# Normal trading: "LIVE" — ablation sets this to the test name
+# ── Active feature set label ────────────────────────────────
 ACTIVE_FEATURE_SET = os.getenv("ACTIVE_FEATURE_SET", "LIVE")
+
+# ═══════════════════════════════════════════════════════════
+# V4.4 THRESHOLDS — Session Classifier
+# ═══════════════════════════════════════════════════════════
+SESSION_CLASSIFIER_TREND_OR_MIN = _env_int("SESSION_CLASSIFIER_TREND_OR_MIN", 50)   # OR range pts minimum for TREND
+SESSION_CLASSIFIER_RANGE_OR_MAX = _env_int("SESSION_CLASSIFIER_RANGE_OR_MAX", 35)   # OR range pts maximum for RANGE
+SESSION_CLASSIFIER_NEWS_GAP_MIN = _env_int("SESSION_CLASSIFIER_NEWS_GAP_MIN", 100)  # Gap pts that flags NEWS day
+SESSION_RANGE_SIGNAL_THRESHOLD  = _env_int("SESSION_RANGE_SIGNAL_THRESHOLD",  7)    # Signals required on RANGE days
+SESSION_NEWS_THESIS_GATE        = _env_int("SESSION_NEWS_THESIS_GATE",        80)   # Min thesis prob on NEWS days
+SESSION_NEWS_STOP_MULTIPLIER    = _env_float("SESSION_NEWS_STOP_MULTIPLIER",  1.5)  # Stop multiplier on NEWS days
+
+# ═══════════════════════════════════════════════════════════
+# V4.4 THRESHOLDS — Gap Classification
+# ═══════════════════════════════════════════════════════════
+# Academic fill probabilities (MNQ points):
+#   < 63pts  → 79% fill probability
+#   63-147pts → 52% fill probability
+#   147-210pts → 28% fill probability
+#   > 210pts  → 12% fill probability (news gap)
+GAP_SMALL_THRESHOLD  = _env_int("GAP_SMALL_THRESHOLD",  63)
+GAP_MEDIUM_THRESHOLD = _env_int("GAP_MEDIUM_THRESHOLD", 147)
+GAP_LARGE_THRESHOLD  = _env_int("GAP_LARGE_THRESHOLD",  210)
+
+# ═══════════════════════════════════════════════════════════
+# V4.4 THRESHOLDS — Phase 2 Range Day
+# ═══════════════════════════════════════════════════════════
+VWAP_REVERSION_MIN_EXTENSION    = _env_int("VWAP_REVERSION_MIN_EXTENSION",    80)   # Points from VWAP to trigger signal
+OR_EXTREME_FADE_MULTIPLIER      = _env_float("OR_EXTREME_FADE_MULTIPLIER",     2.0)  # x OR range = extreme zone
+DEAD_ZONE_VWAP_MAGNET_MIN_EXT   = _env_int("DEAD_ZONE_VWAP_MAGNET_MIN_EXT",   60)   # Points from VWAP to lower dead zone threshold
+DEAD_ZONE_VWAP_MAGNET_THRESHOLD = _env_int("DEAD_ZONE_VWAP_MAGNET_THRESHOLD",  6)   # Reduced threshold when VWAP is far
+
+# ═══════════════════════════════════════════════════════════
+# V4.4 THRESHOLDS — Phase 3 Reversal
+# ═══════════════════════════════════════════════════════════
+OPENING_DRIVE_MIN_POINTS    = _env_int("OPENING_DRIVE_MIN_POINTS",        80)   # First 5-min candle range to classify as drive
+OPENING_DRIVE_REJECTION_PCT = _env_float("OPENING_DRIVE_REJECTION_PCT",   0.60) # Wick as % of body to flag rejection
+POST_NEWS_WINDOW_MINUTES    = _env_int("POST_NEWS_WINDOW_MINUTES",         45)   # Minutes after news before window opens
+POST_NEWS_WINDOW_DURATION   = _env_int("POST_NEWS_WINDOW_DURATION",        30)   # How long post-news window stays open (minutes)
 
 
 def get_active_features() -> dict:
     """Return dict of all feature flags and their current state."""
     return {
-        "ORB_BIAS":        FEATURE_ORB_BIAS,
-        "BIDIRECTIONAL":   FEATURE_BIDIRECTIONAL,
-        "BIAS_DECAY":      FEATURE_BIAS_DECAY,
-        "OFI":             FEATURE_OFI,
-        "DOM_ADVANCED":    FEATURE_DOM_ADVANCED,
-        "MTF_SCORE":       FEATURE_MTF_SCORE,
-        "DELTA_LIVE":      FEATURE_DELTA_LIVE,
-        "THESIS_GATE":     FEATURE_THESIS_GATE,
-        "R_BUDGET":        FEATURE_R_BUDGET,
-        "NEWS_GATE":       FEATURE_NEWS_GATE,
-        "DEAD_ZONE":       FEATURE_DEAD_ZONE,
-        "DUAL_TRAIL":      FEATURE_DUAL_TRAIL,
-        "EARLY_EXIT":      FEATURE_EARLY_EXIT,
-        "LEARNING_EOD":    FEATURE_LEARNING_EOD,
-        "LEARNING_INJECT": FEATURE_LEARNING_INJECT,
+        # V4.1 original flags
+        "ORB_BIAS":         FEATURE_ORB_BIAS,
+        "BIDIRECTIONAL":    FEATURE_BIDIRECTIONAL,
+        "BIAS_DECAY":       FEATURE_BIAS_DECAY,
+        "OFI":              FEATURE_OFI,
+        "DOM_ADVANCED":     FEATURE_DOM_ADVANCED,
+        "MTF_SCORE":        FEATURE_MTF_SCORE,
+        "DELTA_LIVE":       FEATURE_DELTA_LIVE,
+        "THESIS_GATE":      FEATURE_THESIS_GATE,
+        "R_BUDGET":         FEATURE_R_BUDGET,
+        "NEWS_GATE":        FEATURE_NEWS_GATE,
+        "DEAD_ZONE":        FEATURE_DEAD_ZONE,
+        "DUAL_TRAIL":       FEATURE_DUAL_TRAIL,
+        "EARLY_EXIT":       FEATURE_EARLY_EXIT,
+        "LEARNING_EOD":     FEATURE_LEARNING_EOD,
+        "LEARNING_INJECT":  FEATURE_LEARNING_INJECT,
+        # V4.4 Phase 1
+        "SESSION_CLASSIFIER":  FEATURE_SESSION_CLASSIFIER,
+        "FIRST_CANDLE":        FEATURE_FIRST_CANDLE_LEVELS,
+        "GAP_CLASS":           FEATURE_GAP_CLASSIFICATION,
+        "PIVOT_POINTS":        FEATURE_PIVOT_POINTS,
+        # V4.4 Phase 2
+        "OR_EXTREME_FADE":     FEATURE_OR_EXTREME_FADE,
+        "DZ_VWAP_MAGNET":      FEATURE_DEAD_ZONE_VWAP_MAGNET,
+        "VWAP_REVERSION":      FEATURE_VWAP_REVERSION,
+        # V4.4 Phase 3
+        "SWEEP_REVERSAL":      FEATURE_SWEEP_REVERSAL,
+        "OPENING_DRIVE_FADE":  FEATURE_OPENING_DRIVE_FADE,
+        "POST_NEWS_REFRESH":   FEATURE_POST_NEWS_REFRESH,
     }
 
 

@@ -169,6 +169,9 @@ tr:hover td { background:rgba(255,255,255,0.015); }
     <div class="nav-item" data-page="dobot">
       <span class="nav-icon">⊕</span> DoBot Stats
     </div>
+    <div class="nav-item" data-page="edge">
+      <span class="nav-icon">◈</span> Edge Analysis
+    </div>
   </nav>
   <div class="sidebar-footer">
     <div class="acct-label">Paper Account</div>
@@ -443,6 +446,55 @@ tr:hover td { background:rgba(255,255,255,0.015); }
     </div>
   </div>
 
+  <!-- ══ EDGE ANALYSIS ══ -->
+  <div class="page" id="page-edge">
+    <div class="page-header">
+      <div>
+        <div class="page-title">Edge Analysis</div>
+        <div class="page-sub">R:R vs Win Rate profitability matrix and zone history</div>
+      </div>
+    </div>
+
+    <!-- Section 1: R:R vs Win Rate Matrix -->
+    <div class="chart-section" style="margin-bottom:24px;">
+      <div class="chart-title">R:R vs Win Rate Profitability Matrix</div>
+      <div id="edge-matrix-wrap" style="overflow-x:auto; padding-bottom:4px;">
+        <table id="edge-matrix" style="border-collapse:collapse; font-size:11px; font-family:monospace; min-width:520px; width:100%;"></table>
+      </div>
+      <div style="margin-top:8px; font-size:10px; color:var(--text3);">
+        <span style="display:inline-block;width:10px;height:10px;background:rgba(0,230,118,0.35);border:1px solid rgba(0,230,118,0.5);margin-right:4px;vertical-align:middle;"></span>Profitable &nbsp;
+        <span style="display:inline-block;width:10px;height:10px;background:rgba(255,152,0,0.35);border:1px solid rgba(255,152,0,0.5);margin-right:4px;vertical-align:middle;"></span>Break-even zone &nbsp;
+        <span style="display:inline-block;width:10px;height:10px;background:rgba(255,59,107,0.30);border:1px solid rgba(255,59,107,0.4);margin-right:4px;vertical-align:middle;"></span>Unprofitable
+      </div>
+    </div>
+
+    <!-- Section 2: Profitability Zone Over Time -->
+    <div class="chart-section" style="margin-bottom:24px;">
+      <div class="chart-title">Win Rate &amp; R:R Over Time</div>
+      <div style="position:relative; height:240px;">
+        <canvas id="chart-edge-zone" role="img" aria-label="Win rate and R:R zone history over time."></canvas>
+      </div>
+    </div>
+
+    <!-- Section 3: Weekly R:R Summary -->
+    <div class="chart-section" style="margin-bottom:0;">
+      <div class="chart-title">Weekly R:R Summary</div>
+      <table id="edge-weekly-table" style="width:100%; border-collapse:collapse; font-size:12px;">
+        <thead>
+          <tr style="color:var(--text3); border-bottom:1px solid var(--border);">
+            <th style="text-align:left; padding:6px 8px; font-weight:500;">Week</th>
+            <th style="text-align:right; padding:6px 8px; font-weight:500;">Win Rate</th>
+            <th style="text-align:right; padding:6px 8px; font-weight:500;">Avg R:R</th>
+            <th style="text-align:center; padding:6px 8px; font-weight:500;">Zone</th>
+          </tr>
+        </thead>
+        <tbody id="edge-weekly-body">
+          <tr><td colspan="4" style="text-align:center; color:var(--text3); padding:20px;">No data yet</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
 </main>
 
 <script>
@@ -454,7 +506,9 @@ const EMPTY = {
   summary: { total_trades:0, winning_trades:0, losing_trades:0, win_rate:0, profit_factor:0, total_pnl:0, gross_profit:0, gross_loss:0, avg_win:0, avg_loss:0, largest_win:0, largest_loss:0, max_drawdown:0, avg_hold_time_min:0, total_commissions:0, days_traded:0 },
   equity_curve: [], trades: [], by_setup: {}, by_hour: {}, daily_pnl: [],
   ofi_performance: { STRONG_BUY:{trades:0,wins:0,pnl:0}, BUY:{trades:0,wins:0,pnl:0}, NEUTRAL:{trades:0,wins:0,pnl:0}, SELL:{trades:0,wins:0,pnl:0}, STRONG_SELL:{trades:0,wins:0,pnl:0} },
-  thesis_buckets: {}
+  thesis_buckets: {},
+  avg_rr: 0, overall_win_rate: 0, profitability_zone: 'DEVELOPING',
+  rr_by_week: [], zone_history: []
 };
 
 // ─────────────────────────────────────────────
@@ -495,7 +549,8 @@ function pnlColors(arr) { return arr.map(v => v >= 0 ? GREEN : RED); }
 // RENDER
 // ─────────────────────────────────────────────
 function render(data) {
-  const { meta:m, summary:s, equity_curve:ec, trades, by_setup:bs, by_hour:bh, daily_pnl:dp, ofi_performance:ofi, thesis_buckets:tb } = data;
+  const { meta:m, summary:s, equity_curve:ec, trades, by_setup:bs, by_hour:bh, daily_pnl:dp, ofi_performance:ofi, thesis_buckets:tb,
+          avg_rr=0, overall_win_rate=0, rr_by_week=[], zone_history=[] } = data;
 
   // Sidebar
   $('sb-balance').textContent = '$' + m.balance.toLocaleString('en-US', {minimumFractionDigits:2});
@@ -516,6 +571,7 @@ function render(data) {
   renderCalStats(dp, s);
   renderAnalytics(bs, bh, trades);
   renderDobot(data);
+  renderEdge(avg_rr, overall_win_rate, rr_by_week, zone_history);
 }
 
 function renderSummary(s) {
@@ -825,6 +881,183 @@ function renderDobot(data) {
       options:{ ...baseOpts(v=>v), plugins:{ legend:{ display:true, labels:{color:'#7890c0',boxWidth:10,font:{size:10}} } }, scales:{...baseOpts().scales, y:{...baseOpts().scales.y, stacked:true, ticks:{...TICK, callback:v=>v}}} }
     });
   }
+}
+
+// ─────────────────────────────────────────────
+// EDGE ANALYSIS
+// ─────────────────────────────────────────────
+function renderEdge(avgRr, winRate, rrByWeek, zoneHistory) {
+  const WIN_RATES = [10,20,30,40,50,60,70,80,90];
+  const RR_VALS   = [9,8,7,6,5,4,3,2,1]; // top row = 9:1
+
+  // ── Matrix ───────────────────────────────────────────────────────
+  const tbl = $('edge-matrix');
+  const beRR = rr => 1 / (1 + rr);
+
+  let html = '<thead><tr><th style="padding:5px 8px;color:var(--text3);font-weight:500;text-align:left;">R:R \\ WR</th>';
+  WIN_RATES.forEach(wr => {
+    html += `<th style="padding:5px 6px;color:var(--text3);font-weight:500;text-align:center;">${wr}%</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  RR_VALS.forEach(rr => {
+    const be = beRR(rr);
+    html += `<tr>`;
+    html += `<td style="padding:5px 8px;color:var(--text2);font-weight:500;white-space:nowrap;">${rr}:1</td>`;
+    WIN_RATES.forEach(wr => {
+      const wrFrac = wr / 100;
+      const diff   = wrFrac - be;
+      let bg, textCol;
+      if (Math.abs(diff) <= 0.05) {
+        bg = 'rgba(255,152,0,0.35)'; textCol = 'rgba(255,152,0,0.9)';
+      } else if (diff > 0) {
+        bg = 'rgba(0,230,118,0.25)'; textCol = 'rgba(0,230,118,0.85)';
+      } else {
+        bg = 'rgba(255,59,107,0.20)'; textCol = 'rgba(255,59,107,0.8)';
+      }
+
+      // Check if this cell matches the "you are here" position
+      const isHere = avgRr > 0 && winRate > 0
+        && Math.abs(rr - Math.round(avgRr)) < 0.5
+        && wr === Math.round(winRate / 10) * 10;
+
+      const dotStyle = isHere
+        ? 'display:inline-block;width:7px;height:7px;border-radius:50%;background:#fff;margin-right:2px;vertical-align:middle;'
+        : '';
+      const label = isHere
+        ? `<span style="${dotStyle}"></span><span style="color:#fff;font-weight:700;font-size:10px;">YOU</span>`
+        : `<span style="color:${textCol};font-size:10px;">${(wrFrac * 100).toFixed(0)}%</span>`;
+
+      html += `<td style="padding:4px 2px;background:${bg};text-align:center;border:1px solid rgba(255,255,255,0.04);">${label}</td>`;
+    });
+    html += '</tr>';
+  });
+
+  // "You are here" annotation row
+  if (avgRr > 0 && winRate > 0) {
+    const nearestRR  = Math.round(avgRr);
+    const nearestWR  = Math.round(winRate / 10) * 10;
+    html += `<tr><td colspan="${WIN_RATES.length + 1}" style="padding:6px 8px;color:rgba(255,255,255,0.55);font-size:10px;">
+      ● YOU ARE HERE — Win Rate: <b style="color:#fff;">${winRate.toFixed(1)}%</b> &nbsp; Avg R:R: <b style="color:#fff;">${avgRr.toFixed(2)}</b>
+      &nbsp; (nearest cell: ${nearestRR}:1 @ ${nearestWR}%)
+    </td></tr>`;
+  }
+
+  html += '</tbody>';
+  tbl.innerHTML = html;
+
+  // ── Zone Over Time Chart ───────────────────────────────────────────
+  destroyChart('edge-zone');
+  if (zoneHistory.length > 0) {
+    const labels   = zoneHistory.map(r => r.date);
+    const wrLine   = zoneHistory.map(r => r.win_rate);
+    const rrLine   = zoneHistory.map(r => Math.min(r.avg_rr * 10, 100)); // scaled for same axis
+    const avgBeWR  = avgRr > 0 ? (1 / (1 + avgRr)) * 100 : 33;
+
+    const canvas = $('chart-edge-zone');
+    const ctx2   = canvas.getContext('2d');
+
+    // Background zones via plugin
+    const bgPlugin = {
+      id: 'edgeBg',
+      beforeDraw(chart) {
+        const { ctx: c, chartArea: {top,bottom,left,right}, scales: {y} } = chart;
+        if (!y) return;
+        const beY    = y.getPixelForValue(avgBeWR);
+        const beTopY = y.getPixelForValue(Math.min(avgBeWR + 5, 100));
+        const beBotY = y.getPixelForValue(Math.max(avgBeWR - 5, 0));
+        c.save();
+        // Red zone: 0 to be-5
+        c.fillStyle = 'rgba(255,59,107,0.10)';
+        c.fillRect(left, beBotY, right-left, bottom-beBotY);
+        // Orange zone: be-5 to be+5
+        c.fillStyle = 'rgba(255,152,0,0.13)';
+        c.fillRect(left, beTopY, right-left, beBotY-beTopY);
+        // Green zone: be+5 to top
+        c.fillStyle = 'rgba(0,230,118,0.08)';
+        c.fillRect(left, top, right-left, beTopY-top);
+        c.restore();
+      }
+    };
+
+    charts['edge-zone'] = new Chart(ctx2, {
+      type: 'line',
+      plugins: [bgPlugin],
+      data: {
+        labels,
+        datasets: [
+          {
+            label: 'Win Rate %',
+            data: wrLine,
+            borderColor: GREEN,
+            backgroundColor: 'transparent',
+            borderWidth: 2,
+            pointRadius: 3,
+            pointBackgroundColor: GREEN,
+            tension: 0.3,
+          },
+          {
+            label: 'Avg R:R ×10',
+            data: rrLine,
+            borderColor: ACCENT,
+            backgroundColor: 'transparent',
+            borderWidth: 1.5,
+            borderDash: [4,3],
+            pointRadius: 2,
+            pointBackgroundColor: ACCENT,
+            tension: 0.3,
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: {
+          legend: { display: true, labels: { color: '#7890c0', boxWidth: 10, font: { size: 10 } } },
+          tooltip: {
+            callbacks: {
+              label(ctx) {
+                return ctx.dataset.label === 'Avg R:R ×10'
+                  ? `Avg R:R: ${(ctx.parsed.y / 10).toFixed(2)}`
+                  : `Win Rate: ${ctx.parsed.y.toFixed(1)}%`;
+              }
+            }
+          }
+        },
+        scales: {
+          x: { ticks: TICK, grid: { color: GRID }, border: { color: GRID } },
+          y: {
+            min: 0, max: 100,
+            ticks: { ...TICK, callback: v => v + '%' },
+            grid: { color: GRID }, border: { color: GRID }
+          }
+        }
+      }
+    });
+  }
+
+  // ── Weekly Table ─────────────────────────────────────────────────
+  const tbody = $('edge-weekly-body');
+  if (!rrByWeek || rrByWeek.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:var(--text3); padding:20px;">No weekly data yet</td></tr>';
+    return;
+  }
+  const zoneBadge = zone => {
+    const cfg = {
+      PROFITABLE:   ['rgba(0,230,118,0.2)',  'rgba(0,230,118,0.8)',  'Profitable'],
+      DEVELOPING:   ['rgba(255,152,0,0.2)',   'rgba(255,152,0,0.9)',  'Developing'],
+      NEEDS_WORK:   ['rgba(255,59,107,0.2)', 'rgba(255,59,107,0.8)', 'Needs Work'],
+    };
+    const [bg, col, label] = cfg[zone] || cfg['DEVELOPING'];
+    return `<span style="display:inline-block;padding:2px 8px;border-radius:10px;background:${bg};color:${col};font-size:10px;font-weight:600;">${label}</span>`;
+  };
+  tbody.innerHTML = rrByWeek.map(row => `
+    <tr style="border-bottom:1px solid var(--border);">
+      <td style="padding:7px 8px; color:var(--text2);">${row.week}</td>
+      <td style="padding:7px 8px; text-align:right; color:var(--text);">${row.win_rate.toFixed(1)}%</td>
+      <td style="padding:7px 8px; text-align:right; color:var(--text);">${row.avg_rr.toFixed(2)}</td>
+      <td style="padding:7px 8px; text-align:center;">${zoneBadge(row.zone)}</td>
+    </tr>
+  `).join('');
 }
 
 // ─────────────────────────────────────────────

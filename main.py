@@ -217,7 +217,7 @@ def _should_call_claude_now(executor: Executor, snapshot: dict) -> tuple[bool, s
     if _peak_profit_ticks >= POS_GIVEBACK_PEAK_TICKS and giveback >= POS_GIVEBACK_AMOUNT_TICKS:
         return True, f"GIVEBACK: was +{_peak_profit_ticks:.0f}t, now +{profit_ticks:.0f}t"
 
-    if profit_ticks > POS_STRUCTURE_MIN_PROFIT_TICKS and adverse_move >= POS_STRUCTURE_PULLBACK_TICKS and executor.current_position > 0:
+    if profit_ticks > POS_STRUCTURE_MIN_PROFIT_TICKS and adverse_move >= POS_STRUCTURE_PULLBACK_TICKS:
         return True, f"STRUCTURE: +{profit_ticks:.0f}t profit but pulling back {adverse_move:.0f}t"
 
     _last_position_price = price

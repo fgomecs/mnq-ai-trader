@@ -842,6 +842,41 @@ def _cme_early_close_time_et(date_et: datetime) -> int | None:
         return None
 
 
+def _get_holiday_name(date_et: datetime) -> str:
+    """
+    Return the human-readable name of the US market holiday falling on date_et,
+    or a generic 'Market Holiday' fallback. Used only for sleep-reason logging;
+    holiday gating itself is driven by the XNYS exchange calendar.
+    """
+    m, d, wd = date_et.month, date_et.day, date_et.weekday()
+    # Fixed-date holidays (observed-day shifting not modeled — close enough for logs)
+    if m == 1 and d == 1:
+        return "New Year's Day"
+    if m == 7 and d == 4:
+        return "Independence Day"
+    if m == 12 and d == 25:
+        return "Christmas Day"
+    if m == 6 and d == 19:
+        return "Juneteenth"
+    # Memorial Day = last Monday of May
+    if m == 5 and wd == 0 and d >= 25:
+        return "Memorial Day"
+    # Labor Day = first Monday of September
+    if m == 9 and wd == 0 and d <= 7:
+        return "Labor Day"
+    # MLK Day = third Monday of January
+    if m == 1 and wd == 0 and 15 <= d <= 21:
+        return "MLK Day"
+    # Presidents Day = third Monday of February
+    if m == 2 and wd == 0 and 15 <= d <= 21:
+        return "Presidents Day"
+    # Thanksgiving = fourth Thursday of November
+    if m == 11 and wd == 3 and 22 <= d <= 28:
+        return "Thanksgiving"
+    # Good Friday is moveable (Easter-based); not computed here
+    return "Market Holiday"
+
+
 def _next_session_label(date_et: datetime) -> str:
     """
     Return a human-readable label for the next CME session after date_et,
@@ -936,7 +971,7 @@ def _wait_for_market_hours() -> None:
             reason   = "Weekend"
             wake_str = f"{_next_session_label(now_et)} 08:20 ET"
         elif not _is_cme_session(now_et):
-            reason   = "Market holiday"
+            reason   = _get_holiday_name(now_et)
             wake_str = f"{_next_session_label(now_et)} 08:20 ET"
         else:
             reason   = "Early close"

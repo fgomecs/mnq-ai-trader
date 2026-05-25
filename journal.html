@@ -177,7 +177,7 @@ tr:hover td { background:rgba(255,255,255,0.015); }
     <div class="acct-label">Paper Account</div>
     <div class="acct-balance" id="sb-balance">$50,000.00</div>
     <div class="acct-change" id="sb-change" style="color:var(--text3)">—</div>
-    <div class="acct-meta" id="sb-meta">V4.3.0<br>No sessions yet</div>
+    <div class="acct-meta" id="sb-meta">V...<br>No sessions yet</div>
   </div>
 </div>
 
@@ -191,7 +191,7 @@ tr:hover td { background:rgba(255,255,255,0.015); }
         <div class="page-title">Overview</div>
         <div class="page-sub" id="last-updated">Loading...</div>
       </div>
-      <span class="badge" id="version-badge">V4.3.0</span>
+      <span class="badge" id="version-badge">V...</span>
     </div>
 
     <div class="metrics-grid" style="grid-template-columns:repeat(5,1fr);">
@@ -508,7 +508,7 @@ tr:hover td { background:rgba(255,255,255,0.015); }
 // SAMPLE DATA (shown before first session)
 // ─────────────────────────────────────────────
 const EMPTY = {
-  meta: { account:"DoBot MNQ Paper", balance:50000, starting_balance:50000, version:"4.3.0", last_updated:"Awaiting first session — Tue May 27, 2026", sessions:0 },
+  meta: { account:"DoBot MNQ Paper", balance:50000, starting_balance:50000, version:"?", last_updated:"Awaiting first session — Tue May 27, 2026", sessions:0 },
   summary: { total_trades:0, winning_trades:0, losing_trades:0, win_rate:0, profit_factor:0, total_pnl:0, gross_profit:0, gross_loss:0, avg_win:0, avg_loss:0, largest_win:0, largest_loss:0, max_drawdown:0, avg_hold_time_min:0, total_commissions:0, days_traded:0 },
   equity_curve: [], trades: [], by_setup: {}, by_hour: {}, daily_pnl: [],
   ofi_performance: { STRONG_BUY:{trades:0,wins:0,pnl:0}, BUY:{trades:0,wins:0,pnl:0}, NEUTRAL:{trades:0,wins:0,pnl:0}, SELL:{trades:0,wins:0,pnl:0}, STRONG_SELL:{trades:0,wins:0,pnl:0} },
@@ -588,10 +588,19 @@ function renderZoneCard(zone, winRate, avgRr) {
   const badge = $('m-zone-badge');
   const sub   = $('m-zone-sub');
   const need  = $('m-zone-need');
+  // No-data guard — show neutral badge when no trades recorded yet
+  if (!winRate && !avgRr) {
+    badge.textContent = 'NO DATA YET';
+    badge.style.cssText = 'display:inline-block;margin:2px 0 6px;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;font-family:var(--mono);letter-spacing:0.5px;background:rgba(120,144,192,0.12);border:1px solid rgba(120,144,192,0.25);color:#7890c0;';
+    sub.textContent  = 'No trades recorded yet';
+    need.textContent = 'First session will populate this';
+    return;
+  }
   const cfg = {
-    PROFITABLE: { label:'PROFITABLE',    bg:'rgba(0,230,118,0.18)', border:'rgba(0,230,118,0.5)', color:'#00e676' },
-    DEVELOPING: { label:'BREAK EVEN',    bg:'rgba(255,152,0,0.18)', border:'rgba(255,152,0,0.55)', color:'#ff9800' },
-    NEEDS_WORK: { label:'NOT PROFITABLE',bg:'rgba(255,59,107,0.18)', border:'rgba(255,59,107,0.5)', color:'#ff3b6b' },
+    PROFITABLE:     { label:'PROFITABLE',     bg:'rgba(0,230,118,0.18)',  border:'rgba(0,230,118,0.5)',  color:'#00e676' },
+    DEVELOPING:     { label:'DEVELOPING',     bg:'rgba(255,152,0,0.18)',  border:'rgba(255,152,0,0.55)', color:'#ff9800' },
+    NEEDS_WORK:     { label:'NEEDS WORK',     bg:'rgba(255,59,107,0.18)', border:'rgba(255,59,107,0.5)', color:'#ff3b6b' },
+    NOT_PROFITABLE: { label:'NOT PROFITABLE', bg:'rgba(255,59,107,0.18)', border:'rgba(255,59,107,0.5)', color:'#ff3b6b' },
   };
   const c = cfg[zone] || cfg['DEVELOPING'];
   badge.textContent = c.label;
@@ -1107,52 +1116,45 @@ document.querySelectorAll('.nav-item').forEach(item => {
 // ─────────────────────────────────────────────
 // LOAD
 // ─────────────────────────────────────────────
-fetch('journal_data.json?t=' + Date.now())
-  .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-  .then(data => {
-    render(data);
-    // Pull live bot version from the running bot's dashboard file; patches
-    // the badge + sidebar meta without re-rendering the whole journal.
-    fetch('dashboard_data.json?t=' + Date.now())
-      .then(r => r.json())
-      .then(d => {
-        if (d.botVersion) {
-          window._botVersion = d.botVersion;
-          const badge = document.getElementById('version-badge');
-          if (badge) badge.textContent = 'V' + d.botVersion;
-          const meta = document.getElementById('sb-meta');
-          if (meta) {
-            // Replace only the first line (the version) — preserves the
-            // session-count second line without relying on regex matching.
-            const lines = meta.innerHTML.split('<br>');
-            lines[0] = 'V' + d.botVersion;
-            meta.innerHTML = lines.join('<br>');
-          }
-        }
-      })
-      .catch(() => {});
-  })
-  .catch(() => {
-    render(EMPTY);
-    $('last-updated').textContent = 'No data yet — waiting for first session (Tue May 27, 2026)';
-  });
+// ── Version helper — applies bot version from dashboard_data.json ──
+function _applyVersion(d) {
+  if (!d || !d.botVersion) return;
+  window._botVersion = d.botVersion;
+  const badge = document.getElementById('version-badge');
+  if (badge) badge.textContent = 'V' + d.botVersion;
+  const meta = document.getElementById('sb-meta');
+  if (meta) {
+    const lines = meta.innerHTML.split('<br>');
+    lines[0] = 'V' + d.botVersion;
+    meta.innerHTML = lines.join('<br>');
+  }
+}
 
-// Live version poll from dashboard_data.json
-setInterval(function() {
+// Fetch version + journal in parallel so version is always correct on first paint
+Promise.all([
+  fetch('journal_data.json?t=' + Date.now())
+    .then(r => r.ok ? r.json() : null)
+    .catch(() => null),
   fetch('dashboard_data.json?t=' + Date.now())
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
-      if (!d.botVersion) return;
-      var badge = document.getElementById('version-badge');
-      if (badge) badge.textContent = 'V' + d.botVersion;
-      var meta = document.getElementById('sb-meta');
-      if (meta) {
-        var lines = meta.innerHTML.split('<br>');
-        lines[0] = 'V' + d.botVersion;
-        meta.innerHTML = lines.join('<br>');
-      }
-    }).catch(function(){});
-}, 3000);
+    .then(r => r.json())
+    .catch(() => null)
+]).then(([journalData, dashData]) => {
+  _applyVersion(dashData);
+  if (journalData) {
+    render(journalData);
+  } else {
+    render(EMPTY);
+    $('last-updated').textContent = 'No data yet — first session will populate this journal';
+  }
+});
+
+// Keep version badge live while journal is open (bot may bump version at EOD)
+setInterval(() => {
+  fetch('dashboard_data.json?t=' + Date.now())
+    .then(r => r.json())
+    .then(_applyVersion)
+    .catch(() => {});
+}, 5000);
 </script>
 </body>
 </html>

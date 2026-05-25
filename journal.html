@@ -552,6 +552,65 @@ function baseOpts(yCallback) {
 function pnlColors(arr) { return arr.map(v => v >= 0 ? GREEN : RED); }
 
 // ─────────────────────────────────────────────
+// SCHEMA NORMALIZATION
+// ─────────────────────────────────────────────
+function _normalizeJournalData(data) {
+  if (!data || typeof data !== 'object') return data;
+  const out = Object.assign({}, data);
+
+  if (!out.trades) out.trades = [];
+
+  if (!out.meta) {
+    const startBal = Number(out.starting_balance) || 0;
+    const trades = Array.isArray(out.trades) ? out.trades : [];
+    const totalPnl = trades.reduce((a, t) => a + (Number(t.pnl) || 0), 0);
+    const sessions = Array.isArray(out.daily_pnl) ? out.daily_pnl.length : 0;
+    out.meta = {
+      account: out.account || 'PAPER',
+      balance: startBal + totalPnl,
+      starting_balance: startBal,
+      last_updated: out.last_updated || null,
+      sessions: sessions,
+    };
+  }
+
+  if (!out.summary) {
+    const trades = Array.isArray(out.trades) ? out.trades : [];
+    const wins = trades.filter(t => (Number(t.pnl) || 0) > 0);
+    const losses = trades.filter(t => (Number(t.pnl) || 0) < 0);
+    const grossProfit = wins.reduce((a, t) => a + (Number(t.pnl) || 0), 0);
+    const grossLoss = Math.abs(losses.reduce((a, t) => a + (Number(t.pnl) || 0), 0));
+    const totalPnl = grossProfit - grossLoss;
+    const pnls = trades.map(t => Number(t.pnl) || 0);
+    const holdTimes = trades.map(t => Number(t.hold_time_min) || 0).filter(v => v > 0);
+    const commissions = trades.reduce((a, t) => a + (Number(t.commission) || 0), 0);
+    const daySet = new Set(trades.map(t => (t.exit_time || t.entry_time || '').slice(0, 10)).filter(Boolean));
+    out.summary = {
+      total_trades: trades.length,
+      winning_trades: wins.length,
+      losing_trades: losses.length,
+      win_rate: trades.length ? (wins.length / trades.length) * 100 : 0,
+      profit_factor: grossLoss > 0 ? grossProfit / grossLoss : 0,
+      total_pnl: totalPnl,
+      gross_profit: grossProfit,
+      gross_loss: grossLoss,
+      avg_win: wins.length ? grossProfit / wins.length : 0,
+      avg_loss: losses.length ? -grossLoss / losses.length : 0,
+      largest_win: pnls.length ? Math.max(0, ...pnls) : 0,
+      largest_loss: pnls.length ? Math.min(0, ...pnls) : 0,
+      max_drawdown: 0,
+      avg_hold_time_min: holdTimes.length ? holdTimes.reduce((a, b) => a + b, 0) / holdTimes.length : 0,
+      total_commissions: commissions,
+      days_traded: daySet.size,
+    };
+  }
+
+  if (!out.by_setup && out.by_strategy) out.by_setup = out.by_strategy;
+
+  return out;
+}
+
+// ─────────────────────────────────────────────
 // RENDER
 // ─────────────────────────────────────────────
 function render(data) {
@@ -1141,7 +1200,7 @@ Promise.all([
 ]).then(([journalData, dashData]) => {
   _applyVersion(dashData);
   if (journalData) {
-    render(journalData);
+    render(_normalizeJournalData(journalData));
   } else {
     render(EMPTY);
     $('last-updated').textContent = 'No data yet — first session will populate this journal';

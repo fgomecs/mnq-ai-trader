@@ -147,12 +147,240 @@
 - Add partial close at TARGET_1 (50% of position) then trail remainder to TARGET_2
 - Prerequisite: variable position sizing in V5.0 makes this more meaningful
 
+### V4.5 — Enhanced Data Recording System (HIGHEST PRIORITY — ship before first live session if possible)
+
+The current recorder captures snapshots and Claude decisions. This enhancement turns the recording system into a full research platform that captures everything the bot does and does not do, enabling empirical strategy validation after 20 sessions.
+
+Five new JSONL files added to data/:
+
+1. decisions_YYYY-MM-DD.jsonl (existing — enhanced)
+  Add structured pre_filter_breakdown dict to every record:
+  bull_signals count, bear_signals count, bull_reasons list, bear_reasons list, threshold_used, session_type, passed bool, direction
+
+2. outcomes_YYYY-MM-DD.jsonl (new)
+  Price outcome at 5, 15, and 30 minutes after every decision and shadow record.
+  Answers: was Claude right to say HOLD? Did the setup play out even when the bot passed?
+
+3. sessions_YYYY-MM-DD.jsonl (new)
+  One SESSION_START and one SESSION_END record per day.
+  Captures: total_scans, pre_filter_passes, claude_calls, skip_cache_hits, api_cost_usd, daily_pnl, trades, wins, losses, session_type, or_range, or_relative_volume, day_of_week
+
+4. positions_YYYY-MM-DD.jsonl (new)
+  Full position journey: ENTRY, STOP_MOVED, TRAIL, PRICE_UPDATE every 5s, EXIT.
+  Captures MAE (max adverse excursion) and MFE (max favorable excursion) on every trade.
+  Answers: are stops too tight, are targets too conservative, is Claude position management adding or destroying value?
+
+5. shadow_decisions in decisions JSONL (new record type="shadow")
+  Every non-trade decision recorded with full context.
+  reason_type: PRE_FILTER_BLOCK | CLAUDE_HOLD | THESIS_GATE | SESSION_GATE | NEWS_GATE | DAILY_LOSS_GATE
+  This is the biggest gap in current recording — every HOLD and every blocked scan becomes a learning event.
+  Multiplies learning data by approximately 10x per session.
+
+What this enables after 20 sessions:
+- Which signal combinations actually have edge (structured pre_filter_breakdown)
+- Whether Claude HOLDs were correct or costly (outcome tracking)
+- Whether stops are too tight or targets too conservative (position journey MAE/MFE)
+- What conditions the bot performs best in (session metadata)
+- Empirical thesis probability threshold vs the current 70% guess (shadow + outcome combined)
+- Whether DOM and OFI are adding value or noise (signal breakdown vs outcome correlation)
+
+New config constants:
+SHADOW_TRADE_ENABLED=true
+OUTCOME_TRACKING_ENABLED=true
+OUTCOME_TRACK_MINUTES=5,15,30
+POSITION_JOURNEY_ENABLED=true
+SESSION_METADATA_ENABLED=true
+
+Code changes required:
+- data_recorder.py: four new methods (record_shadow_decision, record_outcome, record_session_metadata, record_position_journey), updated flush_and_close(), updated daily_summary()
+- claude_brain.py: pre_filter_signal() returns third value (structured breakdown dict)
+- main.py: call record_shadow_decision() at every non-trade decision point, schedule outcome checks at 5/15/30 min, add session scan counters, call record_session_metadata() at OR_ESTABLISHED and EOD
+- executor.py: call record_position_journey() on entry, stop moves, price updates, and exit; track MAE/MFE per trade
+- config.py: new recording constants
+- dashboard_writer.py: add shadow_decisions_today, outcome_records_today, session_scans_today to dashboard JSON
+
+All new recording calls wrapped in try/except — recording must never crash the bot.
+
+Priority note: This ships before Trend Rider Mode, before Session Level Scoring, before everything else in V4.5+. The value of every future feature depends on having rich data to validate it. Without this, the bot is flying blind. With it, every session compounds learning exponentially.
+
+### V4.5 — Session Levels as Pre-Filter Signals (HIGH PRIORITY)
+
+Asia high/low, London high/low, previous day high/low, and previous week high/low are currently tracked in the snapshot and injected into Claude prompts as context text but have zero pre-filter scoring weight. These are the most watched levels by institutional traders. This feature gives them explicit pre-filter scores.
+
+Scoring to add in pre_filter_signal():
+- Near previous week high/low (within 10 points): +2 bear near high, +2 bull near low
+- Near previous day high/low (within 10 points): +2 bear near high, +2 bull near low
+- Near London high/low (within 8 points): +1 bear near high, +1 bull near low
+- Near Asia high/low (within 8 points): +1 bear near high, +1 bull near low
+
+All levels already exist in the snapshot (prev_day_high, prev_day_low, prev_week_high, prev_week_low, london_high, london_low, asia_high, asia_low). No new data collection needed.
+
+New config constants:
+LEVEL_PREV_WEEK_PROXIMITY=10
+LEVEL_PREV_DAY_PROXIMITY=10
+LEVEL_LONDON_PROXIMITY=8
+LEVEL_ASIA_PROXIMITY=8
+FEATURE_SESSION_LEVEL_SCORING=false
+
+Can ship before real session data. Backtest on first available sessions to validate scoring weights.
+
 ### V4.6 — Session Type Classifier Tuning
 After 2-3 weeks of real session data:
 - Validate TREND/RANGE classification accuracy against actual day outcomes
 - Tune SESSION_CLASSIFIER_TREND_OR_MIN and SESSION_CLASSIFIER_RANGE_OR_MAX
 - Add session type to journal_data.json for per-type P&L analysis
 - Add UNKNOWN handling: after 3 UNKNOWN days in a row, classify as RANGE
+
+### V4.6 — Trend Rider Mode
+
+When session is classified TREND and MTF is fully aligned, switch from fixed-target to dynamic trend-riding position management.
+
+Entry: standard ORB pullback or structure confirmation as usual.
+At TARGET_1 (3:1): close 50% of position (partial close — locks profit, removes pressure).
+Remaining 50%: trail with structural stop — move stop to each new HL (bull) or LH (bear) as they form.
+Full exit triggers: CHoCH on 5m, MTF flip, major resistance hit (prev day high, weekly high, daily supply zone), or EOD close.
+
+What needs to be built:
+- Partial close in executor (currently all-or-nothing — biggest piece)
+- Position management prompt rewrite: trend-riding context vs current fixed-target management
+- Trend intact state tracking so Claude knows it is managing a runner not a scalp
+- No hard limit order placed at TARGET_1 when trend rider mode is active
+
+Gate before enabling:
+- Executor partial close working and paper-tested
+- Minimum 20 TREND-classified sessions to confirm classifier accuracy
+- Backtest confirms trend days actually trend (not chop misclassified as trend)
+
+Build order dependency: Partial close executor must ship before Trend Rider Mode. Variable position sizing (Phase 5) depends on partial close also being ready. Sequence: Partial close → Trend Rider Mode → Variable sizing.
+
+Academic edge: on confirmed trend days with full MTF alignment, dynamic trailing captures 2x-4x more points than a fixed 3:1 target on the same entry.
+
+### V4.6 — Sweep and Reclaim Named Strategy (HIGH PRIORITY)
+
+Currently DOM sweeps are just a +1 pre-filter bonus (FEATURE_SWEEP_REVERSAL). A sweep of a major level followed by an immediate reclaim close is one of the highest-probability reversal setups in futures trading with 71-78% historical edge. It deserves its own named strategy with explicit entry logic, not just a pre-filter weight.
+
+Setup conditions:
+1. Price sweeps above a key level (prev week high, prev day high, London high, OR high) by at least 5 points
+2. Closes back below the swept level within 1-2 bars
+3. DOM shows absorption on the sweep — large bids holding, OFI diverging (price higher but OFI declining)
+4. MTF not strongly bullish (otherwise sweep may be a breakout not a fake)
+
+Entry: first confirmed close back below the swept level
+Stop: above the sweep extreme (tight — structure is clear)
+Target: VWAP, prior consolidation, or next key level below
+Mode: SCALP (fast-moving setup, don't overstay)
+
+Same logic applies in reverse for bear sweeps (sweep below prev week low, reclaim above).
+
+This replaces and supersedes FEATURE_SWEEP_REVERSAL. When this strategy is active, the old +1 pre-filter bonus is absorbed into the named strategy scoring.
+
+New config:
+FEATURE_SWEEP_RECLAIM_STRATEGY=false
+SWEEP_MIN_POINTS=5
+SWEEP_RECLAIM_BARS=2
+
+Gate: 20+ sweep events recorded before enabling. Backtest to confirm detection accuracy.
+
+### V4.6 — Trend Rider Mode (Detailed Spec)
+
+When session is classified TREND and MTF is fully aligned, switch from fixed-target to dynamic trend-riding position management.
+
+Entry: standard ORB pullback or structure confirmation as usual.
+At TARGET_1 (3:1): close 50% of position (partial close — locks profit, removes pressure).
+Remaining 50%: trail with structural stop — move stop to each new HL (bull) or LH (bear) as they form.
+Full exit triggers: CHoCH on 5m, MTF flip, major resistance hit (prev day high, prev week high, daily supply zone), or EOD close.
+
+What needs to be built:
+- Partial close in executor (currently all-or-nothing — biggest dependency)
+- Position management prompt rewrite: trend-riding context vs current fixed-target management
+- Trend intact state tracking so Claude knows it is managing a runner not a scalp
+- No hard limit order placed at TARGET_1 when trend rider mode is active
+
+Gate before enabling:
+- Executor partial close working and paper-tested
+- Minimum 20 TREND-classified sessions to confirm classifier accuracy
+- Backtest confirms trend days actually trend and not chop misclassified as TREND
+
+Build order: Partial close executor must ship first. Variable position sizing (Phase 5) also depends on partial close. Sequence: Partial close → Trend Rider Mode → Variable sizing.
+
+Academic edge: on confirmed trend days with full MTF alignment, dynamic trailing captures 2x-4x more points than a fixed 3:1 target on the same entry.
+
+New config:
+FEATURE_TREND_RIDER=false
+TREND_RIDER_PARTIAL_PCT=0.50
+
+### V4.7 — Level-Proximity Tape Reading (Expanded)
+
+DOM and tape signals (OFI, sweeps, icebergs, large prints, absorption) are only meaningful when price is near a key structural level. Currently the pre-filter scores these signals unconditionally regardless of where price is. This feature adds a proximity gate so tape signals are weighted correctly.
+
+How it works:
+Before scoring DOM and tape signals in pre_filter_signal(), compute distance from current price to every tracked key level. If price is within LEVEL_PROXIMITY_THRESHOLD (default 10 points) of any key level, DOM and tape signals receive full weight plus LEVEL_PROXIMITY_BONUS. If price is not near any key level, DOM and tape signals are reduced by 50% or ignored entirely.
+
+Priority order for proximity check:
+1. Previous week high/low — strongest, institutional reference
+2. Previous day high/low — daily traders watching these
+3. London high/low — where London positioned
+4. Asia high/low — overnight range extremes
+5. OR high/low — intraday reference
+6. VWAP — mean reversion anchor
+7. Pivot R1/R2/S1/S2 — calculated levels
+8. FVG zones and order blocks — ICT structural levels
+9. Premarket high/low — globex extremes
+
+Tape signals affected:
+- DOM sweep (+2): sweep at a key level is high conviction, sweep in no-man's land is noise
+- OFI STRONG (+2): absorption at a level is meaningful, OFI in open air is not
+- Iceberg detection (+1): only significant when at known S/R
+- Large print tape bias (+2): block buying into resistance vs open air are completely different signals
+- DOM cluster magnet (+1): cluster at a key level is a magnet, otherwise unreliable
+
+New config:
+LEVEL_PROXIMITY_THRESHOLD=10
+LEVEL_PROXIMITY_BONUS=1
+FEATURE_LEVEL_PROXIMITY_GATE=false
+
+Gate: minimum 20 sessions of baseline data with current unconditional scoring. Backtest proximity-gated vs unconditional DOM scoring on same sessions before enabling.
+
+Dependency: FEATURE_SESSION_LEVEL_SCORING should be enabled first so all key levels are being scored before proximity gating is layered on top.
+
+### V4.6 — Level-Proximity Tape Reading
+
+DOM and tape signals (OFI, sweeps, icebergs, large prints, absorption) are only meaningful when price is near a key structural level. Currently the pre-filter scores these signals unconditionally regardless of where price is. This feature adds a proximity gate so tape signals are weighted correctly.
+
+How it works:
+Before scoring DOM and tape signals in pre_filter_signal(), compute the distance from current price to every tracked key level. If price is within a configurable threshold (default 10 points) of any key level, DOM and tape signals receive full weight or a bonus multiplier. If price is not near any key level, DOM and tape signals are reduced or ignored entirely.
+
+Key levels already tracked by the bot (no new data needed):
+- OR high and OR low
+- VWAP
+- Previous day high and low
+- Previous week high and low
+- Premarket high and low
+- Daily pivot R1, R2, S1, S2
+- FVG zones (fvg_levels)
+- Order blocks (ob_levels)
+- Daily demand and supply zones
+- Session high and low
+- Liquidity pools (liq_levels)
+
+Tape signals affected by this gate:
+- DOM sweep (+2) — sweep at a key level is a high-conviction signal, sweep in no-man's land is noise
+- OFI STRONG (+2) — absorption at a level is meaningful, OFI in dead space is not
+- Iceberg detection (+1) — only significant when at a known S/R
+- Large print tape bias (+2) — block buying into resistance vs block buying in open air are completely different
+- DOM cluster magnet (+1) — cluster at a key level is a magnet, otherwise unreliable
+
+New config constants to add:
+LEVEL_PROXIMITY_THRESHOLD=10     # Points from a key level for tape signals to count fully
+LEVEL_PROXIMITY_BONUS=1          # Extra signal weight when price is within threshold of major level
+FEATURE_LEVEL_PROXIMITY_GATE=false  # Gated — activate after baseline data collected
+
+Professional context: experienced tape readers ignore L2 entirely until price is within a few ticks of a known level. They watch for absorption (large bids holding as price tests), exhaustion prints (aggressive buying into resistance that stalls), iceberg reveals (size keeps replenishing), and sweep plus reclaim (strongest reversal signal). The bot has all this data — it just needs to know when to use it.
+
+Gate before enabling:
+- Minimum 20 sessions of baseline data with current unconditional scoring
+- Backtest comparison: proximity-gated vs unconditional DOM scoring on same sessions
+- Confirm key level detection is accurate (fvg_levels, ob_levels, liq_levels populated correctly)
 
 ---
 
@@ -274,4 +502,16 @@ Only after all other phases proven profitable.
 
 ---
 
-*Last updated: 2026-05-25 (V4.4.1). Add new items here — do not let features get lost in chat.*
+## Recommended Build Order
+
+0. Enhanced Data Recording System — enables empirical validation of everything that follows
+1. Partial close executor
+2. Session levels as pre-filter signals
+3. Sweep and Reclaim named strategy
+4. Trend Rider Mode
+5. Level-proximity tape reading
+6. Variable position sizing
+
+---
+
+*Last updated: 2026-05-25. Add new items here — do not let features get lost in chat.*

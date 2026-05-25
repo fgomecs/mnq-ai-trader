@@ -28,6 +28,7 @@ from config import (
     FEATURE_PIVOT_POINTS,
     FEATURE_OR_EXTREME_FADE, OR_EXTREME_FADE_MULTIPLIER,
     FEATURE_OPENING_DRIVE_FADE, OPENING_DRIVE_MIN_POINTS, OPENING_DRIVE_REJECTION_PCT,
+    FEATURE_POST_NEWS_REFRESH, POST_NEWS_WINDOW_MINUTES, POST_NEWS_WINDOW_DURATION,
     DOM_HISTORY_MAX_SNAPSHOTS, TICK_STATE_PERSIST_INTERVAL_SECS,
     INIT_BARS_1MIN_DURATION, INIT_BARS_5MIN_DURATION,
     INIT_BARS_15MIN_DURATION, INIT_BARS_DAILY_DURATION,
@@ -963,6 +964,17 @@ class IBKRFeed:
                 snapshot["opening_drive_down"]       = rng >= OPENING_DRIVE_MIN_POINTS and bar.close < bar.open
                 snapshot["opening_drive_fade_short"] = snapshot["opening_drive_up"]   and body > 0 and uwk >= body * OPENING_DRIVE_REJECTION_PCT
                 snapshot["opening_drive_fade_long"]  = snapshot["opening_drive_down"] and body > 0 and lwk >= body * OPENING_DRIVE_REJECTION_PCT
+
+            snapshot["post_news_window"] = False
+            if FEATURE_POST_NEWS_REFRESH:
+                recent_event = self._news_cache.get("recent_event")
+                if recent_event and "(HIGH)" in recent_event:
+                    import re as _re
+                    m = _re.search(r"(\d+)\s*min ago", recent_event)
+                    if m:
+                        minutes_since = int(m.group(1))
+                        if POST_NEWS_WINDOW_MINUTES <= minutes_since <= POST_NEWS_WINDOW_MINUTES + POST_NEWS_WINDOW_DURATION:
+                            snapshot["post_news_window"] = True
 
             # Record snapshot to disk for backtest replay
             _recorder.record_snapshot(snapshot)

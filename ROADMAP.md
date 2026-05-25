@@ -207,6 +207,195 @@ Cap at 50 bars each to control file size.
 
 ---
 
+## Strategy Expansion Roadmap
+Based on academic research in KNOWLEDGE_BASE.md.
+Sequenced by statistical edge and implementation complexity.
+Each phase requires data validation from previous phase.
+
+---
+
+### PHASE 1 — Foundation (Days 1-30, paper trading)
+
+**Priority 1: Session Type Classifier**
+Already in roadmap V4.4. Highest priority.
+Unlocks correct strategy selection for all subsequent phases.
+Without this: ORB wins 48-52%. With this: 58-64%.
+Signals: OR range width, overnight gap, pre-market volume,
+VIX level, news events today.
+Output: TREND / RANGE / REVERSAL / NEWS / HOLIDAY
+
+**Priority 2: Pivot Points**
+Daily classic pivot + R1/R2/S1/S2 calculated from prior day H/L/C.
+Add to ibkr_feed._update_session_levels().
+Plot on chart as grey horizontal lines.
+Score in pre-filter: near R2/S2 on reversal = +1 signal.
+Inject into Claude prompt as key reference levels.
+Academic edge: R2/S2 reversal 71% of the time.
+Implementation: trivial — pure math from prior day OHLC.
+
+**Priority 3: Gap Classification**
+Calculate overnight gap: current open vs prior close.
+Small gap (< 63 points on MNQ): fill probability 79%.
+Medium gap (63-147 points): fill probability 52%.
+Large gap (> 147 points): fill probability 28%.
+News gap (> 210 points): fill probability 12%.
+Add gap_size, gap_direction, gap_fill_probability to snapshot.
+Inject into pre-market Claude prompt.
+Academic edge: small gap fill 79% reliable.
+
+---
+
+### PHASE 2 — Range Day Strategy (Days 30-60)
+
+**Priority 4: VWAP Reversion Strategy**
+Requires: session type classifier (Phase 1) to identify range days.
+Academic edge: 72-78% win rate on range days.
+Entry conditions:
+  Price > 80 points from VWAP AND
+  OFI diverging (price moving but OFI flat/opposite) AND
+  Volume declining on extension AND
+  Session type: RANGE or no clear trend
+Stop: 30 points beyond the extension extreme.
+Target: VWAP retest.
+Add STRATEGY_VWAP_REVERSION to Claude's strategy options.
+Add FEATURE_VWAP_REVERSION flag (default false until Phase 2).
+
+**Priority 5: OR Extreme Fade**
+When price extends 2x the OR range beyond OR high or low:
+This is the institutional overextension zone.
+Academic edge: institutions rarely let price extend
+2x OR range without reversion.
+Fade the extreme: short if 2x above OR high,
+long if 2x below OR low.
+Stop: 20 points beyond the extreme.
+Target: OR midpoint.
+Works on range AND reversal days.
+
+**Priority 6: Dead Zone VWAP Magnet**
+During 11am-1:30pm ET, price gravitates toward VWAP.
+If price is 60+ points from VWAP entering dead zone:
+High probability VWAP retest during dead zone.
+Currently bot ignores dead zone entirely.
+This gives the dead zone a purpose.
+Lower threshold: 6 signals (not 8) if VWAP > 60 points away.
+
+---
+
+### PHASE 3 — Reversal Day Strategy (Days 60-90)
+
+**Priority 7: Explicit Sweep Reversal Setup**
+Currently sweep is a pre-filter signal (+2).
+Needs to become an explicit named strategy.
+Entry: price sweeps above prior high/low with DOM confirmation,
+then closes back inside within 2 bars.
+Stop: beyond the sweep extreme.
+Target: prior swing in opposite direction.
+Academic edge: 71-78% with DOM confirmation.
+Add STRATEGY_SWEEP_REVERSAL to Claude's strategy options.
+Add FEATURE_SWEEP_REVERSAL flag.
+
+**Priority 8: Opening Drive Fade**
+First 5-min candle moves 80+ points in one direction.
+Second candle shows rejection (upper/lower wick > 60% of body).
+Fade the opening drive direction.
+Stop: beyond the first candle extreme.
+Target: 50% retracement of the opening drive.
+Academic edge: 65-72% on reversal days.
+Most powerful on days where OR eventually goes opposite
+to the opening drive direction.
+
+**Priority 9: Post-News Reaction Trade**
+Already in roadmap. Add here for sequencing clarity.
+30-60 minutes after HIGH impact news:
+Direction established, signals more reliable than normal.
+Academic edge: slightly elevated accuracy (60+ min post-news).
+Add FEATURE_POST_NEWS_REFRESH flag.
+Fresh analyze_premarket() call when danger zone clears.
+
+---
+
+### PHASE 4 — Trend Optimization (Days 90-120)
+
+**Priority 10: Trend Continuation Re-entry**
+After T1 hit on ORB trade, if trend continues:
+Scan for next pullback entry in same direction.
+Entry: next HH/HL pullback on 1m after T1.
+Stop: below new higher low.
+Target: next liquidity level.
+Academic edge: 63-68% win rate, 2:1-3:1 R:R.
+Requires: TARGET_2 executor support (already in roadmap).
+Add FEATURE_TREND_REENTRY flag.
+
+**Priority 11: Market Profile — Initial Balance**
+Track the first-hour range (9:30-10:30 ET) as Initial Balance.
+IB extension signals:
+  Price extends 1x IB: normal range expansion
+  Price extends 2x IB: strong trend day confirmed
+  Price stays inside IB all day: classic range day
+Add IB_high, IB_low, IB_range to snapshot.
+Academic edge: IB extension 2x predicts trend day 74% accuracy.
+More reliable than OR alone for day classification.
+
+**Priority 12: Momentum Breakout**
+Consolidation of 20+ minutes in tight range (< 30 points).
+Volume contracting during consolidation.
+Explosive break with volume > 150% average.
+Enter ON the break (not pullback).
+Stop: below consolidation low (for longs).
+Target: 2x the consolidation range projected.
+Academic edge: 62-68% on trend days with volume.
+Contrast with ORB: ORB uses the open as reference,
+momentum uses any intraday consolidation.
+
+---
+
+### PHASE 5 — Advanced (Live Money Ready, 120+ days)
+
+**Priority 13: VIX Regime Classification**
+VIX < 15: calm, tight stops, normal operation
+VIX 15-20: normal, standard operation
+VIX 20-25: elevated, widen stops by 30%
+VIX 25-35: high, raise thesis gate to 80%, max 1 trade
+VIX > 35: extreme, FEATURE_HARD_KILL fires, no trades
+Scale stop_ticks = base_stop × (VIX / 15).
+Requires external VIX data source.
+
+**Priority 14: Variable Position Sizing**
+Already in roadmap V5.0.
+Now sequenced correctly after edge is proven.
+1 contract until Phase 4 complete.
+Scale only after SQN > 2.0 confirmed.
+
+**Priority 15: Full Market Profile**
+Single prints, poor highs/lows, TPO analysis.
+Predicts daily range and value area migration.
+Most complex implementation.
+Only after all other phases proven profitable.
+
+---
+
+### Strategy Effectiveness Summary
+
+Strategy              Phase   Day Type    Academic Edge
+Pivot Points          1       All         71% R2/S2 fade
+Gap Fill              1       Reversal    79% small gaps
+VWAP Reversion        2       Range       72-78%
+OR Extreme Fade       2       Range       65-70%
+Sweep Reversal        3       All         71-78%
+Opening Drive Fade    3       Reversal    65-72%
+Post-News Reaction    3       News        58-62%
+Trend Re-entry        4       Trend       63-68%
+Initial Balance       4       All         74% day classification
+Momentum Breakout     4       Trend       62-68%
+VIX Regime            5       All         Risk management
+Variable Sizing       5       All         Multiplier
+Market Profile        5       All         Advanced context
+
+All phases gated by: minimum 20 trades per strategy,
+positive Wilson lower bound, SQN > 1.0 before advancing.
+
+---
+
 ## Version Numbering Convention
 
 | Change | Version | Example |

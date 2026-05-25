@@ -313,6 +313,67 @@ Numbers: plain numerics (no commas, no units). No trailing commas. No comments.
 """
 
 
+PROBABILITY_CONTEXT = """
+PROBABILITY KNOWLEDGE BASE:
+Source: Academic research (Crabel 1990, Cont et al 2014,
+Berkowitz et al 1988, Bulkowski 2005, Dalton 1990)
+
+MARKET PHASE BASE RATES (NQ Futures):
+Trend days: 25-30% of all days
+Range days: 40-50% of all days
+Reversal days: 15-20% of all days
+
+STRATEGY WIN RATES BY PHASE:
+ORB_PULLBACK:   Trend 68-72% | Range 31-38% | Reversal 44-48%
+VWAP_REVERSION: Trend 42-48% | Range 72-78% | Reversal 68-74%
+SWEEP_REVERSAL: All phases 71-78% with DOM confirmation
+CHOCH_ENTRY:    Trend 58-65% requires OFI confirmation
+
+SIGNAL BOOSTS ABOVE BASE RATE:
+OFI STRONG (>70): +6-10%
+Full MTF aligned: +7-11%
+Tape 3+ large prints one direction: +5-8%
+Morning/evening star at OB/FVG: +10-12%
+Engulfing/hammer at OB/FVG: +6-9%
+CHoCH confirmed 1m AND 5m: +4-7%
+
+DEGRADATION FACTORS:
+News within 30 min: -15%
+Counter to 15m trend: -12%
+Dead zone (11am-1:30pm): -10%
+Low volume under 80% average: -8%
+DOJI OR day: -8%
+
+CALIBRATION RULE:
+Start with strategy base rate for current day type.
+Add signal boosts present in this snapshot.
+Subtract applicable degradation factors.
+This sum anchors your THESIS_PROBABILITY.
+Never exceed 90%. Below 60% always HOLD.
+Claiming 95%+ indicates overconfidence — review.
+"""
+
+# Condensed version for analyze_market static cached block (~200 tokens — base rates + calibration only)
+_PROBABILITY_CONTEXT_CONDENSED = """
+PROBABILITY KNOWLEDGE BASE (condensed — base rates and calibration):
+MARKET PHASE BASE RATES (NQ Futures):
+Trend days: 25-30% | Range days: 40-50% | Reversal days: 15-20%
+
+STRATEGY WIN RATES BY PHASE:
+ORB_PULLBACK:   Trend 68-72% | Range 31-38% | Reversal 44-48%
+VWAP_REVERSION: Trend 42-48% | Range 72-78% | Reversal 68-74%
+SWEEP_REVERSAL: All phases 71-78% with DOM confirmation
+CHOCH_ENTRY:    Trend 58-65% requires OFI confirmation
+
+CALIBRATION RULE:
+Start with strategy base rate for current day type.
+Add signal boosts present in this snapshot.
+Subtract applicable degradation factors.
+This sum anchors your THESIS_PROBABILITY.
+Never exceed 90%. Below 60% always HOLD.
+"""
+
+
 # ─── Cache-aware API helper ────────────────────────────────
 
 def _build_system(prompt: str) -> list | str:
@@ -1258,6 +1319,7 @@ def analyze_market(snapshot: dict) -> dict:
     static_context = (
         _format_watchlist_context()
         + _format_session_context_static()
+        + _PROBABILITY_CONTEXT_CONDENSED
     )
 
     # Dynamic block — snapshot, volatile session bits, AND perf context.
@@ -1616,7 +1678,13 @@ REASONING: [full game plan]
             model=CLAUDE_ENTRY_MODEL,
             max_tokens=800,
             system=_build_system(SYSTEM_PROMPT),
-            messages=[{"role": "user", "content": msg}],
+            messages=[{
+                "role": "user",
+                "content": _build_user_content(
+                    [f"PROBABILITY CONTEXT (static reference):\n{PROBABILITY_CONTEXT}"],
+                    msg,
+                ),
+            }],
         )
         _log_cache_usage(response, model=CLAUDE_ENTRY_MODEL, purpose="premarket")
         raw      = "".join(

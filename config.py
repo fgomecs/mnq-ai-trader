@@ -39,7 +39,7 @@ def _env_bool(key: str, default: bool) -> bool:
 # Managed by version_manager.py — do not edit manually.
 # Format: MAJOR.MINOR.PATCH
 # MAJOR: architectural change | MINOR: new feature | PATCH: bug fix / tuning
-VERSION = os.getenv("BOT_VERSION", "4.1.0")
+VERSION = os.getenv("BOT_VERSION", "4.3.0")
 
 # ─── PATHS ─────────────────────────────────────────────────
 BASE_DIR       = os.getenv("BASE_DIR", "C:\\trading\\mnq-ai-trader")

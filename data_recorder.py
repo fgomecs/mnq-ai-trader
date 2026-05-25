@@ -36,7 +36,12 @@ from config import DATA_DIR, RECORDING_ENABLED
 from logger import logger
 
 # ── Constants ──────────────────────────────────────────────
-BOT_VERSION    = "3.0"
+# Pull bot version from config (env-overridable) so recorded JSONL is tagged
+# with the actual running version instead of a stale hardcoded literal.
+try:
+    from config import VERSION as BOT_VERSION
+except ImportError:
+    BOT_VERSION = "4.3.0"
 eastern        = pytz.timezone("US/Eastern")
 
 # Fields to EXCLUDE from snapshot recording — large, redundant, or not

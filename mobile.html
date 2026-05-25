@@ -329,9 +329,16 @@ let _dangerZone = false;
 let _nextEvent  = null;
 
 function tickMarketStatus() {
-  const info = getMarketInfo(_dangerZone, _nextEvent);
   const stEl = el('ms-state');
   const ctEl = el('ms-countdown');
+  if (window._botSleeping) {
+    const reason = (window._claudeStatus || '').replace('BOT SLEEPING -- ','').replace('BOT SLEEPING - ','');
+    stEl.textContent = reason || 'BOT SLEEPING';
+    stEl.className = 'closed';
+    if (ctEl) ctEl.textContent = window._wakeTime || '';
+    return;
+  }
+  const info = getMarketInfo(_dangerZone, _nextEvent);
   if (stEl.textContent !== info.state) {
     stEl.textContent = info.state;
     stEl.className   = info.cls;
@@ -346,6 +353,10 @@ async function poll() {
     const resp = await fetch(FILE + '?t=' + Date.now());
     if (!resp.ok) return;
     const d = await resp.json();
+
+    window._botSleeping = d.botSleeping || false;
+    window._wakeTime = d.wakeTime ? 'Wakes: ' + d.wakeTime : '';
+    window._claudeStatus = d.claudeStatus || '';
 
     const age     = d.timestamp ? Date.now() - new Date(d.timestamp).getTime() : 99999;
     const offline = age > 30000;

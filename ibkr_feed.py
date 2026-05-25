@@ -26,6 +26,7 @@ from config import (
     FEATURE_OFI, FEATURE_DOM_ADVANCED, FEATURE_MTF_SCORE, FEATURE_DELTA_LIVE,
     FEATURE_GAP_CLASSIFICATION, GAP_SMALL_THRESHOLD, GAP_MEDIUM_THRESHOLD, GAP_LARGE_THRESHOLD,
     FEATURE_PIVOT_POINTS,
+    FEATURE_OR_EXTREME_FADE, OR_EXTREME_FADE_MULTIPLIER,
     DOM_HISTORY_MAX_SNAPSHOTS, TICK_STATE_PERSIST_INTERVAL_SECS,
     INIT_BARS_1MIN_DURATION, INIT_BARS_5MIN_DURATION,
     INIT_BARS_15MIN_DURATION, INIT_BARS_DAILY_DURATION,
@@ -940,6 +941,12 @@ class IBKRFeed:
 
             snapshot["vwap_extension"]     = round(last_price - vwap, 2) if vwap else 0.0
             snapshot["vwap_extension_abs"] = round(abs(last_price - vwap), 2) if vwap else 0.0
+
+            or_range = (self.or_high - self.or_low) if self.or_high and self.or_low else 0
+            thresh = or_range * OR_EXTREME_FADE_MULTIPLIER
+            snapshot["or_2x_extension_up"]   = bool(FEATURE_OR_EXTREME_FADE and self.or_high and last_price > self.or_high + thresh)
+            snapshot["or_2x_extension_down"] = bool(FEATURE_OR_EXTREME_FADE and self.or_low  and last_price < self.or_low  - thresh)
+            snapshot["or_extreme_zone"]      = snapshot["or_2x_extension_up"] or snapshot["or_2x_extension_down"]
 
             # Record snapshot to disk for backtest replay
             _recorder.record_snapshot(snapshot)

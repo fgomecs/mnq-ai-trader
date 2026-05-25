@@ -81,6 +81,41 @@ All figures are for MNQ/NQ futures, RTH session, 2022–2025 data. Pre-market an
 
 ---
 
+## Risk and Position Management
+
+### Kelly Criterion
+
+Kelly fraction = (W × R − L) / R, where W = win rate, L = loss rate (1 − W), R = reward-to-risk ratio.
+
+| Win Rate | R:R | Kelly % | Practical Bet (½ Kelly) |
+|---|---|---|---|
+| 55% | 2:1 | 32.5% | 16% |
+| 55% | 3:1 | 40.0% | 20% |
+| 60% | 3:1 | 46.7% | 23% |
+| 65% | 3:1 | 53.3% | 27% |
+
+Full Kelly is too volatile for futures; ½ Kelly (or less) is the practical ceiling. The bot's fixed 1-contract sizing is inherently conservative — the Kelly math above shows how much theoretical edge exists at varying win rate / R:R combinations.
+
+### Profitability Matrix (Win Rate vs R:R)
+
+Source: Standard trading mathematics
+
+| Win Rate | Min R:R for Profitability |
+|---|---|
+| 30% | 2.4:1 |
+| 40% | 1.6:1 |
+| 50% | 1.1:1 (barely) |
+| 55% | 0.9:1 (any positive R:R works) |
+| 60% | 0.7:1 (very forgiving) |
+| 65% | 0.6:1 |
+| 70% | 0.5:1 (even 1:2 R:R is profitable) |
+
+**Bot target zone:** Win rate 55–70% AND R:R 3:1–5:1 = solidly in profitable green zone = robust to bad runs and slippage.
+
+**Critical insight:** Improving R:R from 2:1 to 3:1 at 55% win rate increases profitability by 50% without winning a single additional trade. R:R improvement is free alpha — no prediction needed, just patience to wait for better targets.
+
+---
+
 ## Calibration Notes for Claude Prompts
 
 - State win-rate ranges, not point estimates. "This setup historically wins 65–72% of the time" is more honest than "70%".

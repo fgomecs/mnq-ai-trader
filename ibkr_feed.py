@@ -134,6 +134,12 @@ class IBKRFeed:
         self._ibkr_headlines: list = []
         self._ibkr_headlines_max  = 10
 
+        # ── First candle highs/lows (captured at 9:30 / 9:35 ET) ─
+        self.first_candle_1min_high = 0.0
+        self.first_candle_1min_low  = 0.0
+        self.first_candle_5min_high = 0.0
+        self.first_candle_5min_low  = 0.0
+
         # ── Opening Range ──────────────────────────────────
         self.or_high            = self.or_low   = None
         self.or_open            = self.or_close = None
@@ -398,6 +404,26 @@ class IBKRFeed:
 
                         # Refresh delta and VWAP on new bar
                         self._update_vwap_incremental(bar_1m, now_et)
+
+                        # Capture first 1-min candle (9:30 ET open) on close
+                        bar_dt = bar_1m.date
+                        if (bar_dt.hour == 9 and bar_dt.minute == 30
+                                and self.first_candle_1min_high == 0.0):
+                            self.first_candle_1min_high = bar_1m.high
+                            self.first_candle_1min_low  = bar_1m.low
+
+                        # Capture first 5-min candle when 9:34 1-min bar closes
+                        # (covers 9:30–9:34 inclusive — the 9:30–9:35 5-min bar)
+                        if (bar_dt.hour == 9 and bar_dt.minute == 34
+                                and self.first_candle_5min_high == 0.0):
+                            today = bar_dt.date()
+                            window = [b for b in self._bars_1min[-5:]
+                                      if b.date.date() == today
+                                      and b.date.hour == 9
+                                      and 30 <= b.date.minute <= 34]
+                            if window:
+                                self.first_candle_5min_high = max(b.high for b in window)
+                                self.first_candle_5min_low  = min(b.low  for b in window)
 
                     # Refresh ICT levels every 5-min bar close
                     t = now_et.minute
@@ -887,6 +913,12 @@ class IBKRFeed:
                 # Current forming bar (uses live price)
                 "currentBarOpen": self._bars_1min[-1].close if self._bars_1min else current_price,
 
+                # First candle highs/lows (9:30 1-min, 9:30–9:35 5-min)
+                "first_candle_1min_high": self.first_candle_1min_high,
+                "first_candle_1min_low":  self.first_candle_1min_low,
+                "first_candle_5min_high": self.first_candle_5min_high,
+                "first_candle_5min_low":  self.first_candle_5min_low,
+
                 # Risk
                 "current_position":    current_position,
                 "daily_pnl":           round(daily_pnl, 2),
@@ -1235,6 +1267,10 @@ class IBKRFeed:
                 self.or_pullback_in_progress = False
                 self.or_pullback_low = None
                 self.or_entry_zone_active = False
+                self.first_candle_1min_high = 0.0
+                self.first_candle_1min_low  = 0.0
+                self.first_candle_5min_high = 0.0
+                self.first_candle_5min_low  = 0.0
 
             if not bars_5min:
                 return

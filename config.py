@@ -272,6 +272,18 @@ FEATURE_LEARNING_EOD   = _env_bool("FEATURE_LEARNING_EOD",   True)
 # Inject yesterday's learning findings into pre-market prompt
 FEATURE_LEARNING_INJECT = _env_bool("FEATURE_LEARNING_INJECT", True)
 
+# ── Phase 1-3 Strategy Expansion ──────────────────────────
+FEATURE_SESSION_CLASSIFIER    = _env_bool("FEATURE_SESSION_CLASSIFIER",    True)
+FEATURE_PIVOT_POINTS          = _env_bool("FEATURE_PIVOT_POINTS",          True)
+FEATURE_GAP_CLASSIFICATION    = _env_bool("FEATURE_GAP_CLASSIFICATION",    True)
+FEATURE_FIRST_CANDLE_LEVELS   = _env_bool("FEATURE_FIRST_CANDLE_LEVELS",   True)
+FEATURE_VWAP_REVERSION        = _env_bool("FEATURE_VWAP_REVERSION",        False)
+FEATURE_OR_EXTREME_FADE       = _env_bool("FEATURE_OR_EXTREME_FADE",       False)
+FEATURE_SWEEP_REVERSAL        = _env_bool("FEATURE_SWEEP_REVERSAL",        False)
+FEATURE_OPENING_DRIVE_FADE    = _env_bool("FEATURE_OPENING_DRIVE_FADE",    False)
+FEATURE_POST_NEWS_REFRESH     = _env_bool("FEATURE_POST_NEWS_REFRESH",     False)
+FEATURE_DEAD_ZONE_VWAP_MAGNET = _env_bool("FEATURE_DEAD_ZONE_VWAP_MAGNET", False)
+
 # ─── COMMISSIONS ───────────────────────────────────────────
 # Paper trading: set false (default). Set true to simulate realistic
 # net P&L during paper testing and enable commission-drag EOD analysis.

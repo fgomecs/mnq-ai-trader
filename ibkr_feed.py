@@ -24,6 +24,7 @@ from config import (
     CONTRACT_CONID, CONTRACT_EXPIRY, CURRENCY, EXCHANGE,
     IBKR_CLIENT_ID, IBKR_HOST, IBKR_PORT, LIVE_DATA_ACTIVE, SYMBOL,
     FEATURE_OFI, FEATURE_DOM_ADVANCED, FEATURE_MTF_SCORE, FEATURE_DELTA_LIVE,
+    FEATURE_GAP_CLASSIFICATION, GAP_SMALL_THRESHOLD, GAP_MEDIUM_THRESHOLD, GAP_LARGE_THRESHOLD,
     DOM_HISTORY_MAX_SNAPSHOTS, TICK_STATE_PERSIST_INTERVAL_SECS,
     INIT_BARS_1MIN_DURATION, INIT_BARS_5MIN_DURATION,
     INIT_BARS_15MIN_DURATION, INIT_BARS_DAILY_DURATION,
@@ -913,6 +914,9 @@ class IBKRFeed:
                 # Current forming bar (uses live price)
                 "currentBarOpen": self._bars_1min[-1].close if self._bars_1min else current_price,
 
+                # Gap classification (prev close → today open)
+                "gap": self._compute_gap() if FEATURE_GAP_CLASSIFICATION else {"gap_size": 0.0, "gap_direction": "NONE", "gap_fill_probability": 0.0},
+
                 # First candle highs/lows (9:30 1-min, 9:30–9:35 5-min)
                 "first_candle_1min_high": self.first_candle_1min_high,
                 "first_candle_1min_low":  self.first_candle_1min_low,
@@ -1202,6 +1206,55 @@ class IBKRFeed:
             "delta_last_bar":   last_delta,
             "large_prints":     f"{large_n} large prints in last 5 bars" if large_n else "None",
         }
+
+    # ─── Gap classification ────────────────────────────────
+
+    def _compute_gap(self) -> dict:
+        """
+        Classify prev-day-close → today-open gap with historical fill probability.
+        Returns empty/zeroed dict if bars unavailable.
+        """
+        empty = {"gap_size": 0.0, "gap_direction": "NONE", "gap_fill_probability": 0.0}
+        try:
+            with self._bar_lock:
+                daily = list(self._bars_daily)
+                bars_1 = list(self._bars_1min)
+            if len(daily) < 2 or not bars_1:
+                return empty
+
+            prev_close = float(daily[-2].close)
+            today = datetime.now(eastern).date()
+            today_open = None
+            for b in bars_1:
+                if _bar_et(b).date() == today:
+                    today_open = float(b.open)
+                    break
+            if today_open is None:
+                return empty
+
+            diff = today_open - prev_close
+            size = abs(diff)
+            if size <= 0:
+                return empty
+
+            direction = "UP" if diff > 0 else "DOWN"
+            if size < GAP_SMALL_THRESHOLD:
+                fill_prob = 0.79
+            elif size < GAP_MEDIUM_THRESHOLD:
+                fill_prob = 0.52
+            elif size < GAP_LARGE_THRESHOLD:
+                fill_prob = 0.28
+            else:
+                fill_prob = 0.12
+
+            return {
+                "gap_size": round(size, 2),
+                "gap_direction": direction,
+                "gap_fill_probability": fill_prob,
+            }
+        except Exception as e:
+            logger.warning(f"_compute_gap error: {e}")
+            return empty
 
     # ─── Session levels ────────────────────────────────────
 

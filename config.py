@@ -240,6 +240,11 @@ FEATURE_DOM_ADVANCED   = _env_bool("FEATURE_DOM_ADVANCED",   True)
 FEATURE_MTF_SCORE      = _env_bool("FEATURE_MTF_SCORE",      True)
 # True bid/ask delta classification (requires live L2)
 FEATURE_DELTA_LIVE     = _env_bool("FEATURE_DELTA_LIVE",     True)
+# Gap classification (prev daily close → today open) with fill-probability lookup
+FEATURE_GAP_CLASSIFICATION = _env_bool("FEATURE_GAP_CLASSIFICATION", True)
+GAP_SMALL_THRESHOLD    = _env_int("GAP_SMALL_THRESHOLD",     63)   # pts — <this = small gap (0.79 fill prob)
+GAP_MEDIUM_THRESHOLD   = _env_int("GAP_MEDIUM_THRESHOLD",   147)   # pts — <this = medium gap (0.52 fill prob)
+GAP_LARGE_THRESHOLD    = _env_int("GAP_LARGE_THRESHOLD",    210)   # pts — <this = large gap (0.28 fill prob); larger = 0.12
 
 # ── Entry Gates ────────────────────────────────────────────
 # V4.0: Block entries when thesis probability < MIN_THESIS_PROBABILITY

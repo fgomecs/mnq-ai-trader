@@ -28,7 +28,7 @@ py -3.11 backtester.py --date 2026-05-27 --no-live-claude
 py -3.11 config.py
 ```
 
-No `requirements.txt` is checked in — deps installed manually via:
+Install dependencies via:
 `pip install ib_insync anthropic pandas pytz python-dotenv schedule exchange-calendars`
 
 `exchange-calendars` enables CME holiday detection (Memorial Day, July 4th, etc.) and early-close days (day-before-Thanksgiving, Christmas Eve). The bot uses the `XNYS` calendar, which matches the NYSE holiday schedule that MNQ/NQ equity futures follow. Without the package the bot falls back to weekend-only gating and logs a warning.

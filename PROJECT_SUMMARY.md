@@ -7,7 +7,7 @@
 
 ## What This Is
 
-Paper-trading bot for **MNQ (Micro E-mini Nasdaq-100)** futures. Pulls live L1+L2 data from IBKR (TWS/Gateway), scores market structure with pure Python signal pre-filters, sends snapshots to Claude (Opus 4.7 for entries, Sonnet 4.6 for position management) for decisions, and executes bracket orders. Hard constraints: $50K simulated account, 1 contract max, $500 daily loss cap. **Not live money.**
+Paper-trading bot for **MNQ (Micro E-mini Nasdaq-100)** futures. Pulls live L1+L2 data from IBKR (TWS/Gateway), scores market structure with pure Python signal pre-filters, sends snapshots to Claude (Opus 4.7 for entries, Sonnet 4.6 for position management) for decisions, and executes bracket orders. Hard constraints: $50K simulated account, 1 contract max, configurable daily loss cap (MAX_DAILY_LOSS_PCT × ACCOUNT_SIZE). **Not live money.**
 
 **Strategy:** ICT (Inner Circle Trader) methodology. Opening Range Breakout with pullback entry. CHoCH (Change of Character) confirmation. Dual-sided bias — OR direction is a starting preference, not a law. Kill zones (NY AM 8:30–11, NY PM 1:30–4 ET).
 
@@ -372,8 +372,8 @@ DEAD_ZONE_CONFLUENCE_THRESHOLD=8
 | Profit (ticks) | Action |
 |----------------|--------|
 | +50 (long: price < entry) | Stop → entry (breakeven) |
-| +100 | Stop → entry + 25 ticks |
-| +150 | Stop → entry + 50 ticks |
+| +120 | Stop → entry + 30 ticks |
+| +180 | Stop → entry + 60 ticks |
 
 D.2: `effective_floor = max(proposed, _claude_trail_stop)` — Claude's structural stop always wins.
 
@@ -407,7 +407,7 @@ Returns: `{daily_pnl, trade_count, wins, losses, win_rate, trades: list}`.
 ### `ablation_runner.py` (~300 lines)
 **Role:** Ablation testing — disable each feature flag, run backtest, measure contribution.
 
-**`ABLATION_FLAGS` dict:** 12 env var keys mapped to human labels. Excludes `FEATURE_LEARNING_EOD`, `FEATURE_LEARNING_INJECT`, `FEATURE_DELTA_LIVE` (safety features never toggled).
+**`ABLATION_FLAGS` dict:** 12 env var keys mapped to human labels. Excludes `FEATURE_LEARNING_EOD`, `FEATURE_LEARNING_INJECT`, `FEATURE_DELTA_LIVE` (safety features never toggled). FEATURE_DOJI_MTF_OVERRIDE is also excluded from ablation (not listed in ABLATION_FLAGS).
 
 **`run_ablation(date_str, verbose)` → dict**
 Returns: `{date, baseline, ablations: {label: {results, delta_pnl, delta_trades, verdict}}, report}`.
@@ -439,7 +439,6 @@ Returns: `{date, baseline, ablations: {label: {results, delta_pnl, delta_trades,
 **`load_learning_for_premarket(n_days=3)` → str**
 Reads last N `memory/learning_*.md` files, extracts "## Claude's Analysis" section (≤600 chars each), returns formatted block for pre-market prompt injection.
 
-**Note: git operations were removed (commit 1df1ea0).** The function signature no longer has `auto_commit` parameter. **⚠ Known bug:** `main.py:694` still passes `auto_commit=True` as a keyword argument, which will raise `TypeError` at EOD when the learning session runs.
 
 ---
 
@@ -1051,7 +1050,7 @@ schedule           pip install schedule           # EOD scheduler
 exchange_calendars pip install exchange-calendars # CME holidays/early close
 ```
 
-No `requirements.txt` is committed. Install manually.
+requirements.txt is committed. Install with: pip install -r requirements.txt
 
 ---
 

@@ -195,6 +195,33 @@
 </div>
 
 <div class="card">
+  <div class="card-header">Opening Range</div>
+  <div class="card-body">
+    <div id="or-badge-m" style="display:inline-block;padding:4px 12px;border-radius:6px;font-size:15px;font-weight:700;border:2px solid var(--border);margin-bottom:8px;">DOJI</div>
+    <div style="font-size:14px;color:var(--text2);margin-bottom:4px;" id="or-detail-m">H: — | L: —</div>
+    <div style="font-size:12px;color:var(--text3);" id="or-rvol-m">RelVol: —</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">HTF Bias</div>
+  <div class="card-body">
+    <div id="htf-bias-m" style="font-size:14px;color:var(--text2);line-height:1.6;">—</div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">ICT Levels</div>
+  <div class="card-body" style="display:flex;flex-direction:column;gap:6px;">
+    <div id="m-ict-fvg" style="font-size:13px;color:var(--text2);border-left:2px solid var(--green);padding-left:8px;">—</div>
+    <div id="m-ict-ob"  style="font-size:13px;color:var(--text2);border-left:2px solid var(--red);padding-left:8px;">—</div>
+    <div id="m-ict-liq" style="font-size:13px;color:var(--text2);border-left:2px solid var(--yellow);padding-left:8px;">—</div>
+    <div id="m-ict-choch" style="font-size:13px;color:var(--text2);border-left:2px solid var(--border2);padding-left:8px;">—</div>
+    <div id="m-ict-mtf" style="font-size:13px;color:var(--text2);border-left:2px solid var(--border2);padding-left:8px;">—</div>
+  </div>
+</div>
+
+<div class="card">
   <div class="card-header">Claude Analysis</div>
   <div class="card-body">
     <div id="decision-badge" class="HOLD">HOLD</div>
@@ -207,6 +234,7 @@
       <span style="color:var(--text2)">Bias</span>
       <span id="bias-val" class="yellow">NEUTRAL</span>
     </div>
+    <div id="feature-badges" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:10px;"></div>
     <div id="reasoning">Waiting for analysis…</div>
     <div id="tape-text" style="font-size:11px; color:var(--text3); margin-top:6px; min-height:14px;"></div>
   </div>
@@ -231,6 +259,13 @@
       <div><div class="stat-num red" id="st-losses">0</div><div class="stat-lbl">Losses</div></div>
       <div><div class="stat-num yellow" id="st-wr">—</div><div class="stat-lbl">W-Rate</div></div>
     </div>
+  </div>
+</div>
+
+<div class="card">
+  <div class="card-header">Today's Trades</div>
+  <div class="card-body" style="padding:8px 14px;" id="m-trades-body">
+    <div style="font-size:13px;color:var(--text3);">No trades today</div>
   </div>
 </div>
 
@@ -436,6 +471,33 @@ async function poll() {
                          : 'var(--text3)';
     }
 
+    const fb = el('feature-badges');
+    if (fb) {
+      const cp = (d.candle_patterns || '').toUpperCase();
+      const tb = d.tape_bias || '';
+      const dz = d.daily_zones || {};
+      const bd = [
+        {l:'FVG',    on:!!(d.fair_value_gaps && d.fair_value_gaps !== '---')},
+        {l:'OB',     on:!!(d.order_blocks    && d.order_blocks    !== '---')},
+        {l:'CHoCH',  on:!!(d.choch           && d.choch           !== '---')},
+        {l:'LIQ',    on:!!(d.liquidity_pools && d.liquidity_pools !== '---')},
+        {l:'TAPE',   on: tb==='AGGRESSIVE_BUYING'||tb==='AGGRESSIVE_SELLING', bear: tb==='AGGRESSIVE_SELLING'},
+        {l:'ENGULF', on: cp.includes('ENGULFING')},
+        {l:'HAMMER', on: cp.includes('HAMMER')},
+        {l:'STAR',   on: cp.includes('STAR')},
+        {l:'INSIDE', on: cp.includes('INSIDE')},
+        {l:'MTF',    on:!!(d.mtf_alignment && d.mtf_alignment.includes('ALIGNED'))},
+        {l:'ZONE',   on:!!(dz.near_demand||dz.near_supply), bear:!!dz.near_supply&&!dz.near_demand},
+      ];
+      var html = '';
+      bd.forEach(function(b) {
+        var bg  = b.on ? (b.bear ? '#ff3b6b' : '#00e676') : '#1a2744';
+        var col = b.on ? '#000' : '#3f5080';
+        html += '<span style="padding:3px 8px;border-radius:4px;font-size:11px;font-weight:700;background:'+bg+';color:'+col+'">'+b.l+'</span>';
+      });
+      fb.innerHTML = html;
+    }
+
     const maxLoss = parseFloat(d.maxLoss) || 500;
     el('risk-pnl').textContent  = fmtPnl(pnl);
     el('risk-pnl').style.color  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
@@ -448,6 +510,103 @@ async function poll() {
     el('st-wins').textContent   = wins;
     el('st-losses').textContent = losses;
     el('st-wr').textContent     = trades.length ? Math.round(wins/trades.length*100)+'%' : '—';
+
+    // Opening Range
+    const orDir = d.or_direction || '';
+    const orBadgeM = el('or-badge-m');
+    if (orBadgeM) {
+      if (orDir === 'BULL') {
+        orBadgeM.textContent = 'BULL';
+        orBadgeM.style.borderColor = 'var(--green)';
+        orBadgeM.style.color = 'var(--green)';
+      } else if (orDir === 'BEAR') {
+        orBadgeM.textContent = 'BEAR';
+        orBadgeM.style.borderColor = 'var(--red)';
+        orBadgeM.style.color = 'var(--red)';
+      } else {
+        orBadgeM.textContent = 'DOJI';
+        orBadgeM.style.borderColor = 'var(--border)';
+        orBadgeM.style.color = 'var(--text2)';
+      }
+    }
+    const orH = d.orHigh ? d.orHigh.toFixed(2) : '—';
+    const orL = d.orLow  ? d.orLow.toFixed(2)  : '—';
+    const bUp = d.orBrokenUp, bDn = d.orBrokenDown;
+    if (el('or-detail-m')) el('or-detail-m').innerHTML =
+      'H: ' + orH + ' | L: ' + orL +
+      (bUp ? ' <span style="color:var(--green)">BROKEN UP</span>' : '') +
+      (bDn ? ' <span style="color:var(--red)">BROKEN DOWN</span>' : '');
+    if (el('or-rvol-m')) el('or-rvol-m').textContent =
+      'RelVol: ' + (d.or_relative_volume ? d.or_relative_volume.toFixed(0) + '%' : '—');
+
+    // HTF Bias
+    if (el('htf-bias-m')) el('htf-bias-m').textContent = d.htfBias || '—';
+
+    // ICT Levels
+    if (el('m-ict-fvg')) el('m-ict-fvg').textContent = d.fair_value_gaps || '—';
+    if (el('m-ict-ob'))  el('m-ict-ob').textContent  = d.order_blocks    || '—';
+    if (el('m-ict-liq')) el('m-ict-liq').textContent = d.liquidity_pools || '—';
+    if (el('m-ict-choch')) el('m-ict-choch').textContent = d.choch ? 'CHoCH: ' + d.choch : '—';
+    if (el('m-ict-mtf'))   el('m-ict-mtf').textContent   = d.mtf_alignment || '—';
+
+    const chochEl = el('m-str-choch');
+    if (chochEl) {
+      chochEl.textContent = d.choch ? 'CHoCH: ' + d.choch : '—';
+      chochEl.style.borderColor = d.choch ? 'var(--accent)' : 'var(--border2)';
+      chochEl.style.color = d.choch ? 'var(--text)' : 'var(--text2)';
+    }
+    const indEl = el('m-str-ind');
+    if (indEl) {
+      indEl.textContent = d.inducement ? 'Inducement: ' + d.inducement : '—';
+      indEl.style.borderColor = d.inducement ? 'var(--yellow)' : 'var(--border2)';
+    }
+    const candleEl = el('m-str-candle');
+    if (candleEl) {
+      const cp = d.candle_patterns || '';
+      candleEl.textContent = cp && cp !== 'No significant candle patterns' ? cp : '—';
+      const isBull = /BULLISH ENGULFING|HAMMER|MORNING STAR|BREAKOUT UP/i.test(cp);
+      const isBear = /BEARISH ENGULFING|SHOOTING STAR|EVENING STAR|BREAKOUT DOWN/i.test(cp);
+      candleEl.style.borderColor = isBull ? 'var(--green)' : isBear ? 'var(--red)' : 'var(--border2)';
+      candleEl.style.color = isBull ? 'var(--green)' : isBear ? 'var(--red)' : 'var(--text2)';
+    }
+    const tapeStrEl = el('m-str-tape');
+    if (tapeStrEl) {
+      const tt = d.tape_text || '';
+      tapeStrEl.textContent = tt && !tt.startsWith('N/A') ? tt : '—';
+      tapeStrEl.style.borderColor = d.tape_bias === 'AGGRESSIVE_BUYING' ? 'var(--green)'
+        : d.tape_bias === 'AGGRESSIVE_SELLING' ? 'var(--red)' : 'var(--border2)';
+      tapeStrEl.style.color = d.tape_bias === 'AGGRESSIVE_BUYING' ? 'var(--green)'
+        : d.tape_bias === 'AGGRESSIVE_SELLING' ? 'var(--red)' : 'var(--text2)';
+    }
+    const mtfStrEl = el('m-str-mtf');
+    if (mtfStrEl) {
+      mtfStrEl.textContent = d.mtf_alignment || '—';
+      const aligned = d.mtf_alignment && d.mtf_alignment.includes('ALIGNED');
+      mtfStrEl.style.borderColor = aligned ? 'var(--blue)' : 'var(--border2)';
+      mtfStrEl.style.color = aligned ? 'var(--blue)' : 'var(--text2)';
+    }
+
+    // Today's Trades
+    const mTrades = el('m-trades-body');
+    if (mTrades) {
+      const tlist = d.trades || [];
+      if (!tlist.length) {
+        mTrades.innerHTML = '<div style="font-size:13px;color:var(--text3);">No trades today</div>';
+      } else {
+        mTrades.innerHTML = tlist.map(function(t) {
+          const p = parseFloat(t.pnl);
+          const pStr = isNaN(p) ? '—' : (p >= 0 ? '+$' : '-$') + Math.abs(p).toFixed(2);
+          const pCol = isNaN(p) ? 'var(--text2)' : p >= 0 ? 'var(--green)' : 'var(--red)';
+          const dCol = t.action === 'BUY' ? 'var(--green)' : 'var(--red)';
+          return '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">' +
+            '<span style="color:var(--text3);">' + (t.time||'—') + '</span>' +
+            '<span style="color:' + dCol + ';font-weight:700;">' + (t.action||'—') + '</span>' +
+            '<span style="color:var(--text2);">' + (t.entry ? parseFloat(t.entry).toFixed(2) : '—') + '</span>' +
+            '<span style="color:' + pCol + ';font-weight:700;">' + pStr + '</span>' +
+            '</div>';
+        }).join('');
+      }
+    }
 
     const rawNews = (d.newsText || '').split('\n')
       .filter(l => !l.includes('FRED') && l.trim()).join(' ').substring(0, 120);

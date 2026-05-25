@@ -6,7 +6,7 @@
 
 ## Section 1 — Evaluation Methodology
 
-Performance is measured against paper-trading P&L from `data/decisions_*.jsonl` replays via `backtester.py`. Win rate and R:R are computed per-session and rolling 20-trade. Daily loss cap ($500) and 1-contract sizing constrain variance.
+Performance is measured against paper-trading P&L from `data/decisions_*.jsonl` replays via `backtester.py`. Win rate and R:R are computed per-session and rolling 20-trade. Hard daily loss cap (configurable via MAX_DAILY_LOSS_PCT in .env) and 1-contract sizing constrain variance.
 
 ---
 
@@ -26,7 +26,6 @@ Tracks how often each pre-filter signal fires. Used to identify dominant contrib
 
 | Phase | Expected Win Rate | Notes |
 |---|---|---|
-| Pre-market (8:30–9:30 ET) | 58–65% | High conviction OR setups |
 | Morning (9:30–11:00 ET) | 62–70% | Peak liquidity, ORB + ICT setups |
 | Dead Zone (11:00–13:30 ET) | 48–55% | Elevated threshold (8 signals) required |
 | Afternoon (13:30–16:00 ET) | 55–62% | Re-acceleration setups, lower volume |
@@ -65,7 +64,7 @@ Average ticks captured vs maximum adverse excursion (MAE) per trade. Identifies 
 
 | Metric | Limit | Notes |
 |---|---|---|
-| Daily loss cap | $500 | Hard stop in executor |
+| Daily loss cap | MAX_DAILY_LOSS_PCT × ACCOUNT_SIZE | Configurable via .env |
 | Max consecutive losses | 3 | Soft warning logged |
 | Max drawdown (rolling 10-day) | $1,500 | Review signal thresholds if breached |
 | Sharpe (daily P&L, annualized) | Target ≥1.5 | Below 1.0 triggers strategy review |
@@ -74,7 +73,7 @@ Average ticks captured vs maximum adverse excursion (MAE) per trade. Identifies 
 
 ## Section 10 — Performance Projection
 
-Projected per-trade expected value at the bot's target win rate (55–70%) and R:R range (3:1–5:1). Trade value assumes $5 per tick, 1 contract, 2-tick stop (= $10 risk unit; adjust for actual stop size).
+Projected per-trade expected value at the bot's target win rate (55–70%) and R:R range (3:1–5:1). Trade value assumes $0.50 per tick (MNQ micro contract), 1 contract, 100-tick stop (= $50 risk unit — matches SCALP_STOP_TICKS=100 default; adjust for actual stop size).
 
 **Summary table — expected value per trade (normalized to 1R = $50 risk):**
 

@@ -325,6 +325,7 @@
         </div>
       </div>
 
+      <div id="feature-badges" style="display:flex;flex-wrap:wrap;gap:4px;margin-bottom:8px;"></div>
       <div id="reasoning-block">Waiting for analysis…</div>
       <div id="reasoning-age"></div>
       <div id="thesis-bias">THESIS — &nbsp; BIAS <span id="bias-val">NEUTRAL</span></div>
@@ -378,16 +379,7 @@
       <div class="ict-block" id="ict-daily-zones" style="font-size:11px;">—</div>
     </div>
 
-    <div class="panel-section">
-      <div class="section-title">Structure</div>
-      <div class="ict-block" id="ict-choch">—</div>
-      <div class="ict-block" id="ict-ind">—</div>
-      <div class="ict-block" id="ict-candle" style="font-size:11px;">—</div>
-      <div class="ict-block" id="ict-tape" style="font-size:11px;">—</div>
-      <div style="font-size:12px; color:var(--text2); margin-top:6px;" id="ict-mtf">—</div>
-    </div>
-
-    <div class="panel-section">
+<div class="panel-section">
       <div class="section-title">Session Stats</div>
       <div style="display:flex; gap:16px; padding:4px 0;">
         <div class="stat-item"><div class="stat-num" id="stat-trades">0</div><div class="stat-lbl">TRADES</div></div>
@@ -710,25 +702,31 @@ function render(d) {
     dzEl.textContent = dz.zones_text && !dz.zones_text.startsWith('No daily') && !dz.zones_text.startsWith('Insufficient') ? dz.zones_text : '—';
     dzEl.style.color = dz.near_demand ? 'var(--green)' : dz.near_supply ? 'var(--red)' : 'var(--text2)';
   }
-  el('ict-choch').textContent = d.choch ? 'CHoCH: ' + d.choch : '—';
-  el('ict-ind').textContent   = d.inducement ? 'Inducement: ' + d.inducement : '—';
-  const cpEl = el('ict-candle');
-  if (cpEl) {
-    const cp = d.candle_patterns || '';
-    cpEl.textContent = cp && cp !== 'No significant candle patterns' ? cp : '—';
-    const isBull = /BULLISH ENGULFING|HAMMER|MORNING STAR|BREAKOUT UP/i.test(cp);
-    const isBear = /BEARISH ENGULFING|SHOOTING STAR|EVENING STAR|BREAKOUT DOWN/i.test(cp);
-    cpEl.style.color = isBull ? 'var(--green)' : isBear ? 'var(--red)' : 'var(--text2)';
+  const badgeEl = el('feature-badges');
+  if (badgeEl) {
+    const cp  = (d.candle_patterns || '').toUpperCase();
+    const tb  = d.tape_bias || '';
+    const dz  = d.daily_zones || {};
+    const badges = [
+      { label: 'FVG',    on: !!(d.fair_value_gaps && d.fair_value_gaps !== '—') },
+      { label: 'OB',     on: !!(d.order_blocks    && d.order_blocks    !== '—') },
+      { label: 'CHoCH',  on: !!(d.choch           && d.choch           !== '—') },
+      { label: 'LIQ',    on: !!(d.liquidity_pools && d.liquidity_pools !== '—') },
+      { label: 'TAPE',   on: tb === 'AGGRESSIVE_BUYING' || tb === 'AGGRESSIVE_SELLING', bear: tb === 'AGGRESSIVE_SELLING' },
+      { label: 'ENGULF', on: cp.includes('ENGULFING') },
+      { label: 'HAMMER', on: cp.includes('HAMMER') },
+      { label: 'STAR',   on: cp.includes('STAR') },
+      { label: 'INSIDE', on: cp.includes('INSIDE') },
+      { label: 'MTF',    on: !!(d.mtf_alignment && d.mtf_alignment.includes('ALIGNED')) },
+      { label: 'ZONE',   on: !!(dz.near_demand || dz.near_supply), bear: !!dz.near_supply && !dz.near_demand },
+    ];
+    badgeEl.innerHTML = badges.map(b => {
+      const bg  = b.on ? (b.bear ? 'var(--red)' : 'var(--green)') : 'var(--bg3)';
+      const col = b.on ? '#000' : 'var(--text3)';
+      const bdr = b.on ? 'transparent' : 'var(--border2)';
+      return '<span style="padding:2px 6px;border-radius:3px;font-size:10px;font-weight:700;background:'+bg+';color:'+col+';border:1px solid '+bdr+'">'+b.label+'</span>';
+    }).join('');
   }
-  const tapeEl = el('ict-tape');
-  if (tapeEl) {
-    const tt = d.tape_text || '';
-    tapeEl.textContent = tt && !tt.startsWith('N/A') ? tt : '—';
-    tapeEl.style.color = d.tape_bias === 'AGGRESSIVE_BUYING'  ? 'var(--green)'
-                       : d.tape_bias === 'AGGRESSIVE_SELLING' ? 'var(--red)'
-                       : 'var(--text2)';
-  }
-  el('ict-mtf').textContent   = d.mtf_alignment || '—';
 
   // ── Bottom panel: IBKR headlines (left) + Economic calendar (right) ──
   const dangerous = d.newsDangerZone;

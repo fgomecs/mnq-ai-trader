@@ -51,6 +51,10 @@ _THESIS_BUCKETS = [
     ("85+",    85, 101),
 ]
 
+# MNQ contract constants used for R:R estimation when stop_price is absent
+_MNQ_TICK_VALUE         = 0.50   # $ per tick per contract
+_MNQ_DEFAULT_RISK_TICKS = 40     # assumed initial stop when not recorded (~10 pts = $20)
+
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -96,6 +100,55 @@ def _finalize_stats(stats: dict) -> dict:
     out["pnl"]      = round(out["pnl"], 2)
     out["win_rate"] = _win_rate(stats)
     return out
+
+
+def _calc_trade_rr(trade: dict, matched: dict | None) -> float | None:
+    """
+    Compute R:R for one trade.
+    Tries exact price fields first; falls back to pnl-based estimate when
+    stop_price is absent (uses _MNQ_DEFAULT_RISK_TICKS as assumed risk).
+    Returns None if there is no usable data at all.
+    """
+    def _f(v):
+        try:
+            return float(v) if v is not None else None
+        except (ValueError, TypeError):
+            return None
+
+    entry  = _f(trade.get("entry_price") or trade.get("entry"))
+    exit_p = _f(trade.get("exit_price")  or trade.get("exit"))
+    stop   = _f(trade.get("stop_price")  or trade.get("stop"))
+    pnl    = _f(trade.get("pnl")) or 0.0
+
+    if matched:
+        dec = matched.get("decision", {})
+        if stop is None:
+            stop = _f(dec.get("stop_price") or dec.get("stop"))
+        if entry is None:
+            entry = _f(dec.get("entry_price") or dec.get("entry"))
+
+    estimated_risk_pts = _MNQ_DEFAULT_RISK_TICKS * 0.25  # points
+
+    if entry is not None and exit_p is not None and entry != exit_p:
+        move = abs(exit_p - entry)
+        if stop is not None:
+            risk = abs(stop - entry)
+            if risk > 0:
+                return move / risk
+        return move / estimated_risk_pts
+
+    if pnl != 0.0:
+        return abs(pnl) / (_MNQ_DEFAULT_RISK_TICKS * _MNQ_TICK_VALUE)
+
+    return None
+
+
+def _profitability_zone(win_rate: float, avg_rr: float) -> str:
+    if win_rate >= 60 and avg_rr >= 2.0:
+        return "PROFITABLE"
+    if win_rate >= 50 or avg_rr >= 1.5:
+        return "BREAK_EVEN"
+    return "NOT_PROFITABLE"
 
 
 # ── File loading ──────────────────────────────────────────────────────────────
@@ -188,15 +241,26 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
     by_hour:        dict[str, dict]   = {}
     ofi_perf:       dict[str, dict]   = {s: _empty_stats() for s in _OFI_SIGNALS}
     thesis_buckets: dict[str, dict]   = {name: _empty_stats() for name, *_ in _THESIS_BUCKETS}
+    all_rr_values:  list[float]       = []
+    week_data:      dict[str, dict]   = {}   # ISO-week → {rr_values, wins, total}
+    day_rr_data:    dict[str, list]   = {}   # date → list of rr values
 
     for date_str in _available_dates():
         trades, decisions = _load_day(date_str)
         if not trades:
             continue
 
-        day_pnl   = 0.0
-        day_wins  = 0
+        day_pnl    = 0.0
+        day_wins   = 0
         day_losses = 0
+        day_rr_values: list[float] = []
+
+        try:
+            week_key = datetime.strptime(date_str, "%Y-%m-%d").strftime("%G-W%V")
+        except ValueError:
+            week_key = None
+        if week_key and week_key not in week_data:
+            week_data[week_key] = {"rr_values": [], "wins": 0, "total": 0}
 
         for trade in trades:
             pnl    = float(trade.get("pnl", 0.0))
@@ -223,6 +287,18 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
 
             # ── decision-linked analytics ─────────────────────
             matched = _match_decision(trade, decisions)
+
+            rr = _calc_trade_rr(trade, matched)
+            if rr is not None and rr >= 0:
+                all_rr_values.append(rr)
+                day_rr_values.append(rr)
+            if week_key:
+                week_data[week_key]["total"] += 1
+                if pnl > 0:
+                    week_data[week_key]["wins"] += 1
+                if rr is not None and rr >= 0:
+                    week_data[week_key]["rr_values"].append(rr)
+
             if matched:
                 snap   = matched.get("snapshot", {})
                 dec    = matched.get("decision", {})
@@ -239,6 +315,8 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
                         if lo <= prob < hi:
                             _add_trade_to(thesis_buckets[bucket_name], pnl)
                             break
+
+        day_rr_data[date_str] = day_rr_values
 
         n_trades = day_wins + day_losses
         daily_rows.append({
@@ -261,6 +339,41 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
             "trades":    row["trades"],
         })
 
+    # ── R:R summary ───────────────────────────────────────────
+    avg_rr = round(sum(all_rr_values) / len(all_rr_values), 2) if all_rr_values else 0.0
+
+    total_trades_all = sum(r["trades"] for r in daily_rows)
+    total_wins_all   = sum(r["wins"]   for r in daily_rows)
+    overall_win_rate = round(total_wins_all / total_trades_all * 100, 1) if total_trades_all > 0 else 0.0
+
+    profitability_zone = _profitability_zone(overall_win_rate, avg_rr)
+
+    rr_by_week = []
+    for wk in sorted(week_data.keys()):
+        wd = week_data[wk]
+        wk_rrs      = wd["rr_values"]
+        wk_avg_rr   = round(sum(wk_rrs) / len(wk_rrs), 2) if wk_rrs else 0.0
+        wk_win_rate = round(wd["wins"] / wd["total"] * 100, 1) if wd["total"] > 0 else 0.0
+        rr_by_week.append({
+            "week":     wk,
+            "avg_rr":   wk_avg_rr,
+            "win_rate": wk_win_rate,
+            "zone":     _profitability_zone(wk_win_rate, wk_avg_rr),
+        })
+
+    zone_history = []
+    for row in daily_rows:
+        d      = row["date"]
+        drrs   = day_rr_data.get(d, [])
+        d_avg_rr   = round(sum(drrs) / len(drrs), 2) if drrs else 0.0
+        d_win_rate = round(row["wins"] / row["trades"] * 100, 1) if row["trades"] > 0 else 0.0
+        zone_history.append({
+            "date":     d,
+            "win_rate": d_win_rate,
+            "avg_rr":   d_avg_rr,
+            "zone":     _profitability_zone(d_win_rate, d_avg_rr),
+        })
+
     # ── Finalize group stats ──────────────────────────────────
     return {
         "account":          account_name,
@@ -272,6 +385,11 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
         "daily_pnl":        daily_rows,
         "ofi_performance":  {k: _finalize_stats(v) for k, v in ofi_perf.items()},
         "thesis_buckets":   {k: _finalize_stats(v) for k, v in thesis_buckets.items()},
+        "avg_rr":            avg_rr,
+        "overall_win_rate":  overall_win_rate,
+        "profitability_zone": profitability_zone,
+        "rr_by_week":        rr_by_week,
+        "zone_history":      zone_history,
     }
 
 

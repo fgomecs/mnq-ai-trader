@@ -245,6 +245,8 @@ FEATURE_GAP_CLASSIFICATION = _env_bool("FEATURE_GAP_CLASSIFICATION", True)
 GAP_SMALL_THRESHOLD    = _env_int("GAP_SMALL_THRESHOLD",     63)   # pts — <this = small gap (0.79 fill prob)
 GAP_MEDIUM_THRESHOLD   = _env_int("GAP_MEDIUM_THRESHOLD",   147)   # pts — <this = medium gap (0.52 fill prob)
 GAP_LARGE_THRESHOLD    = _env_int("GAP_LARGE_THRESHOLD",    210)   # pts — <this = large gap (0.28 fill prob); larger = 0.12
+# Classic daily pivot points from prior session H/L/C
+FEATURE_PIVOT_POINTS   = _env_bool("FEATURE_PIVOT_POINTS",   True)
 
 # ── Entry Gates ────────────────────────────────────────────
 # V4.0: Block entries when thesis probability < MIN_THESIS_PROBABILITY

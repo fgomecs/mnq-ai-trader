@@ -25,6 +25,7 @@ from config import (
     IBKR_CLIENT_ID, IBKR_HOST, IBKR_PORT, LIVE_DATA_ACTIVE, SYMBOL,
     FEATURE_OFI, FEATURE_DOM_ADVANCED, FEATURE_MTF_SCORE, FEATURE_DELTA_LIVE,
     FEATURE_GAP_CLASSIFICATION, GAP_SMALL_THRESHOLD, GAP_MEDIUM_THRESHOLD, GAP_LARGE_THRESHOLD,
+    FEATURE_PIVOT_POINTS,
     DOM_HISTORY_MAX_SNAPSHOTS, TICK_STATE_PERSIST_INTERVAL_SECS,
     INIT_BARS_1MIN_DURATION, INIT_BARS_5MIN_DURATION,
     INIT_BARS_15MIN_DURATION, INIT_BARS_DAILY_DURATION,
@@ -134,6 +135,10 @@ class IBKRFeed:
         # Stores last 10 headlines as [{"time": str, "headline": str, "provider": str}]
         self._ibkr_headlines: list = []
         self._ibkr_headlines_max  = 10
+
+        # ── Pivot point cache (recompute only when prior daily bar changes) ─
+        self._pivot_cache: dict = {"pivot": 0.0, "r1": 0.0, "r2": 0.0, "s1": 0.0, "s2": 0.0}
+        self._pivot_cache_key: tuple | None = None
 
         # ── First candle highs/lows (captured at 9:30 / 9:35 ET) ─
         self.first_candle_1min_high = 0.0
@@ -917,6 +922,9 @@ class IBKRFeed:
                 # Gap classification (prev close → today open)
                 "gap": self._compute_gap() if FEATURE_GAP_CLASSIFICATION else {"gap_size": 0.0, "gap_direction": "NONE", "gap_fill_probability": 0.0},
 
+                # Classic daily pivot points
+                "pivots": self._compute_pivot_points() if FEATURE_PIVOT_POINTS else {"pivot": 0.0, "r1": 0.0, "r2": 0.0, "s1": 0.0, "s2": 0.0},
+
                 # First candle highs/lows (9:30 1-min, 9:30–9:35 5-min)
                 "first_candle_1min_high": self.first_candle_1min_high,
                 "first_candle_1min_low":  self.first_candle_1min_low,
@@ -1254,6 +1262,39 @@ class IBKRFeed:
             }
         except Exception as e:
             logger.warning(f"_compute_gap error: {e}")
+            return empty
+
+    # ─── Pivot points ──────────────────────────────────────
+
+    def _compute_pivot_points(self) -> dict:
+        """Classic daily pivots from prior session H/L/C. Cached per prior bar."""
+        empty = {"pivot": 0.0, "r1": 0.0, "r2": 0.0, "s1": 0.0, "s2": 0.0}
+        try:
+            with self._bar_lock:
+                daily = list(self._bars_daily)
+            if len(daily) < 2:
+                return empty
+
+            prior = daily[-2]
+            key = (getattr(prior, "date", None), float(prior.high), float(prior.low), float(prior.close))
+            if key == self._pivot_cache_key:
+                return self._pivot_cache
+
+            h, l, c = float(prior.high), float(prior.low), float(prior.close)
+            pivot = (h + l + c) / 3.0
+            rng = h - l
+            result = {
+                "pivot": round(pivot, 2),
+                "r1": round(2 * pivot - l, 2),
+                "r2": round(pivot + rng, 2),
+                "s1": round(2 * pivot - h, 2),
+                "s2": round(pivot - rng, 2),
+            }
+            self._pivot_cache = result
+            self._pivot_cache_key = key
+            return result
+        except Exception as e:
+            logger.warning(f"_compute_pivot_points error: {e}")
             return empty
 
     # ─── Session levels ────────────────────────────────────

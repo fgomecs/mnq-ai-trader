@@ -117,6 +117,8 @@ def get_session_state(now_et: datetime) -> SessionState:
 
 def can_enter(state: SessionState, confluence_score: int = 0) -> tuple[bool, str]:
     """Return (allowed, reason). Dead zone requires DEAD_ZONE_CONFLUENCE_THRESHOLD+."""
+    if get_current_session_type() == SessionType.HOLIDAY:
+        return False, "HOLIDAY session"
     if state in (SessionState.OR_ESTABLISHED, SessionState.PRIME_WINDOW,
                  SessionState.AFTERNOON_PRIME):
         return True, ""
@@ -451,6 +453,15 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
     executor.update_price(current_price)
     account_data = feed.get_account_data()
 
+    global _session_type_classified
+    if (not _session_type_classified and FEATURE_SESSION_CLASSIFIER
+            and state in (SessionState.OR_ESTABLISHED, SessionState.PRIME_WINDOW)):
+        or_range = abs((feed.or_high or 0) - (feed.or_low or 0))
+        stype = classify_session_type(snapshot, or_range, 0)
+        set_session_type(stype)
+        _session_type_classified = True
+        logger.info(f"[SESSION_CLASSIFIER] Session classified as {stype.value} (OR range {or_range:.1f} pts)")
+
     # ── Watchlist refresh (every 5 min) ───────────────────
     if now_ts - last_watchlist_time >= WATCHLIST_REFRESH_SECS:
         try:
@@ -664,7 +675,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
 # ─── End-of-day ────────────────────────────────────────────
 
 def end_of_day(feed: IBKRFeed, executor: Executor) -> None:
-    global premarket_done, _or_notified
+    global premarket_done, _or_notified, _session_type_classified, _post_news_analyzed
 
     logger.info("=" * 50)
     logger.info("END OF DAY ROUTINE")
@@ -718,6 +729,8 @@ def end_of_day(feed: IBKRFeed, executor: Executor) -> None:
     _recorder.flush_and_close()
 
     premarket_done = False
+    _session_type_classified = False
+    _post_news_analyzed = False
     analysis_log.clear()
 
     # V4.1 — EOD Learning Session

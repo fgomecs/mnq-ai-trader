@@ -40,6 +40,11 @@ from config import (
     POS_STRUCTURE_MIN_PROFIT_TICKS, POS_STRUCTURE_PULLBACK_TICKS,
     DASHBOARD_ACCOUNT_REFRESH_SECS, DASHBOARD_LIVE_PATCH_SECS,
     PRE_FILTER_LOG_INTERVAL_SECS,
+    FEATURE_SESSION_CLASSIFIER, FEATURE_POST_NEWS_REFRESH,
+)
+from session_classifier import (
+    classify_session_type, get_session_type_context, SessionType,
+    set_session_type, get_current_session_type,
 )
 
 from logger import logger, log_daily_summary
@@ -145,6 +150,9 @@ _last_swing_low       = 999_999.0
 _fast_ticker_running  = False
 _last_snapshot_lock   = threading.Lock()
 _last_snapshot: dict  = {}
+
+_session_type_classified = False
+_post_news_analyzed      = False
 
 
 # ─── Event-driven position trigger ────────────────────────

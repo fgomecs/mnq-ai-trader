@@ -68,6 +68,18 @@ from memory_manager import (
 from dashboard_writer import update_dashboard, update_price_only
 from data_recorder import recorder as _recorder
 
+try:
+    from notifier import (
+        notify_premarket, notify_or_established, notify_trade_entered,
+        notify_trade_exited, notify_stop_to_breakeven, notify_eod_summary,
+        notify_error, notify_loss_warning, notify_bot_sleeping,
+        notify_bot_awake, notify_ibkr_disconnected, notify_ibkr_reconnected,
+        notify_consecutive_losses
+    )
+    _notify_available = True
+except ImportError:
+    _notify_available = False
+
 eastern = pytz.timezone("US/Eastern")
 
 
@@ -119,6 +131,7 @@ last_position_time    = 0.0
 last_watchlist_time   = 0.0
 premarket_done        = False
 analysis_log: list    = []
+_or_notified          = False
 
 # Event-driven position tracking
 _last_position_price  = 0.0
@@ -355,6 +368,8 @@ def run_premarket(feed: IBKRFeed) -> None:
             logger.warning(f"Pre-market watchlist build failed: {e}")
 
         result = analyze_premarket(snapshot, memory)
+        if _notify_available:
+            notify_premarket(str(result)[:200])
         update_dashboard(
             claude_status  = "PRE-MARKET ANALYSIS",
             last_decision  = result.get("decision"),
@@ -373,11 +388,16 @@ def run_premarket(feed: IBKRFeed) -> None:
 # ─── Main cycle ────────────────────────────────────────────
 
 def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
-    global last_analysis_time, last_position_time, last_watchlist_time, analysis_log
+    global last_analysis_time, last_position_time, last_watchlist_time, analysis_log, _or_notified
 
     now    = datetime.now(eastern)
     now_ts = time.time()
     state  = get_session_state(now)
+
+    if not _or_notified and feed.or_direction in ("BULL", "BEAR", "DOJI"):
+        if _notify_available:
+            notify_or_established(feed.or_direction, feed.or_high, feed.or_low)
+        _or_notified = True
 
     # ── Pre-market (8:30-9:30) ────────────────────────────
     if state == SessionState.PRE_MARKET:
@@ -636,7 +656,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
 # ─── End-of-day ────────────────────────────────────────────
 
 def end_of_day(feed: IBKRFeed, executor: Executor) -> None:
-    global premarket_done
+    global premarket_done, _or_notified
 
     logger.info("=" * 50)
     logger.info("END OF DAY ROUTINE")
@@ -670,8 +690,20 @@ def end_of_day(feed: IBKRFeed, executor: Executor) -> None:
 
     logger.info(f"Final P&L: ${executor.daily_pnl:.2f}  Trades: {len(executor.trades_today)}")
 
+    if _notify_available:
+        wins = sum(1 for t in executor.trades_today if t.get("pnl", 0) > 0)
+        losses = sum(1 for t in executor.trades_today if t.get("pnl", 0) < 0)
+        notify_eod_summary(
+            daily_pnl=executor.daily_pnl,
+            wins=wins,
+            losses=losses,
+            net_liq=account_data.get("net_liquidation", 50000),
+            version=VERSION
+        )
+
     # P2.8 — wipe per-session brain state
     reset_session_state()
+    _or_notified = False
 
     # Flush recorder files cleanly at EOD
     _recorder.flush_and_close()
@@ -971,7 +1003,18 @@ def main() -> None:
     feed = IBKRFeed()
     if not feed.connect():
         logger.error("Could not connect to IBKR. Is Gateway running?")
+        if _notify_available:
+            notify_ibkr_disconnected()
         return
+    if _notify_available:
+        notify_bot_awake()
+
+    if _notify_available:
+        try:
+            feed.ib.disconnectedEvent += lambda: notify_ibkr_disconnected()
+            feed.ib.connectedEvent    += lambda: notify_ibkr_reconnected()
+        except Exception as e:
+            logger.debug(f"Could not wire IBKR connect/disconnect notifications: {e}")
 
     logger.info("Initializing bar cache — fetching historical data once…")
     feed.initialize_bars()
@@ -1045,6 +1088,10 @@ def main() -> None:
         cancel_all_orders(feed.ib)
         feed.disconnect()
         logger.info("System shut down cleanly")
+    except Exception as e:
+        if _notify_available:
+            notify_error("main.py", str(e))
+        raise
 
 
 if __name__ == "__main__":

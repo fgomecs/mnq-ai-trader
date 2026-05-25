@@ -36,6 +36,16 @@ try:
 except Exception:
     _record_trade_stats = None
 
+try:
+    from notifier import (
+        notify_trade_entered, notify_trade_exited,
+        notify_stop_to_breakeven, notify_loss_warning,
+        notify_consecutive_losses
+    )
+    _notify_available = True
+except ImportError:
+    _notify_available = False
+
 
 class Executor:
     def __init__(self, ib_instance, contract, paper: bool = True):
@@ -508,6 +518,14 @@ class Executor:
                 f"ENTERED: {direction} {contracts} MNQ @ {actual_fill} | "
                 f"Stop:{stop_price} Target:{target_price} Mode:{mode} | {reasoning[:100]}"
             )
+
+            if _notify_available:
+                notify_trade_entered(
+                    direction="LONG" if direction == "BUY" else "SHORT",
+                    entry=self.entry_price,
+                    stop=self.stop_price,
+                    target=self.target_price or 0.0,
+                )
             return True
 
         except Exception as e:
@@ -591,6 +609,20 @@ class Executor:
             "mode":         self.trade_mode,
             "exit_reason":  reason,
         })
+
+        if _notify_available:
+            notify_trade_exited(
+                direction="LONG" if was_long else "SHORT",
+                entry=entry_price,
+                exit_price=exit_price,
+                pnl=pnl,
+                reason=reason
+            )
+        if _notify_available and self.consecutive_losses >= 3:
+            notify_consecutive_losses(self.consecutive_losses, self.daily_pnl)
+        if _notify_available and abs(self.daily_pnl) >= MAX_DAILY_LOSS_USD * 0.9:
+            notify_loss_warning(abs(self.daily_pnl), MAX_DAILY_LOSS_USD)
+
         return pnl
 
     def _reset_position_state(self) -> None:
@@ -916,6 +948,8 @@ class Executor:
         if self.stop_price < effective_floor:
             self.stop_price = effective_floor
             logger.info(f"AUTO-TRAIL LONG: stop → {effective_floor} (Claude floor: {self._claude_trail_stop})")
+            if _notify_available and proposed == self.entry_price:
+                notify_stop_to_breakeven(direction="LONG", entry=self.entry_price)
 
     def _auto_trail_short(self, price: float) -> None:
         """
@@ -938,6 +972,8 @@ class Executor:
         if self.stop_price > effective_ceiling:
             self.stop_price = effective_ceiling
             logger.info(f"AUTO-TRAIL SHORT: stop → {effective_ceiling} (Claude floor: {self._claude_trail_stop})")
+            if _notify_available and proposed == self.entry_price:
+                notify_stop_to_breakeven(direction="SHORT", entry=self.entry_price)
 
     # ─── Unrealized P&L log ────────────────────────────────
 

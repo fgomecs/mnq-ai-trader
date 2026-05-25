@@ -956,7 +956,7 @@ updateClock();
     ctx.fillRect(0, 0, w, h);
 
     if (!bars.length) {
-      ctx.fillStyle = '#333'; ctx.font = '12px monospace';
+      ctx.fillStyle = '#333'; ctx.font = '12px JetBrains Mono, monospace';
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('Waiting for bar data…', w/2, h/2);
       return;
@@ -990,14 +990,14 @@ updateClock();
       ctx.strokeStyle = '#181818'; ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + cw, y); ctx.stroke();
       // Price label on right axis
-      ctx.fillStyle = '#555'; ctx.font = '9px monospace';
+      ctx.fillStyle = '#555'; ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
       ctx.fillText(p.toFixed(2), w - 3, y);
     }
 
     // ── Time grid + labels ───────────────────────────────
     const labelEvery = Math.max(1, Math.floor(viewBars / 8));
-    ctx.fillStyle = '#444'; ctx.font = '9px monospace';
+    ctx.fillStyle = '#444'; ctx.font = '9px JetBrains Mono, monospace';
     ctx.textAlign = 'center'; ctx.textBaseline = 'top';
     visible.forEach((b, i) => {
       const x = PAD_L + i * barPx + barPx * 0.5;
@@ -1013,7 +1013,7 @@ updateClock();
     });
 
     // Divider lines
-    ctx.strokeStyle = '#222'; ctx.lineWidth = 1;
+    ctx.strokeStyle = '#1a2744'; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(PAD_L, priceBot + 2); ctx.lineTo(PAD_L + cw, priceBot + 2); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(PAD_L, timeTop); ctx.lineTo(PAD_L + cw, timeTop); ctx.stroke();
 
@@ -1027,7 +1027,7 @@ updateClock();
         ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
         ctx.setLineDash([]);
       });
-      ctx.fillStyle = 'rgba(255,214,0,0.6)'; ctx.font = '9px monospace';
+      ctx.fillStyle = 'rgba(255,214,0,0.6)'; ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       ctx.fillText(`OR H ${snapData.orHigh.toFixed(2)}`, PAD_L+3, yH);
       ctx.textBaseline = 'top';
@@ -1046,7 +1046,7 @@ updateClock();
       ctx.beginPath(); ctx.moveTo(PAD_L, midY); ctx.lineTo(PAD_L+cw, midY); ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = isBull ? 'rgba(76,175,80,0.8)' : 'rgba(229,57,53,0.8)';
-      ctx.font = '8px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.font = '8px JetBrains Mono, monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
       ctx.fillText((isBull ? 'FVG▲' : 'FVG▼'), PAD_L + cw - 2, midY);
     });
 
@@ -1064,7 +1064,7 @@ updateClock();
       ctx.setLineDash([]);
       const midY = (y1 + y2) / 2;
       ctx.fillStyle = isBull ? 'rgba(33,150,243,0.8)' : 'rgba(255,152,0,0.8)';
-      ctx.font = '8px monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+      ctx.font = '8px JetBrains Mono, monospace'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
       ctx.fillText((isBull ? 'OB▲' : 'OB▼'), PAD_L + cw - 2, midY);
     });
 
@@ -1077,7 +1077,7 @@ updateClock();
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = 'rgba(255,214,0,0.75)';
-      ctx.font = '8px monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+      ctx.font = '8px JetBrains Mono, monospace'; ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       ctx.fillText((isBuy ? 'BSL' : 'SSL'), PAD_L + 2, y - 4);
     });
 
@@ -1101,7 +1101,7 @@ updateClock();
       if (lastBar) {
         const lx = PAD_L + (visible.indexOf(lastBar)) * barPx + barPx*0.5;
         const ly = yForPrice(lastBar.vwap);
-        ctx.fillStyle = '#ffd600'; ctx.font = 'bold 9px monospace';
+        ctx.fillStyle = '#ffd600'; ctx.font = 'bold 9px JetBrains Mono, monospace';
         ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
         ctx.fillText('VWAP', lx, ly - 2);
       }
@@ -1114,7 +1114,7 @@ updateClock();
       ctx.strokeStyle = c; ctx.lineWidth = 1; ctx.setLineDash([2,4]);
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#4fc3f7'; ctx.font = '9px monospace';
+      ctx.fillStyle = '#4fc3f7'; ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       ctx.fillText(l, PAD_L+3, y);
     });
@@ -1126,7 +1126,7 @@ updateClock();
       ctx.fillRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
       ctx.strokeStyle = 'rgba(76,175,80,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([]);
       ctx.strokeRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
-      ctx.fillStyle = 'rgba(76,175,80,0.85)'; ctx.font = '8px monospace';
+      ctx.fillStyle = 'rgba(76,175,80,0.85)'; ctx.font = '8px JetBrains Mono, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       ctx.fillText('DEMAND', PAD_L + 3, (y1 + y2) / 2);
     });
@@ -1136,7 +1136,7 @@ updateClock();
       ctx.fillRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
       ctx.strokeStyle = 'rgba(229,57,53,0.4)'; ctx.lineWidth = 1; ctx.setLineDash([]);
       ctx.strokeRect(PAD_L, Math.min(y1,y2), cw, Math.abs(y2-y1));
-      ctx.fillStyle = 'rgba(229,57,53,0.85)'; ctx.font = '8px monospace';
+      ctx.fillStyle = 'rgba(229,57,53,0.85)'; ctx.font = '8px JetBrains Mono, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
       ctx.fillText('SUPPLY', PAD_L + 3, (y1 + y2) / 2);
     });
@@ -1147,7 +1147,7 @@ updateClock();
       const y = yForPrice(p);
       ctx.strokeStyle = 'rgba(180,180,180,0.7)'; ctx.lineWidth = 1; ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
-      ctx.fillStyle = 'rgba(180,180,180,0.85)'; ctx.font = '9px monospace';
+      ctx.fillStyle = 'rgba(180,180,180,0.85)'; ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       ctx.fillText(l, PAD_L+3, y);
     });
@@ -1158,7 +1158,7 @@ updateClock();
       const y = yForPrice(p);
       ctx.strokeStyle = 'rgba(255,255,255,0.55)'; ctx.lineWidth = 1; ctx.setLineDash([]);
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
-      ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '9px monospace';
+      ctx.fillStyle = 'rgba(255,255,255,0.8)'; ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       ctx.fillText(l, PAD_L+3, y);
     });
@@ -1170,7 +1170,7 @@ updateClock();
       ctx.strokeStyle = 'rgba(255,152,0,0.7)'; ctx.lineWidth = 1; ctx.setLineDash([4,4]);
       ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = 'rgba(255,152,0,0.9)'; ctx.font = '9px monospace';
+      ctx.fillStyle = 'rgba(255,152,0,0.9)'; ctx.font = '9px JetBrains Mono, monospace';
       ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
       ctx.fillText(l, PAD_L+3, y);
     });
@@ -1291,7 +1291,7 @@ updateClock();
         if (m.pnl !== undefined) {
           const pnlStr = (m.pnl >= 0 ? '+$' : '-$') + Math.abs(m.pnl).toFixed(0);
           ctx.fillStyle = m.pnl >= 0 ? '#00c853' : '#ff1744';
-          ctx.font = 'bold 9px monospace';
+          ctx.font = 'bold 9px JetBrains Mono, monospace';
           ctx.textAlign = 'left';
           ctx.textBaseline = 'middle';
           ctx.fillText(pnlStr, exitX + S + 4, exitY);
@@ -1310,7 +1310,7 @@ updateClock();
         // Price badge on right axis
         ctx.fillStyle = '#fff';
         ctx.fillRect(PAD_L+cw+1, y-9, PAD_R-2, 18);
-        ctx.fillStyle = '#000'; ctx.font = 'bold 10px monospace';
+        ctx.fillStyle = '#000'; ctx.font = 'bold 10px JetBrains Mono, monospace';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(snapData.currentPrice.toFixed(2), PAD_L+cw+PAD_R/2, y);
       }
@@ -1336,7 +1336,7 @@ updateClock();
         const badgeW = PAD_R - 2;
         ctx.fillStyle = c;
         ctx.fillRect(PAD_L + cw + 1, y - 9, badgeW, 18);
-        ctx.fillStyle = '#000'; ctx.font = 'bold 9px monospace';
+        ctx.fillStyle = '#000'; ctx.font = 'bold 9px JetBrains Mono, monospace';
         ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
         ctx.fillText(`${label} ${p.toFixed(2)}`, PAD_L + cw + badgeW/2, y);
       });

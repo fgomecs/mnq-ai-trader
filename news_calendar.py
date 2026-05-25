@@ -546,6 +546,7 @@ def get_news_snapshot(ib=None) -> dict:
     next_event_full  = None   # any-impact next event details
     next_event_mins  = None   # any-impact minutes-until
     recent_event     = None   # any-impact event that just printed
+    recent_event_dict = None  # structured form of recent_event
 
     # P1.5 — Asymmetric window per impact level.
     # Previous logic was `-5 <= mins <= 15` which only blocked 5 min POST
@@ -586,6 +587,12 @@ def get_news_snapshot(ib=None) -> dict:
             if abs(mins) <= reactive_window:
                 # Take the most recent one (events are time-sorted, last wins)
                 recent_event = f"{e['title']} ({e['impact']}) at {e['time_et']} ET — {int(abs(mins))} min ago"
+                recent_event_dict = {
+                    "title":         e["title"],
+                    "impact":        e["impact"],
+                    "time_et":       e["time_et"],
+                    "minutes_since": int(abs(mins)),
+                }
 
     # Strip time_obj — not JSON serializable
     events_serializable = [
@@ -601,6 +608,7 @@ def get_news_snapshot(ib=None) -> dict:
         "next_event_full":    next_event_full,
         "next_event_minutes": next_event_mins,
         "recent_event":       recent_event,
+        "recent_event_dict":  recent_event_dict,
         "bulletin_count":     len(bulletins),
     }
 

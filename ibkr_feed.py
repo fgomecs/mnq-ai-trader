@@ -972,14 +972,12 @@ class IBKRFeed:
 
             snapshot["post_news_window"] = False
             if FEATURE_POST_NEWS_REFRESH:
-                recent_event = self._news_cache.get("recent_event")
-                if recent_event and "(HIGH)" in recent_event:
-                    import re as _re
-                    m = _re.search(r"(\d+)\s*min ago", recent_event)
-                    if m:
-                        minutes_since = int(m.group(1))
-                        if POST_NEWS_WINDOW_MINUTES <= minutes_since <= POST_NEWS_WINDOW_MINUTES + POST_NEWS_WINDOW_DURATION:
-                            snapshot["post_news_window"] = True
+                recent_event_dict = self._news_cache.get("recent_event_dict") or {}
+                minutes_since = recent_event_dict.get("minutes_since", 9999)
+                impact = recent_event_dict.get("impact", "LOW")
+                if (impact == "HIGH"
+                        and POST_NEWS_WINDOW_MINUTES <= minutes_since <= POST_NEWS_WINDOW_MINUTES + POST_NEWS_WINDOW_DURATION):
+                    snapshot["post_news_window"] = True
 
             # Record snapshot to disk for backtest replay
             _recorder.record_snapshot(snapshot)

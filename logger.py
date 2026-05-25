@@ -4,10 +4,9 @@ import logging
 from datetime import datetime
 
 # Create logs folder
-os.makedirs("C:\\trading\\logs", exist_ok=True)
-
-# Set up logging
-log_filename = f"C:\\trading\\logs\\trading_{datetime.now().strftime('%Y%m%d')}.log"
+_log_dir = os.path.join(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"), "logs")
+os.makedirs(_log_dir, exist_ok=True)
+log_filename = os.path.join(_log_dir, f"trading_{datetime.now().strftime('%Y%m%d')}.log")
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,7 +27,7 @@ def log_analysis(snapshot: dict, claude_response: str):
         "snapshot": snapshot,
         "claude_response": claude_response
     }
-    with open(f"C:\\trading\\logs\\analysis_{datetime.now().strftime('%Y%m%d')}.json", "a") as f:
+    with open(os.path.join(_log_dir, f"analysis_{datetime.now().strftime('%Y%m%d')}.json"), "a") as f:
         f.write(json.dumps(entry) + "\n")
     logger.info(f"ANALYSIS: {claude_response[:200]}...")
 
@@ -42,7 +41,7 @@ def log_trade(action: str, contracts: int, price: float, reason: str):
         "price": price,
         "reason": reason
     }
-    with open(f"C:\\trading\\logs\\trades_{datetime.now().strftime('%Y%m%d')}.json", "a") as f:
+    with open(os.path.join(_log_dir, f"trades_{datetime.now().strftime('%Y%m%d')}.json"), "a") as f:
         f.write(json.dumps(entry) + "\n")
     logger.info(f"TRADE: {action} {contracts} MNQ @ {price} | {reason}")
 

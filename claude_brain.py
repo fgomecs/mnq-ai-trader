@@ -156,7 +156,13 @@ Never use fixed tick stops. Always structure-based.
 STOP_PRICE is MANDATORY. If you cannot find a structural stop, output HOLD.
 
 TARGET: next key liquidity level (session H/L, OR level, prev day H/L, FVG)
-R:R minimum 2:1. Prefer 3:1+.
+R:R minimum 3:1. Prefer 4:1-5:1.
+At estimated win rate of 55-70%, 2:1 R:R is
+break-even or marginal. 3:1+ is where edge lives.
+If the nearest liquidity target gives less than 3:1
+from your structural stop — output HOLD.
+The next target level further away is preferable
+to accepting poor R:R.
 
 ═══════════════════════════════════════
 DIRECTION DECISION SUMMARY

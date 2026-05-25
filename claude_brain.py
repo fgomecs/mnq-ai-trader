@@ -589,7 +589,11 @@ def update_watchlist(snapshot: dict) -> dict:
     if time.time() - _watchlist_time < WATCHLIST_REFRESH_SECS and _session_watchlist:
         return _session_watchlist
 
-    dynamic = f"""
+    from session_classifier import get_current_session_type, get_session_type_context
+    stype = get_current_session_type()
+    sctx = f"SESSION_TYPE: {stype}\n{get_session_type_context(stype)}\n\n"
+
+    dynamic = sctx + f"""
 MARKET STRUCTURE SNAPSHOT — {snapshot.get('time_et', 'N/A')} ET
 
 OR Direction: {snapshot.get('or_direction', 'PENDING')}
@@ -1305,6 +1309,10 @@ def analyze_market(snapshot: dict) -> dict:
     During the chop windows where Claude HOLDs 23 times in 6 min on
     essentially the same conditions, this cuts cost ~70%.
     """
+    from session_classifier import get_current_session_type, get_session_type_context
+    stype = get_current_session_type()
+    sctx = f"SESSION_TYPE: {stype}\n{get_session_type_context(stype)}\n\n"
+
     # A.1 — Skip-if-unchanged guard
     skip_result = _maybe_skip_call(snapshot)
     if skip_result is not None:
@@ -1459,7 +1467,7 @@ STOP_PRICE is MANDATORY for BUY/SELL. If you cannot identify a structure-based s
             system=_build_system(SYSTEM_PROMPT),
             messages=[{
                 "role": "user",
-                "content": _build_user_content([static_context], dynamic_snapshot),
+                "content": _build_user_content([static_context], sctx + dynamic_snapshot),
             }],
         )
         cost_info = _log_cache_usage(response, model=CLAUDE_ENTRY_MODEL, purpose="entry")

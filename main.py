@@ -37,6 +37,7 @@ from config import (
     SESSION_AFTERNOON_PRIME_END, SESSION_CLOSING_END,
     EOD_SCHEDULE_TIME, MAIN_LOOP_SLEEP_SECS,
     DEAD_ZONE_CONFLUENCE_THRESHOLD,
+    FEATURE_DEAD_ZONE_VWAP_MAGNET, DEAD_ZONE_VWAP_MAGNET_MIN_EXT, DEAD_ZONE_VWAP_MAGNET_THRESHOLD,
     POS_STRUCTURE_MIN_PROFIT_TICKS, POS_STRUCTURE_PULLBACK_TICKS,
     DASHBOARD_ACCOUNT_REFRESH_SECS, DASHBOARD_LIVE_PATCH_SECS,
     PRE_FILTER_LOG_INTERVAL_SECS,
@@ -115,7 +116,7 @@ def get_session_state(now_et: datetime) -> SessionState:
     return SessionState.AFTER_HOURS
 
 
-def can_enter(state: SessionState, confluence_score: int = 0) -> tuple[bool, str]:
+def can_enter(state: SessionState, confluence_score: int = 0, snapshot: dict | None = None) -> tuple[bool, str]:
     """Return (allowed, reason). Dead zone requires DEAD_ZONE_CONFLUENCE_THRESHOLD+."""
     if get_current_session_type() == SessionType.HOLIDAY:
         return False, "HOLIDAY session"
@@ -123,6 +124,10 @@ def can_enter(state: SessionState, confluence_score: int = 0) -> tuple[bool, str
                  SessionState.AFTERNOON_PRIME):
         return True, ""
     if state == SessionState.DEAD_ZONE:
+        if (FEATURE_DEAD_ZONE_VWAP_MAGNET and snapshot
+                and snapshot.get("vwap_extension_abs", 0) >= DEAD_ZONE_VWAP_MAGNET_MIN_EXT
+                and confluence_score >= DEAD_ZONE_VWAP_MAGNET_THRESHOLD):
+            return True, f"dead zone VWAP magnet override"
         if confluence_score >= DEAD_ZONE_CONFLUENCE_THRESHOLD:
             return True, f"dead zone override — score {DEAD_ZONE_CONFLUENCE_THRESHOLD}+"
         return False, f"dead zone (score {confluence_score}/{DEAD_ZONE_CONFLUENCE_THRESHOLD} needed)"
@@ -611,7 +616,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
     logger.info(f"--- Entry scan: {now.strftime('%H:%M:%S')} ET [{filter_reason}] ---")
 
     # ── Session state check ───────────────────────────────
-    allowed, state_reason = can_enter(state)
+    allowed, state_reason = can_enter(state, snapshot=snapshot)
     if not allowed:
         logger.info(f"Session gate: {state_reason}")
         _refresh_dashboard_with_snapshot(f"GATED — {state_reason[:40]}")
@@ -630,7 +635,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
         # Dead zone requires score 8+
         if state == SessionState.DEAD_ZONE:
             score = decision.get("confluence_score", 0)
-            allowed, state_reason = can_enter(state, score)
+            allowed, state_reason = can_enter(state, score, snapshot=snapshot)
             if not allowed:
                 logger.info(f"Dead zone gate: {state_reason} — forcing HOLD")
                 decision["decision"] = "HOLD"

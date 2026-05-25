@@ -1121,7 +1121,13 @@ fetch('journal_data.json?t=' + Date.now())
           const badge = document.getElementById('version-badge');
           if (badge) badge.textContent = 'V' + d.botVersion;
           const meta = document.getElementById('sb-meta');
-          if (meta) meta.innerHTML = meta.innerHTML.replace(/V[\d\.]+/, 'V' + d.botVersion);
+          if (meta) {
+            // Replace only the first line (the version) — preserves the
+            // session-count second line without relying on regex matching.
+            const lines = meta.innerHTML.split('<br>');
+            lines[0] = 'V' + d.botVersion;
+            meta.innerHTML = lines.join('<br>');
+          }
         }
       })
       .catch(() => {});

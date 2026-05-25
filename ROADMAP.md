@@ -81,6 +81,43 @@
 
 ## Planned
 
+### V4.4 — Session Replay Engine (replaces demo.py)
+
+**replay.py — Visual Session Replay**
+Command: `py -3.11 replay.py --date 2026-05-27 --speed 2x`
+
+Supported speeds: 0.25x, 0.5x, 1x, 2x, 5x, 10x
+
+Reads `data/snapshots_YYYY-MM-DD.jsonl` and `data/decisions_YYYY-MM-DD.jsonl`.
+Rebuilds `dashboard_data.json` and `price_data.json` tick by tick at chosen speed.
+Existing `dashboard.html` and `mobile.html` render everything exactly as it happened.
+
+What you see during replay:
+- Candles forming bar by bar
+- Feature badges lighting up as signals appeared
+- Pre-filter decisions shown (PASS/BLOCK + reason)
+- Claude reasoning appearing when it fired
+- Entry/exit triangles plotting at exact prices
+- OR forming then establishing at 9:45
+- Bias changes in real time
+- P&L updating tick by tick
+
+Purpose: Visual validation of bot decisions.
+Identify missed entries, bad exits, correct holds.
+Provide feedback on Claude reasoning quality.
+Compare different days to find edge patterns.
+
+Prerequisite: `data_recorder.py` must store `bars_1min` and `bars_5min` arrays in snapshots (currently excluded).
+Add before Tuesday so first session is replayable.
+
+`demo.py`: keep as system sanity check but mark deprecated.
+`replay.py` is the primary visual tool going forward.
+
+**Data Recording Fix (needed before Tuesday)**
+Add `bars_1min` (last 50 bars) and `bars_5min` (last 50 bars) to `snapshots_YYYY-MM-DD.jsonl` recording.
+Currently excluded to save space but essential for chart replay.
+Cap at 50 bars each to control file size.
+
 ### V4.4 — Second Pre-Market Analysis at 9:20 ET
 - Run a second `analyze_premarket()` call at 9:20 ET (10 min before RTH open)
 - Focus: overnight range, globex highs/lows, key levels to watch at the open

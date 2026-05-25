@@ -35,9 +35,11 @@ def notify(title: str, message: str, priority: int = 0) -> None:
             "priority": priority,
         }).encode("utf-8")
         req = urllib.request.Request(PUSHOVER_URL, data=data)
-        urllib.request.urlopen(req, timeout=5).read()
+        urllib.request.urlopen(req, timeout=5)
+        return True
     except Exception as e:
         print(f"[notifier] Failed to send notification: {e}")
+        return False
 
 
 # ─── Trading lifecycle ────────────────────────────────────

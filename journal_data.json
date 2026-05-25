@@ -1,0 +1,81 @@
+{
+  "account": "MNQ Paper ($50,000)",
+  "starting_balance": 50000.0,
+  "last_updated": "2026-05-25T15:05:42.957563+00:00",
+  "equity_curve": [],
+  "by_strategy": {},
+  "by_hour": {},
+  "daily_pnl": [],
+  "ofi_performance": {
+    "STRONG_BUY": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    },
+    "BUY": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    },
+    "NEUTRAL": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    },
+    "SELL": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    },
+    "STRONG_SELL": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    }
+  },
+  "thesis_buckets": {
+    "70-75": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    },
+    "75-80": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    },
+    "80-85": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    },
+    "85+": {
+      "trades": 0,
+      "wins": 0,
+      "losses": 0,
+      "pnl": 0.0,
+      "win_rate": 0.0
+    }
+  },
+  "avg_rr": 0.0,
+  "overall_win_rate": 0.0,
+  "profitability_zone": "NOT_PROFITABLE",
+  "rr_by_week": [],
+  "zone_history": []
+}

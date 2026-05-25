@@ -6,6 +6,7 @@ Builds journal_data.json from all recorded decisions_YYYY-MM-DD.jsonl files.
 Output schema:
   {
     "account":          "MNQ Paper",
+    "bot_version":      "4.3.0",
     "starting_balance": 50000,
     "last_updated":     "...",
     "equity_curve":     [{"date", "equity", "daily_pnl", "trades"}],
@@ -39,6 +40,13 @@ sys.path.insert(0, str(BASE_DIR))
 eastern          = pytz.timezone("US/Eastern")
 JOURNAL_FILE     = BASE_DIR / "journal_data.json"
 DATA_DIR         = BASE_DIR / "data"
+
+# Tag rebuilt journal output with the running bot version so consumers
+# (UI / future migrations) can tell what schema produced the file.
+try:
+    from config import VERSION as BOT_VERSION
+except ImportError:
+    BOT_VERSION = "4.3.0"
 
 # OFI signals present in the data
 _OFI_SIGNALS = ("STRONG_BUY", "BUY", "NEUTRAL", "SELL", "STRONG_SELL")
@@ -377,6 +385,7 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
     # ── Finalize group stats ──────────────────────────────────
     return {
         "account":          account_name,
+        "bot_version":      BOT_VERSION,
         "starting_balance": starting_balance,
         "last_updated":     datetime.now(timezone.utc).isoformat(),
         "equity_curve":     equity_curve,

@@ -589,7 +589,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
         )
 
     # News hard block
-    if snapshot.get("news_danger_zone", False):
+    if FEATURE_NEWS_GATE and snapshot.get("news_danger_zone", False):
         logger.info(f"NEWS DANGER ZONE — no entries | {snapshot.get('next_high_impact','')}")
         _refresh_dashboard_with_snapshot("BLOCKED — news danger zone")
         return

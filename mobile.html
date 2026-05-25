@@ -7,21 +7,24 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
 <title>DoBot</title>
 <style>
   :root {
-    --bg: #0a0a0a; --bg2: #141414; --bg3: #1e1e1e;
-    --border: #2a2a2a;
-    --text: #e0e0e0; --text2: #888; --text3: #444;
-    --green: #00e676; --red: #ff4444; --yellow: #ffd600;
-    --blue: #4fc3f7; --orange: #ffb74d;
-    --font: -apple-system, 'SF Pro Display', sans-serif;
+    --bg: #07091a; --bg2: #0b0f22; --bg3: #0f1528;
+    --border: #1a2744;
+    --text: #dce6ff; --text2: #7890c0; --text3: #3f5080;
+    --green: #00e676; --red: #ff3b6b; --yellow: #ffc107;
+    --blue: #00d4ff; --orange: #ffb74d;
+    --font: 'Inter', -apple-system, 'SF Pro Display', sans-serif;
+    --font-mono: 'JetBrains Mono', 'SF Mono', monospace;
   }
   * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
   body {
     background: var(--bg); color: var(--text);
     font-family: var(--font); font-size: 15px;
     min-height: 100vh; padding-bottom: env(safe-area-inset-bottom);
+    -webkit-font-smoothing: antialiased;
   }
 
   /* ── TOP BAR ── */
@@ -30,10 +33,10 @@
     padding: 12px 16px; display: flex; justify-content: space-between;
     align-items: center; position: sticky; top: 0; z-index: 100;
   }
-  #logo { font-size: 17px; font-weight: 700; color: var(--blue); }
+  #logo { font-size: 17px; font-weight: 700; color: var(--blue); font-family: var(--font-mono); letter-spacing: 2px; }
   #version { font-size: 11px; color: var(--text3); margin-top: 2px; }
   #topright { text-align: right; }
-  #clock { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #clock { font-size: 20px; font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   #data-mode { font-size: 11px; margin-top: 1px; color: var(--green); }
 
   /* ── CARDS ── */
@@ -44,7 +47,7 @@
   }
   .card-header {
     padding: 8px 14px; font-size: 11px; font-weight: 600;
-    text-transform: uppercase; letter-spacing: 1px;
+    text-transform: uppercase; letter-spacing: 1.5px;
     color: var(--text3); border-bottom: 1px solid var(--border);
     background: var(--bg3);
   }
@@ -53,14 +56,14 @@
   /* ── MARKET STATUS ── */
   #ms-state {
     font-size: 20px; font-weight: 700; text-transform: uppercase;
-    letter-spacing: 0.5px; margin-bottom: 4px;
+    letter-spacing: 0.5px; margin-bottom: 4px; font-family: var(--font-mono);
   }
-  #ms-state.closed      { color: #555; }
-  #ms-state.maintenance { color: #555; }
+  #ms-state.closed      { color: var(--text3); }
+  #ms-state.maintenance { color: var(--text3); }
   #ms-state.globex      { color: var(--blue); }
   #ms-state.premarket   { color: var(--yellow); }
   #ms-state.am-prime    { color: var(--green); }
-  #ms-state.dead-zone   { color: #888; }
+  #ms-state.dead-zone   { color: var(--text2); }
   #ms-state.pm-prime    { color: var(--green); }
   #ms-state.closing     { color: var(--orange); }
   #ms-state.news-event  { color: var(--red); animation: pulse 1s infinite; }
@@ -71,68 +74,68 @@
   #price-main {
     font-size: 42px; font-weight: 700; letter-spacing: -1px;
     line-height: 1; margin-bottom: 4px;
-    font-variant-numeric: tabular-nums;
+    font-variant-numeric: tabular-nums; font-family: var(--font-mono);
   }
-  #price-sub { font-size: 14px; color: var(--text2); }
+  #price-sub { font-size: 14px; color: var(--text2); font-family: var(--font-mono); }
   #offline-badge {
-    display: none; background: #2a0a0a; border: 1px solid var(--red);
+    display: none; background: rgba(255,59,107,0.09); border: 1px solid var(--red);
     color: var(--red); border-radius: 6px; padding: 4px 10px;
     font-size: 12px; font-weight: 600; margin-top: 8px;
   }
 
   /* ── POSITION ── */
-  #pos-display { font-size: 28px; font-weight: 700; margin-bottom: 4px; }
-  #pos-pnl { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  #pos-display { font-size: 28px; font-weight: 700; margin-bottom: 4px; font-family: var(--font-mono); }
+  #pos-pnl { font-size: 22px; font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   .pos-row {
     display: flex; justify-content: space-between; align-items: center;
     padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 15px;
   }
   .pos-row:last-child { border-bottom: none; }
   .pos-label { color: var(--text2); }
-  .pos-val { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .pos-val { font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
 
   /* ── DECISION ── */
   #decision-badge {
     display: inline-block; font-size: 28px; font-weight: 700;
     letter-spacing: 2px; padding: 8px 20px; border-radius: 8px;
-    border: 2px solid var(--border); margin-bottom: 10px;
+    border: 2px solid var(--border); margin-bottom: 10px; font-family: var(--font-mono);
   }
-  #decision-badge.BUY   { border-color: var(--green); color: var(--green); background: #0a1a0a; }
-  #decision-badge.SELL  { border-color: var(--red);   color: var(--red);   background: #1a0a0a; }
-  #decision-badge.HOLD  { border-color: #333; color: #888; background: var(--bg3); }
-  #decision-badge.CLOSE { border-color: var(--orange); color: var(--orange); background: #1a0e00; }
+  #decision-badge.BUY   { border-color: var(--green); color: var(--green); background: rgba(0,230,118,0.09); }
+  #decision-badge.SELL  { border-color: var(--red);   color: var(--red);   background: rgba(255,59,107,0.09); }
+  #decision-badge.HOLD  { border-color: var(--border2); color: var(--text2); background: var(--bg3); }
+  #decision-badge.CLOSE { border-color: var(--orange); color: var(--orange); background: rgba(255,183,77,0.09); }
 
   #decision-meta { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
   .meta-chip {
     background: var(--bg3); border: 1px solid var(--border);
     border-radius: 6px; padding: 4px 10px; font-size: 13px; color: var(--text2);
   }
-  .meta-chip b { color: var(--text); }
+  .meta-chip b { color: var(--text); font-family: var(--font-mono); }
 
   #bias-row {
     display: flex; justify-content: space-between; align-items: center;
     margin-bottom: 10px; font-size: 15px;
   }
-  #bias-val { font-size: 15px; font-weight: 700; }
+  #bias-val { font-size: 15px; font-weight: 700; font-family: var(--font-mono); }
 
   #reasoning {
     font-size: 13px; line-height: 1.6; color: var(--text2);
-    background: var(--bg3); border-radius: 8px; padding: 12px;
-    min-height: 60px;
+    background: var(--bg3); border: 1px solid var(--border);
+    border-radius: 8px; padding: 12px; min-height: 60px;
   }
   #reasoning.stale { color: var(--text3); font-style: italic; }
 
   /* ── RISK ── */
   .risk-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .risk-item { text-align: center; }
-  .risk-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .risk-num { font-size: 22px; font-weight: 700; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
   .risk-lbl { font-size: 11px; color: var(--text3); text-transform: uppercase;
-               letter-spacing: 0.5px; margin-top: 2px; }
+               letter-spacing: 1px; margin-top: 2px; }
 
   /* ── STATS ── */
   .stats-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 8px; text-align: center; }
-  .stat-num { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; }
-  .stat-lbl { font-size: 11px; color: var(--text3); text-transform: uppercase; }
+  .stat-num { font-size: 24px; font-weight: 700; font-variant-numeric: tabular-nums; font-family: var(--font-mono); }
+  .stat-lbl { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; }
 
   /* ── NEWS ── */
   #news-card .card-body { font-size: 13px; line-height: 1.6; color: var(--text2); }
@@ -140,7 +143,7 @@
   .news-dot.green { background: var(--green); }
   .news-dot.red   { background: var(--red); }
 
-  #footer { text-align: center; color: var(--text3); font-size: 11px; padding: 16px; margin-bottom: 8px; }
+  #footer { text-align: center; color: var(--text3); font-size: 11px; padding: 16px; margin-bottom: 8px; font-family: var(--font-mono); letter-spacing: 1px; }
   .green { color: var(--green); }
   .red   { color: var(--red); }
   .yellow { color: var(--yellow); }
@@ -254,7 +257,6 @@ function fmtPnl(v) {
   return (n >= 0 ? '+$' : '-$') + Math.abs(n).toFixed(2);
 }
 
-// ── Clock — extrapolates demo sim time at 20x speed ──────────
 const DEMO_SPEED = 20;
 let _demoSimTimeSecs = null;
 let _demoSimTimeAt   = null;
@@ -283,7 +285,6 @@ function updateClock() {
 setInterval(updateClock, 100);
 updateClock();
 
-// ── Market status — computed once per second, independent ─────
 function getMarketInfo(dangerZone, nextEvent) {
   let h, m;
   if (_demoSimTimeSecs !== null && _demoSimTimeAt !== null) {
@@ -324,7 +325,6 @@ function getMarketInfo(dangerZone, nextEvent) {
   return { state, cls, next };
 }
 
-// Market status state — persisted across renders to avoid flicker
 let _dangerZone = false;
 let _nextEvent  = null;
 
@@ -341,9 +341,6 @@ function tickMarketStatus() {
 setInterval(tickMarketStatus, 100);
 tickMarketStatus();
 
-// ── Render — only update changed values, no DOM thrash ────────
-
-
 async function poll() {
   try {
     const resp = await fetch(FILE + '?t=' + Date.now());
@@ -353,7 +350,6 @@ async function poll() {
     const age     = d.timestamp ? Date.now() - new Date(d.timestamp).getTime() : 99999;
     const offline = age > 30000;
 
-    // Offline
     el('offline-badge').style.display = offline ? 'block' : 'none';
     const modeEl = el('data-mode');
     modeEl.textContent = offline ? 'BOT OFFLINE' : (d.data_mode || 'DELAYED');
@@ -362,16 +358,13 @@ async function poll() {
       : (d.data_mode||'').includes('LIVE')    ? 'var(--green)'
       : 'var(--yellow)';
 
-    // Version
     if (d.botVersion) el('version').textContent = `v${d.botVersion}`;
 
-    // Price
     const price = d.currentPrice || 0;
     el('price-main').textContent   = price ? price.toFixed(2) : '—';
     el('price-main').style.opacity = offline ? '0.4' : '1';
     el('price-sub').textContent    = `Bid ${fmt(d.bid)} / Ask ${fmt(d.ask)}`;
 
-    // Demo mode — store sim time for extrapolation
     if (d.demoMode && d.simTimeEt) {
       const parts      = d.simTimeEt.split(':').map(Number);
       _demoSimTimeSecs = (parts[0]||0)*3600 + (parts[1]||0)*60 + (parts[2]||0);
@@ -381,14 +374,12 @@ async function poll() {
       _demoSimTimeAt   = null;
     }
 
-    // Market status (update stored state, tickMarketStatus handles display)
     _dangerZone = d.newsDangerZone || false;
     _nextEvent  = d.nextEventFull  || null;
     tickMarketStatus();
     const wakeEl = el('ms-wake');
     if (wakeEl) wakeEl.textContent = d.botSleeping && d.wakeTime ? `Wakes: ${d.wakeTime}` : '';
 
-    // Position
     const pos = d.position || 'FLAT';
     const posEl = el('pos-display');
     posEl.textContent = pos;
@@ -401,7 +392,6 @@ async function poll() {
     el('pos-entry').textContent  = d.entryPrice  ? fmt(d.entryPrice)  : '—';
     el('pos-target').textContent = d.targetPrice ? fmt(d.targetPrice) : '—';
 
-    // Decision
     const dec = (d.lastDecision || 'HOLD').toUpperCase();
     const badge = el('decision-badge');
     badge.textContent = dec;
@@ -435,13 +425,11 @@ async function poll() {
                          : 'var(--text3)';
     }
 
-    // Risk
     const maxLoss = parseFloat(d.maxLoss) || 500;
     el('risk-pnl').textContent  = fmtPnl(pnl);
     el('risk-pnl').style.color  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     el('risk-loss').textContent = '$' + Math.max(0, maxLoss + Math.min(0, pnl)).toFixed(0);
 
-    // Stats
     const trades = d.trades || [];
     const wins   = trades.filter(t => parseFloat(t.pnl) > 0).length;
     const losses = trades.filter(t => parseFloat(t.pnl) < 0).length;
@@ -450,7 +438,6 @@ async function poll() {
     el('st-losses').textContent = losses;
     el('st-wr').textContent     = trades.length ? Math.round(wins/trades.length*100)+'%' : '—';
 
-    // News
     const rawNews = (d.newsText || '').split('\n')
       .filter(l => !l.includes('FRED') && l.trim()).join(' ').substring(0, 120);
     el('news-text').textContent  = rawNews || 'No major events — clean window';

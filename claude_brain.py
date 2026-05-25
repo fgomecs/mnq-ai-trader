@@ -1510,6 +1510,20 @@ Respond in EXACT format. Use price levels for STOP_PRICE, TARGET_1, TARGET_2 —
 STOP_PRICE is MANDATORY for BUY/SELL. If you cannot identify a structure-based stop, output HOLD.
 """
 
+    _ctx_lines = []
+    if FEATURE_OR_EXTREME_FADE and snapshot.get("or_extreme_zone"):
+        _ctx_lines.append("OR_EXTREME_ZONE: 2x OR range extension. FADE this direction. Strategy: OR_EXTREME_FADE. 65-70% reversion rate.")
+    if FEATURE_SWEEP_REVERSAL and (snapshot.get("dom_sweep_up") or snapshot.get("dom_sweep_down")):
+        _ctx_lines.append("SWEEP_REVERSAL: DOM sweep detected. If price closes back inside within 2 bars — Strategy: ICT_SWEEP_REVERSAL. 71-78% win rate.")
+    if FEATURE_OPENING_DRIVE_FADE and snapshot.get("opening_drive_fade_short"):
+        _ctx_lines.append("OPENING_DRIVE_FADE: Bullish opening drive with rejection wick. Fade short. 65-72% edge.")
+    if FEATURE_OPENING_DRIVE_FADE and snapshot.get("opening_drive_fade_long"):
+        _ctx_lines.append("OPENING_DRIVE_FADE: Bearish opening drive with rejection wick. Fade long.")
+    if FEATURE_POST_NEWS_REFRESH and snapshot.get("post_news_window"):
+        _ctx_lines.append("POST_NEWS_WINDOW: 45+ min post HIGH-impact event. Direction established. Standard thresholds.")
+    if _ctx_lines:
+        dynamic_snapshot += "\n═══════════════════════════════════════\nSTRATEGY CONTEXT\n═══════════════════════════════════════\n" + "\n".join(_ctx_lines) + "\n"
+
     try:
         response = client.messages.create(
             model=CLAUDE_ENTRY_MODEL,

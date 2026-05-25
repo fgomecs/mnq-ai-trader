@@ -81,6 +81,60 @@
 
 ## Planned
 
+### V4.4 — Session Type Classification (highest priority post-Tuesday)
+
+**Daily Session Type Classifier**
+Before trading begins, classify the day into one of four session types.
+This single classification changes all downstream thresholds.
+
+Session types:
+TREND DAY — strong directional move expected. Trade ORB pullbacks
+aggressively. Normal thresholds. Best bot performance expected.
+
+RANGE DAY — choppy, mean-reverting. ORB pullbacks will fail.
+Raise all signal thresholds significantly. Consider sitting out entirely.
+Detected by: narrow overnight range, low pre-market volume,
+OR relative volume below 80%, DOJI or near-DOJI open,
+MTF conflicted across all timeframes.
+
+NEWS DAY — macro event driving price. Unpredictable.
+Reduce confidence in all ICT signals. Widen stops.
+Detected by: HIGH impact news within 2 hours,
+VIX spike pre-market, overnight gap > 100 points.
+
+HOLIDAY/LOW LIQUIDITY — thin market, erratic fills.
+Sit out or reduce to absolute minimum activity.
+Detected by: volume below 50% of 20-day average by 10am ET.
+
+**How it changes bot behavior:**
+TREND DAY: normal operation, all features active
+RANGE DAY: signal threshold raised to 7+, dead zone extended,
+          OR break requires 2 confirmations not 1
+NEWS DAY:  thesis probability gate raised to 80%,
+          stops widened 50%, max 1 trade
+HOLIDAY:   FEATURE_HARD_KILL fires, no trades
+
+**Implementation:**
+New function classify_session_type() called at 9:30 ET
+after pre-market data available.
+Injects session type into pre-market Claude prompt and
+every entry prompt.
+Add FEATURE_SESSION_CLASSIFIER flag (default true).
+Log session type prominently at boot and on dashboard.
+
+**Prerequisite:** needs 2-3 weeks of real session data to
+validate classifier accuracy. Build the classifier first,
+tune the thresholds after data confirms which signals
+reliably identify each session type.
+
+**Correlation Awareness (companion feature)**
+MNQ correlates strongly with ES, QQQ, VIX, 10-year yield.
+On VIX spike days (VIX up 20%+ pre-market) all signals
+become less reliable — institutions hedge, correlations break.
+Add VIX pre-market reading to news_calendar.py snapshot.
+Inject into Claude prompt as macro context.
+Gate: if VIX > 25 AND spiking, raise thesis gate to 82%.
+
 ### V4.4 — Session Replay Engine (replaces demo.py)
 
 **replay.py — Visual Session Replay**

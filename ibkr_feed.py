@@ -27,6 +27,7 @@ from config import (
     FEATURE_GAP_CLASSIFICATION, GAP_SMALL_THRESHOLD, GAP_MEDIUM_THRESHOLD, GAP_LARGE_THRESHOLD,
     FEATURE_PIVOT_POINTS,
     FEATURE_OR_EXTREME_FADE, OR_EXTREME_FADE_MULTIPLIER,
+    FEATURE_OPENING_DRIVE_FADE, OPENING_DRIVE_MIN_POINTS, OPENING_DRIVE_REJECTION_PCT,
     DOM_HISTORY_MAX_SNAPSHOTS, TICK_STATE_PERSIST_INTERVAL_SECS,
     INIT_BARS_1MIN_DURATION, INIT_BARS_5MIN_DURATION,
     INIT_BARS_15MIN_DURATION, INIT_BARS_DAILY_DURATION,
@@ -947,6 +948,21 @@ class IBKRFeed:
             snapshot["or_2x_extension_up"]   = bool(FEATURE_OR_EXTREME_FADE and self.or_high and last_price > self.or_high + thresh)
             snapshot["or_2x_extension_down"] = bool(FEATURE_OR_EXTREME_FADE and self.or_low  and last_price < self.or_low  - thresh)
             snapshot["or_extreme_zone"]      = snapshot["or_2x_extension_up"] or snapshot["or_2x_extension_down"]
+
+            snapshot["opening_drive_up"]         = False
+            snapshot["opening_drive_down"]       = False
+            snapshot["opening_drive_fade_short"] = False
+            snapshot["opening_drive_fade_long"]  = False
+            if FEATURE_OPENING_DRIVE_FADE and self.first_candle_5min_high and self._bars_5min:
+                bar = self._bars_5min[0]
+                rng  = self.first_candle_5min_high - self.first_candle_5min_low
+                body = abs(bar.close - bar.open)
+                uwk  = self.first_candle_5min_high - max(bar.open, bar.close)
+                lwk  = min(bar.open, bar.close) - self.first_candle_5min_low
+                snapshot["opening_drive_up"]         = rng >= OPENING_DRIVE_MIN_POINTS and bar.close > bar.open
+                snapshot["opening_drive_down"]       = rng >= OPENING_DRIVE_MIN_POINTS and bar.close < bar.open
+                snapshot["opening_drive_fade_short"] = snapshot["opening_drive_up"]   and body > 0 and uwk >= body * OPENING_DRIVE_REJECTION_PCT
+                snapshot["opening_drive_fade_long"]  = snapshot["opening_drive_down"] and body > 0 and lwk >= body * OPENING_DRIVE_REJECTION_PCT
 
             # Record snapshot to disk for backtest replay
             _recorder.record_snapshot(snapshot)

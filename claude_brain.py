@@ -35,6 +35,7 @@ from config import (
     FEATURE_LEARNING_INJECT,
     VERSION,
     PRE_FILTER_SIGNAL_THRESHOLD, COUNTER_TREND_SIGNAL_THRESHOLD,
+    SESSION_RANGE_SIGNAL_THRESHOLD, FEATURE_GAP_CLASSIFICATION, FEATURE_PIVOT_POINTS,
     SKIP_CACHE_PRICE_DELTA, SKIP_CACHE_MAX_AGE_SECS,
     SKIP_CACHE_WATCHLIST_AGE_SECS, SKIP_LOG_EVERY_N,
     OR_THESIS_INVALIDATION_POINTS,
@@ -1152,7 +1153,24 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     is_long_pref  = watchlist_bias == "LONG_PREFERRED"
     is_short_pref = watchlist_bias == "SHORT_PREFERRED"
 
-    THRESHOLD      = PRE_FILTER_SIGNAL_THRESHOLD
+    if FEATURE_GAP_CLASSIFICATION:
+        gap = snapshot.get("gap", {})
+        if gap.get("gap_direction") == "UP" and gap.get("gap_fill_probability", 0) >= 0.52:
+            bear_signals += 1; bear_reasons.append("gap-up fill probability")
+        elif gap.get("gap_direction") == "DOWN" and gap.get("gap_fill_probability", 0) >= 0.52:
+            bull_signals += 1; bull_reasons.append("gap-down fill probability")
+
+    if FEATURE_PIVOT_POINTS:
+        piv = snapshot.get("pivots", {})
+        p = snapshot.get("last_price", 0)
+        if piv.get("r2") and abs(p - piv["r2"]) < 10:
+            bear_signals += 1; bear_reasons.append("price at R2 pivot")
+        if piv.get("s2") and abs(p - piv["s2"]) < 10:
+            bull_signals += 1; bull_reasons.append("price at S2 pivot")
+
+    from session_classifier import get_current_session_type, SessionType
+    required = SESSION_RANGE_SIGNAL_THRESHOLD if get_current_session_type() == SessionType.RANGE else PRE_FILTER_SIGNAL_THRESHOLD
+    THRESHOLD      = required
     COUNTER_THRESH = COUNTER_TREND_SIGNAL_THRESHOLD
 
     bull_passes = bull_signals >= THRESHOLD

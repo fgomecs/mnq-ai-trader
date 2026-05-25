@@ -27,6 +27,7 @@ from config import (
     TRAIL_PROFIT_1_TICKS, TRAIL_PROFIT_1_LOCK,
     TRAIL_PROFIT_2_TICKS, TRAIL_PROFIT_2_LOCK,
     ENTRY_MODE, LIMIT_ORDER_MAX_SLIPPAGE, LIMIT_ORDER_TIMEOUT_SECS,
+    SIMULATE_COMMISSIONS, COMMISSION_PER_SIDE_USD,
 )
 from logger import logger
 
@@ -527,6 +528,12 @@ class Executor:
         diff = (exit_price - entry_price) if was_long else (entry_price - exit_price)
         pnl  = (diff / TICK_SIZE) * TICK_VALUE * contracts
 
+        # Deduct round-trip commission when enabled (entry + exit side, per contract)
+        commission = 0.0
+        if SIMULATE_COMMISSIONS:
+            commission = COMMISSION_PER_SIDE_USD * 2 * contracts
+            pnl -= commission
+
         # FIX 6 — P&L sanity bound. On a 1-contract MNQ trade, the maximum
         # realistic single-trade P&L is roughly $200-300 (a 100-point move).
         # Anything wildly larger means corrupted entry_price or exit_price
@@ -540,14 +547,17 @@ class Executor:
                 f"Reason given: {reason}"
             )
             # Still log the trade so we have a record, but with pnl=None
+            hold_secs = time.time() - self.entry_timestamp if self.entry_timestamp > 0 else 0.0
             self.trades_today.append({
-                "time":       datetime.datetime.now().strftime("%H:%M:%S"),
-                "action":     "SELL" if was_long else "BUY",
-                "entry":      entry_price,
-                "exit":       exit_price,
-                "pnl":        None,
-                "mode":       self.trade_mode,
-                "exit_reason": f"REJECTED (sanity bound): {reason}",
+                "time":         datetime.datetime.now().strftime("%H:%M:%S"),
+                "action":       "SELL" if was_long else "BUY",
+                "entry":        entry_price,
+                "exit":         exit_price,
+                "pnl":          None,
+                "commission":   0.0,
+                "hold_seconds": round(hold_secs),
+                "mode":         self.trade_mode,
+                "exit_reason":  f"REJECTED (sanity bound): {reason}",
             })
             return 0.0
 
@@ -569,14 +579,17 @@ class Executor:
         else:
             self.consecutive_losses = 0
 
+        hold_secs = time.time() - self.entry_timestamp if self.entry_timestamp > 0 else 0.0
         self.trades_today.append({
-            "time":       datetime.datetime.now().strftime("%H:%M:%S"),
-            "action":     "SELL" if was_long else "BUY",
-            "entry":      entry_price,
-            "exit":       exit_price,
-            "pnl":        round(pnl, 2),
-            "mode":       self.trade_mode,
-            "exit_reason": reason,
+            "time":         datetime.datetime.now().strftime("%H:%M:%S"),
+            "action":       "SELL" if was_long else "BUY",
+            "entry":        entry_price,
+            "exit":         exit_price,
+            "pnl":          round(pnl, 2),
+            "commission":   round(commission, 2),
+            "hold_seconds": round(hold_secs),
+            "mode":         self.trade_mode,
+            "exit_reason":  reason,
         })
         return pnl
 

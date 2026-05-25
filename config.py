@@ -265,6 +265,14 @@ FEATURE_LEARNING_EOD   = _env_bool("FEATURE_LEARNING_EOD",   True)
 # Inject yesterday's learning findings into pre-market prompt
 FEATURE_LEARNING_INJECT = _env_bool("FEATURE_LEARNING_INJECT", True)
 
+# ─── COMMISSIONS ───────────────────────────────────────────
+# Paper trading: set false (default). Set true to simulate realistic
+# net P&L during paper testing and enable commission-drag EOD analysis.
+# Live money: always true (actual IBKR fees applied).
+# IBKR MNQ rate: ~$0.85/side all-in (exchange + NFA + IBKR)
+SIMULATE_COMMISSIONS    = _env_bool("SIMULATE_COMMISSIONS",    False)
+COMMISSION_PER_SIDE_USD = _env_float("COMMISSION_PER_SIDE_USD", 0.85)  # per contract per side
+
 # ── Active feature set label (set by ablation runner during tests) ──
 # Normal trading: "LIVE" — ablation sets this to the test name
 ACTIVE_FEATURE_SET = os.getenv("ACTIVE_FEATURE_SET", "LIVE")

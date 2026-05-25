@@ -46,6 +46,69 @@ def _load_ablation_report(date_str: str) -> str:
     return ""
 
 
+def _analyze_commission_drag(trades: list) -> dict:
+    """
+    Analyze commission drag and trade duration for sizing guidance.
+
+    Returns a dict with:
+      commission_total     — total commissions paid today
+      gross_pnl            — raw P&L before commissions
+      drag_pct             — commissions as % of gross profit (None if no gross profit)
+      avg_hold_secs        — average trade hold time in seconds
+      n_trades             — number of valid trades
+      flags                — list of flag strings (may be empty)
+      summary              — human-readable one-liner
+    """
+    valid = [t for t in trades if t.get("pnl") is not None]
+    if not valid:
+        return {"commission_total": 0, "gross_pnl": 0, "drag_pct": None,
+                "avg_hold_secs": 0, "n_trades": 0, "flags": [], "summary": "No trades."}
+
+    commission_total = sum(t.get("commission", 0.0) for t in valid)
+    # gross_pnl = net P&L + commissions back out (pnl stored is already net when simulated)
+    net_pnl    = sum(t["pnl"] for t in valid)
+    gross_pnl  = net_pnl + commission_total
+
+    drag_pct = None
+    if gross_pnl > 0:
+        drag_pct = (commission_total / gross_pnl) * 100
+
+    hold_times = [t.get("hold_seconds", 0) for t in valid if t.get("hold_seconds", 0) > 0]
+    avg_hold_secs = sum(hold_times) / len(hold_times) if hold_times else 0
+
+    flags = []
+    if drag_pct is not None and drag_pct > 3.0:
+        flags.append(
+            f"COMMISSION_DRAG: {drag_pct:.1f}% of gross profit eaten by commissions "
+            f"(${commission_total:.2f} on ${gross_pnl:.2f} gross). "
+            "Too many small trades — target sizing is too small or R:R too tight."
+        )
+    if avg_hold_secs > 0 and avg_hold_secs < 300:
+        avg_min = avg_hold_secs / 60
+        flags.append(
+            f"SCALP_HEAVY: Avg hold time {avg_min:.1f} min (<5 min threshold). "
+            "Review target sizing — exits happening before structure target is reached."
+        )
+
+    if flags:
+        summary = f"⚠ Sizing flags: {len(flags)} — " + " | ".join(flags)
+    elif commission_total > 0:
+        drag_str = f"{drag_pct:.1f}%" if drag_pct is not None else "N/A"
+        summary = f"Commission drag: {drag_str} (${commission_total:.2f}) — within acceptable range."
+    else:
+        summary = "Commissions not simulated — no drag analysis."
+
+    return {
+        "commission_total": round(commission_total, 2),
+        "gross_pnl":        round(gross_pnl, 2),
+        "drag_pct":         round(drag_pct, 1) if drag_pct is not None else None,
+        "avg_hold_secs":    round(avg_hold_secs),
+        "n_trades":         len(valid),
+        "flags":            flags,
+        "summary":          summary,
+    }
+
+
 def _load_recent_learnings(n: int = 5) -> str:
     """Load last N learning reports for trend context."""
     reports = sorted(MEMORY_DIR.glob("learning_*.md"), reverse=True)[:n]
@@ -65,6 +128,7 @@ def _ask_claude_for_insights(
     session_summary: str,
     recent_learnings: str,
     trades: list,
+    commission_analysis: dict | None = None,
 ) -> str:
     """
     Ask Claude Sonnet to synthesize ablation results into actionable insights.
@@ -78,21 +142,38 @@ def _ask_claude_for_insights(
         if trades:
             trade_lines = []
             for t in trades:
+                hold_min = t.get("hold_seconds", 0) / 60
+                comm_str = f" comm=${t.get('commission', 0):.2f}" if t.get("commission", 0) > 0 else ""
                 trade_lines.append(
-                    f"  {t.get('entry_time','?')} {t.get('direction','?')} "
+                    f"  {t.get('time','?')} {t.get('action','?')} "
                     f"entry={t.get('entry',0):.2f} exit={t.get('exit',0):.2f} "
-                    f"P&L=${t.get('pnl',0):+.2f} [{t.get('reason','?')}]"
+                    f"P&L=${t.get('pnl',0) or 0:+.2f}{comm_str} "
+                    f"hold={hold_min:.1f}min [{t.get('exit_reason','?')}]"
                 )
             trade_text = "\n".join(trade_lines)
         else:
             trade_text = "  No trades today."
+
+        # Commission drag context (injected when SIMULATE_COMMISSIONS=true)
+        commission_section = ""
+        if commission_analysis and commission_analysis.get("commission_total", 0) > 0:
+            ca = commission_analysis
+            hold_min = ca["avg_hold_secs"] / 60
+            commission_section = f"""
+Commission & Sizing Analysis:
+- Total commissions: ${ca['commission_total']:.2f} on {ca['n_trades']} trades
+- Gross P&L (before fees): ${ca['gross_pnl']:.2f}
+- Commission drag: {f"{ca['drag_pct']:.1f}%" if ca['drag_pct'] is not None else 'N/A (no gross profit)'}
+- Avg hold time: {hold_min:.1f} minutes
+- Sizing flags: {', '.join(ca['flags']) if ca['flags'] else 'None'}
+"""
 
         prompt = f"""You are analyzing the performance of an MNQ futures trading bot.
 Today's session summary: {session_summary}
 
 Today's trades:
 {trade_text}
-
+{commission_section}
 Ablation test results (each feature disabled one at a time to measure contribution):
 {ablation_report}
 
@@ -109,12 +190,14 @@ Please provide:
 
 4. **Entry quality analysis**: Looking at the actual trades, were entries well-timed? What could Claude have done better?
 
-5. **Tomorrow's focus**: 2-3 specific things to watch for in tomorrow's session given today's learnings.
+5. **Sizing guidance for tomorrow**: Based on commission drag and hold times, is the bot targeting appropriately? Recommend specific adjustments if flags were raised (e.g., widen targets, avoid trades below a minimum R:R).
 
-6. **Confidence note**: Rate your confidence in these recommendations (Low/Medium/High) given the sample size.
+6. **Tomorrow's focus**: 2-3 specific things to watch for in tomorrow's session given today's learnings.
+
+7. **Confidence note**: Rate your confidence in these recommendations (Low/Medium/High) given the sample size.
 
 Be concise, specific, and honest. Avoid generic advice. Reference specific P&L numbers and feature names from the ablation report.
-Keep total response under 600 words."""
+Keep total response under 700 words."""
 
         response = client.messages.create(
             model="claude-sonnet-4-6",
@@ -170,16 +253,24 @@ def run_learning_session(
     # ── 3. Load recent history ────────────────────────────────
     recent = _load_recent_learnings(5)
 
-    # ── 4. Ask Claude for synthesis ───────────────────────────
+    # ── 4. Commission drag analysis ───────────────────────────
+    commission_analysis = _analyze_commission_drag(trades or [])
+    if commission_analysis["flags"]:
+        print(f"[learning] ⚠ Sizing flags: {commission_analysis['summary']}")
+    elif commission_analysis["commission_total"] > 0:
+        print(f"[learning] Commission drag: {commission_analysis['summary']}")
+
+    # ── 5. Ask Claude for synthesis ───────────────────────────
     print("[learning] Asking Claude for insights...")
     insights = _ask_claude_for_insights(
-        ablation_report  = ablation_report,
-        session_summary  = session_summary or "No summary available",
-        recent_learnings = recent,
-        trades           = trades or [],
+        ablation_report     = ablation_report,
+        session_summary     = session_summary or "No summary available",
+        recent_learnings    = recent,
+        trades              = trades or [],
+        commission_analysis = commission_analysis,
     )
 
-    # ── 5. Build and save learning report ────────────────────
+    # ── 6. Build and save learning report ────────────────────
     baseline = (ablation_results or {}).get("baseline", {})
     now = datetime.now().strftime("%Y-%m-%d %H:%M ET")
 
@@ -200,6 +291,21 @@ def run_learning_session(
             f"P&L: ${baseline.get('daily_pnl', 0):+.2f}",
             "",
         ]
+
+    # Commission drag section (only appears when commissions were simulated)
+    if commission_analysis["commission_total"] > 0:
+        ca = commission_analysis
+        hold_min = ca["avg_hold_secs"] / 60
+        drag_str = f"{ca['drag_pct']:.1f}%" if ca["drag_pct"] is not None else "N/A"
+        report_lines += [
+            "## Commission & Sizing Analysis",
+            f"- Commissions paid: ${ca['commission_total']:.2f} ({ca['n_trades']} trades)",
+            f"- Gross P&L: ${ca['gross_pnl']:.2f} | Drag: {drag_str}",
+            f"- Avg hold time: {hold_min:.1f} min",
+        ]
+        for flag in ca["flags"]:
+            report_lines.append(f"- ⚠ {flag}")
+        report_lines.append("")
 
     report_lines += [
         "## Claude's Analysis",
@@ -264,6 +370,16 @@ def load_learning_for_premarket(n_days: int = 3) -> str:
         date_part = r.stem.replace("learning_", "")
         text      = r.read_text(encoding="utf-8")
 
+        # Extract sizing flags if present (inject before the analysis)
+        sizing_note = ""
+        if "## Commission & Sizing Analysis" in text:
+            sizing_block = text.split("## Commission & Sizing Analysis")[1]
+            sizing_block = sizing_block.split("##")[0].strip()
+            # Only surface lines containing flags (⚠) or drag percentage
+            flag_lines = [l for l in sizing_block.splitlines() if "⚠" in l or "Drag:" in l or "hold time" in l]
+            if flag_lines:
+                sizing_note = "**Sizing flags:** " + " | ".join(l.lstrip("- ").strip() for l in flag_lines) + "\n"
+
         # Extract just the Claude Analysis section
         if "## Claude's Analysis" in text:
             analysis = text.split("## Claude's Analysis")[1]
@@ -271,7 +387,7 @@ def load_learning_for_premarket(n_days: int = 3) -> str:
         else:
             analysis = text[:400]
 
-        sections.append(f"**{date_part}:**\n{analysis}")
+        sections.append(f"**{date_part}:**\n{sizing_note}{analysis}")
 
     return (
         "═══════════════════════════════════════\n"

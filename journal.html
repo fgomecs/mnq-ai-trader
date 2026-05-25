@@ -194,7 +194,7 @@ tr:hover td { background:rgba(255,255,255,0.015); }
       <span class="badge" id="version-badge">V4.1.0</span>
     </div>
 
-    <div class="metrics-grid">
+    <div class="metrics-grid" style="grid-template-columns:repeat(5,1fr);">
       <div class="metric-card">
         <div class="metric-label">Total P&L</div>
         <div class="metric-value" id="m-pnl">—</div>
@@ -214,6 +214,12 @@ tr:hover td { background:rgba(255,255,255,0.015); }
         <div class="metric-label">Total Trades</div>
         <div class="metric-value acc" id="m-total">—</div>
         <div class="metric-sub" id="m-total-sub">—</div>
+      </div>
+      <div class="metric-card" id="m-zone-card">
+        <div class="metric-label">Profitability Zone</div>
+        <div id="m-zone-badge" style="display:inline-block;margin:2px 0 6px;padding:3px 10px;border-radius:12px;font-size:13px;font-weight:700;font-family:var(--mono);letter-spacing:0.5px;">—</div>
+        <div class="metric-sub" id="m-zone-sub">Win Rate: — | Avg R:R: —</div>
+        <div class="metric-sub" id="m-zone-need" style="margin-top:2px;">—</div>
       </div>
     </div>
 
@@ -550,7 +556,7 @@ function pnlColors(arr) { return arr.map(v => v >= 0 ? GREEN : RED); }
 // ─────────────────────────────────────────────
 function render(data) {
   const { meta:m, summary:s, equity_curve:ec, trades, by_setup:bs, by_hour:bh, daily_pnl:dp, ofi_performance:ofi, thesis_buckets:tb,
-          avg_rr=0, overall_win_rate=0, rr_by_week=[], zone_history=[] } = data;
+          avg_rr=0, overall_win_rate=0, profitability_zone='DEVELOPING', rr_by_week=[], zone_history=[] } = data;
 
   // Sidebar
   $('sb-balance').textContent = '$' + m.balance.toLocaleString('en-US', {minimumFractionDigits:2});
@@ -562,6 +568,7 @@ function render(data) {
   $('last-updated').textContent = 'Updated: ' + m.last_updated;
 
   renderSummary(s);
+  renderZoneCard(profitability_zone, overall_win_rate, avg_rr);
   renderEquity(ec);
   renderSetupPnl(bs);
   renderHourPnl(bh);
@@ -572,6 +579,28 @@ function render(data) {
   renderAnalytics(bs, bh, trades);
   renderDobot(data);
   renderEdge(avg_rr, overall_win_rate, rr_by_week, zone_history);
+}
+
+function renderZoneCard(zone, winRate, avgRr) {
+  const badge = $('m-zone-badge');
+  const sub   = $('m-zone-sub');
+  const need  = $('m-zone-need');
+  const cfg = {
+    PROFITABLE: { label:'PROFITABLE',    bg:'rgba(0,230,118,0.18)', border:'rgba(0,230,118,0.5)', color:'#00e676' },
+    DEVELOPING: { label:'BREAK EVEN',    bg:'rgba(255,152,0,0.18)', border:'rgba(255,152,0,0.55)', color:'#ff9800' },
+    NEEDS_WORK: { label:'NOT PROFITABLE',bg:'rgba(255,59,107,0.18)', border:'rgba(255,59,107,0.5)', color:'#ff3b6b' },
+  };
+  const c = cfg[zone] || cfg['DEVELOPING'];
+  badge.textContent = c.label;
+  badge.style.cssText = `display:inline-block;margin:2px 0 6px;padding:3px 10px;border-radius:12px;font-size:12px;font-weight:700;font-family:var(--mono);letter-spacing:0.5px;background:${c.bg};border:1px solid ${c.border};color:${c.color};`;
+  if (avgRr > 0) {
+    const beWR = (1 / (1 + avgRr) * 100).toFixed(1);
+    sub.textContent  = `Win Rate: ${winRate.toFixed(1)}% | Avg R:R: ${avgRr.toFixed(2)}:1`;
+    need.textContent = `Need: ${beWR}% win rate at ${avgRr.toFixed(1)}:1 R:R`;
+  } else {
+    sub.textContent  = 'Win Rate: — | Avg R:R: —';
+    need.textContent = 'No R:R data yet';
+  }
 }
 
 function renderSummary(s) {

@@ -57,4 +57,4 @@ def log_daily_summary(trades: list, pnl: float):
     logger.info(f"Daily P&L: ${pnl:.2f}")
     logger.info("=" * 50)
 
-print("Logger loaded successfully")
+logger.info("Logger loaded successfully")

@@ -147,4 +147,8 @@ def notify_consecutive_losses(count: int, daily_pnl: float) -> bool:
     )
 
 
-print("Notifier loaded --", "Pushover ready" if PUSHOVER_TOKEN else "NOT configured")
+_msg = "Notifier loaded -- " + ("Pushover ready" if PUSHOVER_TOKEN else "NOT configured")
+if _logger is not None:
+    _logger.info(_msg)
+else:
+    print(_msg)

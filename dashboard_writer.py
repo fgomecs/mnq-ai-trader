@@ -42,10 +42,16 @@ def _atomic_json_write(path: str, payload: dict, indent: Optional[int] = None,
 import pytz
 
 try:
+    from logger import logger as _logger
+except Exception:
+    _logger = None
+
+try:
     from config import DASHBOARD_FILE, PRICE_FILE, LIVE_DATA_ACTIVE, VERSION
 except ImportError:
-    DASHBOARD_FILE   = "C:\\trading\\mnq-ai-trader\\dashboard_data.json"
-    PRICE_FILE       = "C:\\trading\\mnq-ai-trader\\price_data.json"
+    _base = os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader")
+    DASHBOARD_FILE   = os.path.join(_base, "dashboard_data.json")
+    PRICE_FILE       = os.path.join(_base, "price_data.json")
     LIVE_DATA_ACTIVE = False
     VERSION          = "?"
 
@@ -311,8 +317,9 @@ def update_dashboard(
                               "delta_trend", "market_structure", "htfBias"):
                     if not data.get(field) and existing.get(field):
                         data[field] = existing[field]
-        except Exception:
-            pass
+        except Exception as merge_err:
+            if _logger:
+                _logger.debug(f"Dashboard merge skipped: {merge_err}")
 
         # Atomic write — dashboard_data.json is read concurrently by the
         # browser; torn writes would intermittently break the UI.
@@ -321,11 +328,11 @@ def update_dashboard(
     except Exception as e:
         # Failure here is non-fatal (next cycle overwrites), but logging via
         # logger ensures the error lands in trading_*.log not just stdout.
-        try:
-            from logger import logger as _logger
+        if _logger:
             _logger.warning(f"Dashboard write error: {e}")
-        except Exception:
+        else:
             print(f"Dashboard write error: {e}")
 
 
-print("Dashboard writer loaded")
+if _logger:
+    _logger.info("Dashboard writer loaded")

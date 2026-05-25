@@ -18,8 +18,15 @@ block (~800 tokens) caches too. Dynamic snapshot stays uncached.
 """
 
 import json
+import re
 import time
 import anthropic
+
+from session_classifier import (
+    get_current_session_type,
+    get_session_type_context,
+    SessionType,
+)
 
 from config import (
     ANTHROPIC_API_KEY,
@@ -568,7 +575,6 @@ def _tolerant_json_parse(raw: str) -> dict:
         return json.loads(cleaned)
     except json.JSONDecodeError as e:
         # Last resort — try to find the outermost { ... } and parse just that
-        import re
         m = re.search(r"\{.*\}", cleaned, re.DOTALL)
         if m:
             try:
@@ -593,7 +599,6 @@ def update_watchlist(snapshot: dict) -> dict:
     if time.time() - _watchlist_time < WATCHLIST_REFRESH_SECS and _session_watchlist:
         return _session_watchlist
 
-    from session_classifier import get_current_session_type, get_session_type_context
     stype = get_current_session_type()
     sctx = f"SESSION_TYPE: {stype}\n{get_session_type_context(stype)}\n\n"
 
@@ -1200,7 +1205,6 @@ def pre_filter_signal(snapshot: dict) -> tuple:
         bull_signals += 1; bull_reasons.append("post-news window")
         bear_signals += 1; bear_reasons.append("post-news window")
 
-    from session_classifier import get_current_session_type, SessionType
     required = SESSION_RANGE_SIGNAL_THRESHOLD if get_current_session_type() == SessionType.RANGE else PRE_FILTER_SIGNAL_THRESHOLD
     THRESHOLD      = required
     COUNTER_THRESH = COUNTER_TREND_SIGNAL_THRESHOLD
@@ -1359,7 +1363,6 @@ def analyze_market(snapshot: dict) -> dict:
     During the chop windows where Claude HOLDs 23 times in 6 min on
     essentially the same conditions, this cuts cost ~70%.
     """
-    from session_classifier import get_current_session_type, get_session_type_context
     stype = get_current_session_type()
     sctx = f"SESSION_TYPE: {stype}\n{get_session_type_context(stype)}\n\n"
 
@@ -1799,7 +1802,6 @@ def _extract_int(s: str, default: int) -> int:
 
 
 def _extract_float(s: str, default: float) -> float:
-    import re
     m = re.search(r"[\d,]+\.?\d*", s.replace(",", ""))
     if m:
         try:
@@ -1924,5 +1926,5 @@ def parse_position_decision(text: str) -> dict:
     return r
 
 
-print(f"Claude brain loaded — entry:{CLAUDE_ENTRY_MODEL} pos:{CLAUDE_POSITION_MODEL} "
-      f"caching:{'ON' if CLAUDE_USE_CACHING else 'OFF'}")
+logger.info(f"Claude brain loaded — entry:{CLAUDE_ENTRY_MODEL} pos:{CLAUDE_POSITION_MODEL} "
+            f"caching:{'ON' if CLAUDE_USE_CACHING else 'OFF'}")

@@ -40,7 +40,7 @@ from logger import logger
 try:
     from config import MEMORY_DIR, CLAUDE_STRUCTURE_MODEL
 except ImportError:
-    MEMORY_DIR             = "C:\\trading\\mnq-ai-trader\\memory"
+    MEMORY_DIR             = os.path.join(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"), "memory")
     CLAUDE_STRUCTURE_MODEL = "claude-sonnet-4-6"
 
 eastern = pytz.timezone("US/Eastern")

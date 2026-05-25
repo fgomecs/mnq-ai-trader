@@ -24,7 +24,7 @@ from logger import logger
 try:
     from config import MEMORY_DIR
 except ImportError:
-    MEMORY_DIR = "C:\\trading\\mnq-ai-trader\\memory"
+    MEMORY_DIR = os.path.join(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"), "memory")
 
 STATS_FILE = os.path.join(MEMORY_DIR, "strategy_stats.json")
 eastern    = pytz.timezone("US/Eastern")

@@ -1136,6 +1136,23 @@ fetch('journal_data.json?t=' + Date.now())
     render(EMPTY);
     $('last-updated').textContent = 'No data yet — waiting for first session (Tue May 27, 2026)';
   });
+
+// Live version poll from dashboard_data.json
+setInterval(function() {
+  fetch('dashboard_data.json?t=' + Date.now())
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.botVersion) return;
+      var badge = document.getElementById('version-badge');
+      if (badge) badge.textContent = 'V' + d.botVersion;
+      var meta = document.getElementById('sb-meta');
+      if (meta) {
+        var lines = meta.innerHTML.split('<br>');
+        lines[0] = 'V' + d.botVersion;
+        meta.innerHTML = lines.join('<br>');
+      }
+    }).catch(function(){});
+}, 3000);
 </script>
 </body>
 </html>

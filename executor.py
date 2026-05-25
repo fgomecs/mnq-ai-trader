@@ -1001,4 +1001,4 @@ class Executor:
             pass
 
 
-print("Executor loaded")
+logger.info("Executor loaded")

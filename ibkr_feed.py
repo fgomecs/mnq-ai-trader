@@ -11,9 +11,12 @@ Architecture:
   - Delta trend across bars (distribution detection)
 """
 
+import json
+import os
+import tempfile
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 import pandas as pd
@@ -64,8 +67,7 @@ def _bar_et(bar) -> datetime:
     if isinstance(raw, datetime):
         bt = raw
     elif isinstance(raw, (int, float)):
-        import datetime as _dt_module
-        bt = _dt_module.datetime.fromtimestamp(raw, tz=_dt_module.timezone.utc)
+        bt = datetime.fromtimestamp(raw, tz=timezone.utc)
     else:
         bt = pd.Timestamp(str(raw)).to_pydatetime()
     return bt.astimezone(eastern) if bt.tzinfo else eastern.localize(bt)
@@ -189,10 +191,10 @@ class IBKRFeed:
         if self._persist_path is None:
             try:
                 from config import MEMORY_DIR
-                import os as _os
-                _os.makedirs(MEMORY_DIR, exist_ok=True)
-                self._persist_path = _os.path.join(MEMORY_DIR, "tick_state.json")
-            except Exception:
+                os.makedirs(MEMORY_DIR, exist_ok=True)
+                self._persist_path = os.path.join(MEMORY_DIR, "tick_state.json")
+            except Exception as e:
+                logger.debug(f"Tick state path init failed: {e}")
                 self._persist_path = None
 
     def restore_tick_state(self) -> None:
@@ -205,11 +207,10 @@ class IBKRFeed:
         if not self._persist_path:
             return
         try:
-            import os as _os, json as _json
-            if not _os.path.exists(self._persist_path):
+            if not os.path.exists(self._persist_path):
                 return
             with open(self._persist_path) as f:
-                state = _json.load(f)
+                state = json.load(f)
             today_iso = datetime.now(eastern).date().isoformat()
             saved_date = state.get("date")
             if saved_date != today_iso:
@@ -245,7 +246,6 @@ class IBKRFeed:
         if not self._persist_path:
             return
         try:
-            import json as _json
             today_iso = datetime.now(eastern).date().isoformat()
             state = {
                 "date":                  today_iso,
@@ -258,16 +258,15 @@ class IBKRFeed:
             # Atomic write — tick_state.json is restored at boot when
             # resuming the same trading day; a torn write would zero out
             # cumulative delta and the volume profile on next start.
-            import os as _os, tempfile as _tempfile
-            _dir = _os.path.dirname(self._persist_path) or "."
-            _fd, _tmp = _tempfile.mkstemp(prefix=".tmp_", dir=_dir)
+            _dir = os.path.dirname(self._persist_path) or "."
+            _fd, _tmp = tempfile.mkstemp(prefix=".tmp_", dir=_dir)
             try:
-                with _os.fdopen(_fd, "w") as f:
-                    _json.dump(state, f)
-                _os.replace(_tmp, self._persist_path)
+                with os.fdopen(_fd, "w") as f:
+                    json.dump(state, f)
+                os.replace(_tmp, self._persist_path)
             except Exception:
                 try:
-                    _os.unlink(_tmp)
+                    os.unlink(_tmp)
                 except OSError:
                     pass
                 raise
@@ -2467,4 +2466,4 @@ class IBKRFeed:
             return {}
 
 
-print("IBKR feed loaded")
+logger.info("IBKR feed loaded")

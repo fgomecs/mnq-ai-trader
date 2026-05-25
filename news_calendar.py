@@ -648,4 +648,4 @@ def prefetch_calendar() -> None:
         logger.info("No high-impact USD events scheduled today")
 
 
-print("News calendar loaded")
+logger.info("News calendar loaded")

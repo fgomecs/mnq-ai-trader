@@ -12,10 +12,11 @@ Session 2 changes from audit:
 
 import threading
 import time
-from datetime import datetime
+from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
+import pandas as pd
 import pytz
 import schedule
 
@@ -774,10 +775,7 @@ def _patch_dashboard_live(feed: IBKRFeed, executor: Executor, price: float, acco
     Write OR direction, session levels, P&L, and position to dashboard
     every 10 seconds regardless of whether Claude fired.
     """
-    from dashboard_writer import update_dashboard
-
-    import datetime as _dt, pytz as _pytz
-    now_et = _dt.datetime.now(_pytz.timezone("US/Eastern"))
+    now_et = datetime.now(pytz.timezone("US/Eastern"))
     s = {
         "or_high":            feed.or_high,
         "or_low":             feed.or_low,
@@ -850,7 +848,6 @@ def _is_cme_session(date_et: datetime) -> bool:
     if cal is None:
         return True
     try:
-        import pandas as pd
         return cal.is_session(pd.Timestamp(date_et.strftime("%Y-%m-%d")))
     except Exception:
         return True
@@ -865,7 +862,6 @@ def _cme_early_close_time_et(date_et: datetime) -> int | None:
     if cal is None:
         return None
     try:
-        import pandas as pd
         ts = pd.Timestamp(date_et.strftime("%Y-%m-%d"))
         if ts not in cal.early_closes:
             return None
@@ -919,7 +915,6 @@ def _next_session_label(date_et: datetime) -> str:
     """
     cal = _get_cme_calendar()
     try:
-        import pandas as pd
         today    = pd.Timestamp(date_et.strftime("%Y-%m-%d"))
         tomorrow = today + pd.Timedelta(days=1)
         end      = today + pd.Timedelta(days=30)
@@ -930,8 +925,6 @@ def _next_session_label(date_et: datetime) -> str:
         pass
     # Fallback when calendar is unavailable: skip weekends only (no holiday knowledge)
     try:
-        import pandas as pd
-        from datetime import timedelta
         d = pd.Timestamp((date_et + timedelta(days=1)).strftime("%Y-%m-%d"))
         for _ in range(14):
             if d.weekday() < 5:

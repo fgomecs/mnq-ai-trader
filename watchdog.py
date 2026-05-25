@@ -11,11 +11,14 @@ import os
 import sys
 import json
 import time
+import socket
 import subprocess
 from pathlib import Path
 from datetime import datetime
 import pytz
 from dotenv import load_dotenv
+
+from notifier import notify
 
 BASE_DIR = Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader"))
 load_dotenv(BASE_DIR / ".env")
@@ -39,7 +42,6 @@ def is_main_running() -> bool:
 
 
 def is_gateway_running() -> bool:
-    import socket
     port = int(os.getenv("IBKR_PORT", "7497"))
     host = os.getenv("IBKR_HOST", "127.0.0.1")
     try:
@@ -70,7 +72,6 @@ def dashboard_age_secs() -> float:
 
 def send_alert(title: str, message: str) -> None:
     try:
-        from notifier import notify
         notify(title, message, priority=1)
         print(f"[watchdog] ALERT sent: {title}")
     except Exception as e:

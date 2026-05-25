@@ -112,21 +112,29 @@
 **Watchdog:**
 - `watchdog.py` — standalone health monitor; alerts via Pushover if bot crashes or dashboard stales
 
-**Bug fixes pending (V4.4.1):**
-- FEATURE_DEAD_ZONE not honored in can_enter()
-- FEATURE_NEWS_GATE not checked in run_cycle news block
-- Opening drive uses wrong 5-min bar (fix before enabling FEATURE_OPENING_DRIVE_FADE)
+**Bug fixes shipped in V4.4.1:**
+- FEATURE_DEAD_ZONE now honored in can_enter()
+- FEATURE_NEWS_GATE now checked in run_cycle news block
+- Opening drive now uses correct 9:30 5-min bar
+- See V4.4.1 entry below for full list
+
+### V4.4.1 — Bug Fixes + Code Optimization
+*Shipped 2026-05-25.*
+- Fixed FEATURE_DEAD_ZONE not honored in can_enter() — was silently blocking dead zone trading even with flag=false
+- Fixed FEATURE_NEWS_GATE not checked in run_cycle hard-block — was blocking entries regardless of flag
+- Fixed opening drive used _bars_5min[0] (oldest cached bar) — now finds correct 9:30 RTH bar
+- Fixed logger.py hardcoded C:\trading\logs path — now uses BASE_DIR env var
+- Fixed structure pullback event trigger now fires for both longs and shorts
+- Fixed time.time()%N race condition in dashboard ticker — replaced with persistent tick counters
+- Code optimization: moved repeated imports to module level across 6 files (pandas 3×, re 2×, datetime, os, json)
+- Code optimization: logger import moved from inside update_dashboard() hot path to module level
+- Code optimization: added debug logging to silent except/pass blocks in executor.py
 
 ---
 
 ## Planned
 
-### V4.4.1 — Bug Fixes
-- Fix FEATURE_DEAD_ZONE not honored in can_enter()
-- Fix FEATURE_NEWS_GATE not checked in hard-block path in run_cycle
-- Fix opening drive _bars_5min[0] wrong bar reference
-- Fix logger.py hardcoded C:\trading\logs path
-- Fix structure pullback trigger missing for shorts
+
 
 ### V4.5 — Second Pre-Market Analysis + First Candle Context
 - Run a second `analyze_premarket()` call at 9:20 ET (10 min before RTH open)
@@ -266,4 +274,4 @@ Only after all other phases proven profitable.
 
 ---
 
-*Last updated: 2026-05-25. Add new items here — do not let features get lost in chat.*
+*Last updated: 2026-05-25 (V4.4.1). Add new items here — do not let features get lost in chat.*

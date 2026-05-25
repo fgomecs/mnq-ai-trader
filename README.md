@@ -3,15 +3,15 @@
 An institutional-grade AI-driven futures trading bot for **MNQ (Micro E-Mini Nasdaq-100)** using **ICT (Inner Circle Trader) methodology**, **Opening Range Breakout (ORB)** strategy, and **Claude AI** for entry decisions and position management.
 
 > **Status:** Paper trading — production-ready architecture, not yet live money.  
-> **Account:** $50,000 simulated | **Max daily loss:** configurable via `MAX_DAILY_LOSS_PCT` in `.env` | **Max size:** 1 contract  
-> **Version:** 4.3.x (auto-managed by `version_manager.py`)
+> **Account:** $50,000 simulated | **Max daily loss:** configurable via `MAX_DAILY_LOSS_PCT` in `.env` (default 20% = $10,000) | **Max size:** 1 contract  
+> **Version:** 4.4.x (auto-managed by `version_manager.py`)
 
 **Deeper docs:**
 - `CLAUDE.md` — AI-assistant guidance, architecture truth, audit-tag reference
 - `PROJECT_SUMMARY.md` — dense technical map (modules, snapshot schema, JSON schemas, invariants)
 - `KNOWLEDGE_BASE.md` — academic research on strategy win rates and probability calibration
 - `BOT_EVALUATION.md` — performance evaluation framework and rolling stats
-- `ROADMAP.md` — completed work and what's next (V4.4 session replay, session-type classifier, etc.)
+- `ROADMAP.md` — completed work (V4.4 shipped) and Phase 2-3 planned features
 
 ---
 
@@ -39,7 +39,7 @@ An institutional-grade AI-driven futures trading bot for **MNQ (Micro E-Mini Nas
 
 ## Architecture Overview
 
-Four concurrent threads running simultaneously:
+Three concurrent threads plus a pre-market sleep block:
 
 ```mermaid
 graph TD
@@ -65,16 +65,16 @@ graph TD
     LEARN --> VER[version_manager.py\nversion bump only]
     LEARN --> JEX[journal_exporter.py\nBuilds journal_data.json]
     JEX --> JHTML[journal.html\nEquity curve + analytics]
+    MAIN --> SC[session_classifier.py\nDay-type at 9:45 ET]
 ```
 
-### Four Concurrent Threads
+### Three Concurrent Threads
 
 | Thread | Cadence | Purpose |
 |---|---|---|
 | Protection loop | 5 s | Stop/target checks, broker reconciliation, orphan detection |
 | Entry scan (main thread) | 5 s | Python pre-filter → Claude Opus entry decisions |
 | Fast dashboard ticker | 1 Hz | Writes `price_data.json`, patches `dashboard_data.json` every 10 s |
-| Position management | 15–60 s | Claude Sonnet manages open trades (event-driven triggers) |
 
 **Pre-market sleep** (`_wait_for_market_hours()`) blocks the process before IBKR connects. It polls every 30 min during off-hours (nights, weekends, CME holidays, early closes) and writes `botSleeping=true` to the dashboard. The bot auto-starts at **8:20 ET** (10 min before pre-market analysis at 8:30 ET).
 
@@ -99,6 +99,7 @@ flowchart LR
         MTF[MTF Score\n0-100 numeric]
         OR[Opening Range\ndirection/levels/pullback]
         DOM[DOM Intelligence\nV3.1 — icebergs/spoofs\nsweeps/cluster magnets]
+        V44[V4.4 Fields\ngap/pivots/first candle\nVWAP ext/OR extreme]
     end
     T --> OFI
     D --> OFI
@@ -107,26 +108,32 @@ flowchart LR
     B --> MTF
     B --> OR
     B --> VP
+    B --> V44
     N --> NEWS[News Context\ndanger zone/countdown]
-    OFI --> SNAP[Snapshot Dict ~50 fields]
+    OFI --> SNAP[Snapshot Dict ~65 fields]
     ICT --> SNAP
     MTF --> SNAP
     OR --> SNAP
     VP --> SNAP
     DOM --> SNAP
     NEWS --> SNAP
+    V44 --> SNAP
 ```
 
 ### Entry Decision Flow
 
 ```mermaid
 flowchart TD
-    SNAP[Snapshot] --> PF{Python Pre-filter\n3+ signals needed}
+    SNAP[Snapshot] --> SC[session_classifier\nat 9:45 ET — TREND/RANGE/NEWS/HOLIDAY]
+    SC -->|HOLIDAY| BLOCK[Hard block — no entries]
+    SC -->|RANGE| HIGH[7+ signals required]
+    SC -->|TREND/UNKNOWN| NORMAL[3+ signals required]
+    HIGH & NORMAL --> PF{Python Pre-filter}
     PF -->|FAIL| SKIP[Skip — $0 cost]
     PF -->|PASS| CACHE{Skip cache A.1\nunchanged conditions?}
     CACHE -->|same conditions| HOLD0[Return cached HOLD\n$0 cost]
     CACHE -->|material change| OPUS[Claude Opus 4.7\nEntry Analysis]
-    OPUS --> PROB{Thesis Probability\nV4.0 gate ≥70%}
+    OPUS --> PROB{Thesis Probability\ngate ≥70%}
     PROB -->|below threshold| DEMOTE[Demote to HOLD\nlog reason]
     PROB -->|above threshold| DEC[BUY / SELL / HOLD]
     DEC -->|trade| EXEC[Executor\nBracket orders]
@@ -155,6 +162,18 @@ Based on Zarattini, Barbon & Aziz (2024). The OR is the first 15 minutes of RTH 
 2. Price pulls back toward OR level
 3. 1-min CHoCH confirms pullback complete → enter
 
+### Session Type Routing (V4.4)
+
+At OR_ESTABLISHED (9:45 ET), `session_classifier.py` classifies the day:
+
+| Type | Detection | Bot Behavior |
+|---|---|---|
+| TREND | OR range ≥50pts + MTF aligned + rel vol ≥90% | Normal thresholds (3 signals) |
+| RANGE | OR range ≤35pts OR DOJI OR MTF conflicted | 7 signals required; VWAP_REVERSION preferred |
+| NEWS | Gap ≥100pts OR active danger zone | Thesis gate raised to 80%; max 1 trade |
+| HOLIDAY | Volume < 50% of 20-day avg | Hard block — no entries |
+| UNKNOWN | Doesn't fit cleanly | 5 signals required (conservative) |
+
 ### ICT Concepts
 
 | Concept | What it is | How the bot uses it |
@@ -176,10 +195,14 @@ Computed in `_update_session_levels()` in `ibkr_feed.py` and injected into the s
 | VWAP | Volume-weighted average price |
 | Previous day high / low | From daily bar cache |
 | Previous week high / low | Calculated from daily bar cache — weekly liquidity reference |
-| Premarket high / low (V4.2) | 4am–9am ET globex extremes. Pre-filter adds 4 signals (above/below/testing each level). |
-| Daily demand/supply zones (V4.2) | `daily_zones` — demand and supply zones built from daily-bar reversals via `_find_daily_zones()`. Pre-filter adds +1 bull near demand, +1 bear near supply. |
-| Candle patterns (V4.2) | Detected on 1m/5m bars: engulfing, hammer, shooting star, morning/evening star, inside-bar breakout. |
-| Tape bias (V4.2) | `AGGRESSIVE_BUYING` / `AGGRESSIVE_SELLING` / `NEUTRAL` from large-print rolling counts. Pre-filter adds ±2 signals. |
+| Premarket high / low | 4am–9am ET globex extremes. Pre-filter adds 4 signals. |
+| Daily demand/supply zones | `daily_zones` — demand and supply zones from `_find_daily_zones()`. Pre-filter +1 each. |
+| Candle patterns | Detected on 1m/5m bars: engulfing, hammer, shooting star, morning/evening star, inside-bar breakout. |
+| Tape bias | `AGGRESSIVE_BUYING` / `AGGRESSIVE_SELLING` / `NEUTRAL` from large-print rolling counts. Pre-filter ±2 signals. |
+| First candle levels (V4.4) | 9:30 1-min H/L and 9:30–9:35 5-min H/L. Named fields in snapshot. |
+| Gap classification (V4.4) | Overnight gap size/direction, fill probability (79%/52%/28%/12% by size bracket). |
+| Pivot points (V4.4) | Classic daily R1/R2/S1/S2 from prior day OHLC. Pre-filter +1 bear near R2, +1 bull near S2. |
+| VWAP extension (V4.4) | Signed/absolute distance from VWAP. Used by dead zone VWAP magnet and pre-filter. |
 
 ### Pre-filter Signal Scoring
 
@@ -195,6 +218,10 @@ Pure Python — zero AI cost. Scores bull and bear independently. Claude is only
 | OFI STRONG signal | ✓ | ✓ | +2 |
 | Entry zone active | ✓ | ✓ | +2 |
 | Tape bias (aggressive) | ✓ | ✓ | +2 |
+| Bullish/bearish candle pattern at OB/FVG | ✓ | ✓ | +2 |
+| OR 2x extension fade (Phase 2) | ✓ | ✓ | +2 |
+| VWAP reversion extended (Phase 2) | ✓ | ✓ | +2 |
+| Opening drive rejection fade (Phase 3) | ✓ | ✓ | +2 |
 | OFI BUY/SELL signal | ✓ | ✓ | +1 |
 | OFI accelerating | ✓ | ✓ | +1 |
 | Above/below VWAP | ✓ | ✓ | +1 |
@@ -206,8 +233,14 @@ Pure Python — zero AI cost. Scores bull and bear independently. Claude is only
 | Volume profile breakout | ✓ | ✓ | +1 |
 | Near premarket high/low | ✓ | ✓ | +1 |
 | Near daily demand/supply zone | ✓ | ✓ | +1 |
+| Near pivot R2 (bear) / S2 (bull) | ✓ | ✓ | +1 |
+| Gap fill probability ≥52% | ✓ | ✓ | +1 |
+| Morning/evening star candle | ✓ | ✓ | +1 |
+| OR-aligned candle pattern | ✓ | ✓ | +1 |
+| DOM sweep reversal (Phase 3) | ✓ | ✓ | +1 |
+| Post-news window (Phase 3) | ✓ | ✓ | +1 |
 
-**Pass threshold:** 3+ signals on bias-preferred side, 5+ to go counter-bias or on DOJI OR days.
+**Pass threshold:** 3+ signals on bias-preferred side, 5+ to go counter-bias or on DOJI OR days. RANGE days require 7+ signals regardless of direction.
 
 ---
 
@@ -259,7 +292,7 @@ flowchart TD
 | Entry analysis | Opus 4.7 | ~$0.05 | Pre-filter pass (skip-cache reduces by ~60–70%) |
 | Position management | Sonnet 4.6 | ~$0.006 | Every 15–60 s while in trade |
 | Pre-market brief | Opus 4.7 | ~$0.015 | Once at 8:30 ET |
-| EOD learning synthesis | Sonnet 4.6 | ~$0.02 | Once at 3:30 PM ET |
+| EOD learning synthesis | Sonnet 4.6 | ~$0.02 | Once at 4:05 ET |
 
 ### Cost Optimizations
 
@@ -275,6 +308,8 @@ flowchart TD
 SYSTEM: ICT methodology, bidirectional framework, thesis probability
         calibration guide, DOM interpretation rules (cached)
 
+SESSION_TYPE: TREND/RANGE/NEWS/HOLIDAY/UNKNOWN + context string (V4.4)
+
 CACHED:
   Active watchlist (dual-sided: bull + bear setups, key levels)
   Stable session context (OR direction, pullback levels)
@@ -286,7 +321,9 @@ DYNAMIC:
     MTF Alignment + Score (0-100)
     ICT Levels (FVGs, OBs, CHoCH, liquidity pools)
     Economic Calendar + IBKR live headlines (QQQ tick 292)
-    Price | VWAP | Volume Profile | POC
+    Gap classification + fill probability (V4.4)
+    Daily pivot points R1/R2/S1/S2 (V4.4)
+    Price | VWAP | VWAP extension (V4.4) | Volume Profile | POC
     OFI Score (-100 to +100) + signal + acceleration + divergence
     Delta Trend (true bid/ask classification or approximation)
     DOM (20 levels + iceberg/spoof/sweep/cluster signals)
@@ -298,6 +335,18 @@ DYNAMIC:
 
 ## Predictive Features
 
+### Session Type Classifier (V4.4)
+
+`session_classifier.py` fires once at OR_ESTABLISHED (9:45 ET). Result stored module-level and injected into every Claude entry and watchlist prompt for the rest of the session.
+
+- **TREND** → ORB pullbacks and continuation preferred. Normal thresholds (3 signals).
+- **RANGE** → 7 signals required. VWAP_REVERSION and OR_EXTREME_FADE preferred (academic edge 72–78%).
+- **NEWS** → Thesis gate raised to 80% in prompt. Max 1 trade suggestion.
+- **HOLIDAY** → Hard block in `can_enter()` — zero entries all day.
+- **UNKNOWN** → Conservative: 5 signals required.
+
+Classification resets at EOD via `set_session_type(SessionType.UNKNOWN)`.
+
 ### Thesis Probability Gate (V4.0)
 
 Claude outputs `THESIS_PROBABILITY: 0-100` with every entry decision. Entries below `MIN_THESIS_PROBABILITY` (default 70) are automatically demoted to HOLD before reaching the executor.
@@ -307,10 +356,6 @@ Claude outputs `THESIS_PROBABILITY: 0-100` with every entry decision. Entries be
 - **75–89:** Strong setup — normal entry range
 - **60–74:** Marginal — only acceptable in prime kill zones
 - **0–59:** No trade — demoted to HOLD automatically
-
-```
-Thesis probability 58% below threshold 70% — demoting SELL to HOLD
-```
 
 ### Order Flow Imbalance (OFI) (V4.0)
 
@@ -330,6 +375,17 @@ Positive OFI = net buying pressure. Negative = net selling.
 
 **Pre-filter:** STRONG_BUY/SELL = +2 points, BUY/SELL = +1, ACCELERATING = +1.
 
+### Gap Classification (V4.4)
+
+Computes the overnight gap between previous close and today's open at session start.
+
+| Gap Size | Fill Probability | Pre-filter |
+|---|---|---|
+| < 63 pts | 79% | +1 counter-gap direction |
+| 63–147 pts | 52% | +1 counter-gap direction |
+| 147–210 pts | 28% | No signal |
+| > 210 pts | 12% (news) | Session classified NEWS |
+
 ### IBKR Live News (tick 292)
 
 Subscribed via QQQ ETF (futures don't support news ticks natively). When IBKR delivers a Nasdaq-relevant headline, the last 10 headlines are stored and the latest 3 are injected into Claude's entry prompt.
@@ -340,7 +396,7 @@ Requires an IBKR news subscription (e.g. Briefing.com). Silently does nothing wi
 
 ## Feature Flags
 
-All 16 feature flags can be toggled in `.env` for live trading or ablation testing. Safety systems (stops, race condition fixes, broker reconciliation, position limits) are hardcoded and never flagged.
+All 26 feature flags can be toggled in `.env` for live trading or ablation testing. Safety systems (stops, race condition fixes, broker reconciliation, position limits) are hardcoded and never flagged.
 
 ```env
 # Strategy / Bias
@@ -366,19 +422,35 @@ FEATURE_DUAL_TRAIL=true         # Claude TRAIL decisions anchor auto-trail (Clau
 FEATURE_EARLY_EXIT=true         # Allow Claude to CLOSE positions early before stop/target
 
 # Learning
-FEATURE_LEARNING_EOD=true       # Run ablation backtest + Claude synthesis at 3:30 PM ET
+FEATURE_LEARNING_EOD=true       # Run ablation backtest + Claude synthesis at 4:05 ET
 FEATURE_LEARNING_INJECT=true    # Inject last 3 session findings into next day's pre-market prompt
+
+# V4.4 Phase 1 — Active by default
+FEATURE_SESSION_CLASSIFIER=true # Classify day as TREND/RANGE/NEWS/HOLIDAY at 9:45 ET
+FEATURE_FIRST_CANDLE_LEVELS=true  # Track first 1-min and 5-min candle H/L
+FEATURE_GAP_CLASSIFICATION=true # Compute overnight gap + fill probability
+FEATURE_PIVOT_POINTS=true       # Daily R1/R2/S1/S2 from prior day OHLC; +1 near R2/S2
+
+# V4.4 Phase 2 — Gated (activate after data confirms accuracy)
+FEATURE_OR_EXTREME_FADE=false       # 2x OR range extension fade (+2 signals)
+FEATURE_DEAD_ZONE_VWAP_MAGNET=false # Lower dead zone threshold when 60+ pts from VWAP
+FEATURE_VWAP_REVERSION=false        # VWAP extension signals for range days (+2)
+
+# V4.4 Phase 3 — Gated (activate after data confirms accuracy)
+FEATURE_SWEEP_REVERSAL=false        # Extra +1 pre-filter weight on DOM sweeps
+FEATURE_OPENING_DRIVE_FADE=false    # First 5-min candle rejection wick fade (+2)
+FEATURE_POST_NEWS_REFRESH=false     # Refresh watchlist 45 min after high-impact news
 ```
 
 ---
 
 ## EOD Learning System
 
-At **3:30 PM ET** (when `EOD_SCHEDULE_TIME` fires), the `end_of_day()` routine closes any open positions, saves the session summary, and — when `FEATURE_LEARNING_EOD=true` — kicks off the automated learning pipeline:
+At **4:05 ET** (when `EOD_SCHEDULE_TIME` fires), the `end_of_day()` routine closes any open positions, saves the session summary, and — when `FEATURE_LEARNING_EOD=true` — kicks off the automated learning pipeline:
 
 ```mermaid
 flowchart LR
-    EOD[3:30 PM ET\nend_of_day fires] --> ABL[ablation_runner.py\nDisable each feature\none at a time]
+    EOD[4:05 ET\nend_of_day fires] --> ABL[ablation_runner.py\nDisable each feature\none at a time]
     ABL --> RANK[Feature ranking\nHELPS / HURTS / NEUTRAL]
     RANK --> SYN[Claude Sonnet 4.6\nSynthesizes findings]
     SYN --> RPT[reports/learning_YYYY-MM-DD.md\nsaved locally]
@@ -403,7 +475,7 @@ Removing each feature:
   ...
 ```
 
-Reports saved to `reports/` (can be committed to git) and `memory/` (for pre-market injection).
+Reports saved to `reports/` (git-ignored) and `memory/` (for pre-market injection).
 
 ### Soft Learning
 
@@ -424,11 +496,11 @@ Learning is **soft** — Claude reads the findings and adjusts its reasoning. No
 Every EOD run bumps the patch version in `.env`:
 
 ```
-4.3.0  → current release
-4.3.1  → after first EOD learning session
-4.3.2  → next session
+4.4.1  → current release
+4.4.2  → after first EOD learning session
+4.4.3  → next session
 ...
-4.4.0  → new feature shipped (minor bump, done manually)
+4.5.0  → new feature shipped (minor bump, done manually)
 5.0.0  → architectural change (major bump, done manually)
 ```
 
@@ -440,23 +512,25 @@ Every EOD run bumps the patch version in `.env`:
 
 | File | Purpose |
 |---|---|
-| `main.py` | Entry point. Session state machine (`SessionState` enum), `run_cycle`, pre-market orchestration, EOD routine, fast dashboard ticker, event-driven position trigger (`_should_call_claude_now`). |
-| `claude_brain.py` | All Anthropic API calls. Entry analysis (Opus), position management (Sonnet), watchlist updates (Sonnet), pre-market analysis (Opus). Holds per-session module state wiped at EOD via `reset_session_state()`. |
-| `ibkr_feed.py` | IBKR connection and snapshot assembly. Bars fetched once at startup then updated via `reqRealTimeBars`. DOM streaming (20 levels, 60s history). OFI engine. OR tracking. IBKR news via QQQ tick 292. |
+| `main.py` | Entry point. Session state machine (`SessionState` enum), `run_cycle`, pre-market orchestration, EOD routine, fast dashboard ticker, event-driven position trigger (`_should_call_claude_now`). Session classifier fires at OR_ESTABLISHED. |
+| `claude_brain.py` | All Anthropic API calls. Entry analysis (Opus), position management (Sonnet), watchlist updates (Sonnet), pre-market analysis (Opus). Session type injected into all prompts. Holds per-session module state wiped at EOD via `reset_session_state()`. |
+| `ibkr_feed.py` | IBKR connection and snapshot assembly (~65-field dict). Bars fetched once at startup then updated via `reqRealTimeBars`. DOM streaming (20 levels, 60s history). OFI engine. OR tracking. IBKR news via QQQ tick 292. V4.4: gap classification, pivot points, first candle levels, VWAP extension, OR extreme fade, opening drive detection, post-news window. |
 | `executor.py` | Order placement and position tracking. Bracket orders (entry + stop + limit target), protection loop, R-budget enforcement, dual-control trailing (`_claude_trail_stop`), broker reconciliation, cancel-vs-fill race fix. |
-| `config.py` | All configuration. Reads `.env`, exposes ~120 typed constants across 20 sections, 16 feature flags, `get_active_features()`, `features_summary()`. |
+| `config.py` | All configuration. Reads `.env`, exposes ~120 typed constants across 20+ sections, 26 feature flags, `get_active_features()`, `features_summary()`. |
+| `session_classifier.py` | Day-type classifier. Fires once at OR_ESTABLISHED (9:45 ET). Returns TREND/RANGE/NEWS/HOLIDAY/UNKNOWN. Injects context string into all Claude prompts. HOLIDAY hard-blocks all entries. |
 
 ### Support Modules
 
 | File | Purpose |
 |---|---|
-| `dashboard_writer.py` | Writes `dashboard_data.json` with merge logic (fast ticker patches don't wipe Claude reasoning). Includes version, thesis probability, IBKR headlines, `botSleeping`/`wakeTime` fields. |
+| `dashboard_writer.py` | Writes `dashboard_data.json` with merge logic (fast ticker patches don't wipe Claude reasoning). Atomic write via temp+replace. Includes version, thesis probability, IBKR headlines, `botSleeping`/`wakeTime` fields. |
 | `memory_manager.py` | Session memory. Loads last 5 days, saves EOD summary, generates morning review. |
 | `news_calendar.py` | Economic calendar. FRED + hardcoded recurring events. Danger-zone gating, countdown to next event. |
 | `strategy_stats.py` | Per-strategy win rate / expectancy tracking. Wilson 95% CI. Requires 20+ trades to activate weighting. |
 | `data_recorder.py` | Records every snapshot and Claude decision to JSONL. Enabled by `RECORDING_ENABLED=true`. |
 | `backtester.py` | Replay engine. Runs current code against recorded sessions. Uses cached Claude decisions by default. |
 | `notifier.py` | Pushover iPhone push notifications. Trade entered/exited, stop→BE, EOD summary, IBKR events, loss warnings, errors. Optional — bot runs normally without keys. |
+| `watchdog.py` | Standalone health monitor. Run in a separate terminal. Sends Pushover alert if `main.py` process disappears or dashboard file goes stale (>120s). Checks IBKR Gateway port every 30s. |
 
 ### EOD Learning Modules
 
@@ -473,7 +547,7 @@ Every EOD run bumps the patch version in `.env`:
 |---|---|
 | `dashboard.html` | Desktop browser UI. Three-column layout, polls `dashboard_data.json` + `price_data.json` every 2 s. |
 | `mobile.html` | iPhone-optimized UI. Single column, big text, polls every 5 s. Add to home screen via Safari → Share. Shows `BOT SLEEPING` with wake time when dormant. |
-| `journal.html` | EOD analytics. Equity curve, full trade log, per-strategy/hour/OFI/thesis breakdowns. Reads `journal_data.json`. |
+| `journal.html` | EOD analytics. Equity curve, full trade log, per-strategy/hour/OFI/thesis breakdowns, edge analysis, weekly R:R. Reads `journal_data.json`. Version pulled live from `dashboard_data.json`. |
 | `requirements.txt` | Python dependencies (see [Install](#install)). |
 | `.env` | API keys and config overrides. **Never commit.** |
 
@@ -484,8 +558,8 @@ Every EOD run bumps the patch version in `.env`:
 | `logs/` | Rotating log files — flushed immediately after BUY/SELL/CLOSE (C.4) |
 | `memory/` | JSONL session summaries + `tick_state.json` (same-day restore) + learning reports |
 | `data/` | `snapshots_YYYY-MM-DD.jsonl` and `decisions_YYYY-MM-DD.jsonl` — backtester input |
-| `reports/` | Learning and ablation reports — can be committed to git |
-| `dashboard_data.json` | Live dashboard state — wiped on every fresh `main.py` boot |
+| `reports/` | Learning and ablation reports — git-ignored |
+| `dashboard_data.json` | Live dashboard state — deleted on every fresh `main.py` boot (C.6) |
 | `price_data.json` | Fast ticker price cache |
 
 ---
@@ -528,7 +602,7 @@ CLAUDE_USE_CACHING=true
 MIN_THESIS_PROBABILITY=70   # Block entries below this confidence
 
 # V4.1
-BOT_VERSION=4.3.0           # Auto-managed by version_manager.py
+BOT_VERSION=4.4.1           # Auto-managed by version_manager.py
 RECORDING_ENABLED=true
 ```
 
@@ -545,9 +619,9 @@ SESSION_OR_FORMING_END=945        # OR established (end of 15-min OR window)
 SESSION_OR_ESTABLISHED_END=1000   # 10:00 ET — end of OR-established window
 SESSION_PRIME_WINDOW_END=1100     # NY AM prime window ends
 SESSION_DEAD_ZONE_END=1330        # Dead zone ends, PM prime begins
-SESSION_AFTERNOON_PRIME_END=1530  # PM prime ends, closing window begins
+SESSION_AFTERNOON_PRIME_END=1555  # PM prime ends, closing window begins (.env override)
 SESSION_CLOSING_END=1600          # RTH close
-EOD_SCHEDULE_TIME=15:30           # Positions closed, EOD routine fires (includes learning)
+EOD_SCHEDULE_TIME=16:05           # Positions closed, EOD routine fires (.env override)
 MAIN_LOOP_SLEEP_SECS=0.5          # Main cycle sleep between ticks
 ```
 
@@ -565,6 +639,42 @@ LIMIT_ORDER_TIMEOUT_SECS=5        # Seconds before unfilled limit is cancelled �
 ```env
 PRE_FILTER_SIGNAL_THRESHOLD=3     # Signals needed on bias-preferred side
 COUNTER_TREND_SIGNAL_THRESHOLD=5  # Signals needed counter-bias or DOJI override
+SESSION_RANGE_SIGNAL_THRESHOLD=7  # Signals needed on RANGE days (session classifier)
+```
+
+**V4.4 Session Classifier**
+
+```env
+SESSION_CLASSIFIER_TREND_OR_MIN=50   # OR range pts minimum for TREND classification
+SESSION_CLASSIFIER_RANGE_OR_MAX=35   # OR range pts maximum for RANGE classification
+SESSION_CLASSIFIER_NEWS_GAP_MIN=100  # Gap pts that flags NEWS day
+SESSION_NEWS_THESIS_GATE=80          # Min thesis probability on NEWS days
+```
+
+**V4.4 Gap Classification**
+
+```env
+GAP_SMALL_THRESHOLD=63       # Below this = 79% fill probability
+GAP_MEDIUM_THRESHOLD=147     # 63-147 = 52% fill probability
+GAP_LARGE_THRESHOLD=210      # 147-210 = 28%; above = 12% (news gap)
+```
+
+**V4.4 Phase 2 Thresholds**
+
+```env
+VWAP_REVERSION_MIN_EXTENSION=80     # Points from VWAP to trigger reversion signal
+OR_EXTREME_FADE_MULTIPLIER=2.0      # x OR range = extreme zone
+DEAD_ZONE_VWAP_MAGNET_MIN_EXT=60    # Points from VWAP to lower dead zone threshold
+DEAD_ZONE_VWAP_MAGNET_THRESHOLD=6   # Reduced dead zone threshold when VWAP magnet active
+```
+
+**V4.4 Phase 3 Thresholds**
+
+```env
+OPENING_DRIVE_MIN_POINTS=80         # First 5-min candle range to classify as drive
+OPENING_DRIVE_REJECTION_PCT=0.60    # Wick as % of body to flag rejection
+POST_NEWS_WINDOW_MINUTES=45         # Minutes after news before window opens
+POST_NEWS_WINDOW_DURATION=30        # How long post-news window stays open
 ```
 
 **Skip-Cache (A.1)**
@@ -677,6 +787,9 @@ py -3.11 main.py
 
 # Terminal 2 — dashboard server (desktop and mobile)
 py -3.11 -m http.server 8080 --bind 0.0.0.0
+
+# Terminal 3 (optional) — health watchdog
+py -3.11 watchdog.py
 ```
 
 Or use `start_trading.bat` to launch both with one double-click.
@@ -687,11 +800,12 @@ Or use `start_trading.bat` to launch both with one double-click.
 8:20 ET  → py -3.11 main.py  (bot boots, connects IBKR, caches bars)
 8:30 ET  → Pre-market analysis (Opus) — injects last 3 learning reports
 9:30 ET  → OR begins forming, scanning paused
-9:45 ET  → OR complete, OR_ESTABLISHED window begins
+9:45 ET  → OR complete → session classifier fires (TREND/RANGE/NEWS/HOLIDAY/UNKNOWN)
 10:00 ET → PRIME_WINDOW begins — full scanning active
-11:00 ET → DEAD_ZONE — entries require 8+ confluence signals
+11:00 ET → DEAD_ZONE — entries require 8+ confluence signals (when FEATURE_DEAD_ZONE=true)
 13:30 ET → NY PM PRIME window — full scanning resumes
-15:30 ET → EOD fires: close positions, save memory, run learning session
+15:55 ET → CLOSING — exit only, no new entries
+16:05 ET → EOD fires: close positions, save memory, run learning session
            (ablation → Claude synthesis → version bump → journal export)
 ```
 
@@ -705,7 +819,7 @@ Or use `start_trading.bat` to launch both with one double-click.
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│ MNQ/AI v4.3  29,680.75  [SCANNING][FLAT][AM PRIME][...] │ 09:47:22 │
+│ MNQ/AI v4.4  29,680.75  [SCANNING][FLAT][AM PRIME][...] │ 09:47:22 │
 ├─────────────────────────────────────────────────────────┤
 │ [MARKET STATUS] NY AM PRIME ★★  Dead zone in 13m        │
 ├──────────┬──────────────────────────────┬───────────────┤
@@ -723,6 +837,7 @@ Or use `start_trading.bat` to launch both with one double-click.
 **Key features:**
 - Market status bar with session countdown and kill-zone label
 - `BOT OFFLINE` indicator when bot is stopped
+- `BOT SLEEPING` banner with wake time during off-hours
 - Thesis probability in color (green ≥75%, yellow 60–74%, red <60%)
 - Claude reasoning greys out after 5 minutes (stale indicator)
 - Clock uses browser ET time — never stale
@@ -745,7 +860,7 @@ Or use `start_trading.bat` to launch both with one double-click.
 
 ```
 ┌─────────────────────┐
-│ MNQ/AI v4.3  09:47  │
+│ MNQ/AI v4.4  09:47  │
 │                LIVE  │
 ├─────────────────────┤
 │ NY AM PRIME ★★      │
@@ -762,7 +877,7 @@ Or use `start_trading.bat` to launch both with one double-click.
 │ BIAS: SHORT_PREF    │
 │ Reasoning...        │
 ├─────────────────────┤
-│ P&L: +$0  Loss:$500 │
+│ P&L: +$0  Loss:$10k │
 ├─────────────────────┤
 │ 0T  0W  0L  —%      │
 ├─────────────────────┤
@@ -850,18 +965,18 @@ stateDiagram-v2
     [*] --> PRE_SESSION: before 8:30 ET
     PRE_SESSION --> PRE_MARKET: 8:30 ET
     PRE_MARKET --> OR_FORMING: 9:30 ET — RTH opens
-    OR_FORMING --> OR_ESTABLISHED: 9:45 ET — OR complete
+    OR_FORMING --> OR_ESTABLISHED: 9:45 ET — OR complete\nsession_classifier fires
     OR_ESTABLISHED --> PRIME_WINDOW: 10:00 ET
     PRIME_WINDOW --> DEAD_ZONE: 11:00 ET
     DEAD_ZONE --> AFTERNOON_PRIME: 1:30 PM ET
-    AFTERNOON_PRIME --> CLOSING: 3:30 PM ET
+    AFTERNOON_PRIME --> CLOSING: 3:55 PM ET
     CLOSING --> AFTER_HOURS: 4:00 PM ET
-    AFTER_HOURS --> LEARNING: EOD routine fires
+    AFTER_HOURS --> LEARNING: 4:05 PM — EOD fires
     LEARNING --> [*]: version bumped
 
     PRE_MARKET: PRE_MARKET\nOpus pre-market brief
     OR_FORMING: OR_FORMING\nNo entries — OR building
-    OR_ESTABLISHED: OR_ESTABLISHED\nEntries open
+    OR_ESTABLISHED: OR_ESTABLISHED\nClassify day type\nEntries open
     PRIME_WINDOW: PRIME_WINDOW ★★\nFull entries — London/NY overlap
     DEAD_ZONE: DEAD_ZONE\n8+ confluence required
     AFTERNOON_PRIME: AFTERNOON_PRIME ★\nFull entries — NY PM
@@ -874,9 +989,9 @@ stateDiagram-v2
 | State | Entries | Condition |
 |---|---|---|
 | PRE_SESSION, PRE_MARKET, OR_FORMING | ✗ | No entries |
-| OR_ESTABLISHED | ✓ | Full entries |
+| OR_ESTABLISHED | ✓ | Full entries (session type applied) |
 | PRIME_WINDOW | ✓ | Full entries (London/NY overlap ★★) |
-| DEAD_ZONE | ⚠ | 8+ confluence signals required (`FEATURE_DEAD_ZONE`) |
+| DEAD_ZONE | ⚠ | 8+ confluence signals required when `FEATURE_DEAD_ZONE=true` |
 | AFTERNOON_PRIME | ✓ | Full entries (NY PM ★) |
 | CLOSING | ✗ | Exit only |
 | AFTER_HOURS | ✗ | No entries |
@@ -896,7 +1011,9 @@ stateDiagram-v2
 | V4.1 | 2026-05-23 | **Learning system** — 16 feature flags, ablation testing, EOD learning session, auto-versioning, mobile dashboard |
 | V4.1.1 | 2026-05-23 | **Config audit** — ~60 magic numbers → named constants in `config.py`, all `.env`-overridable |
 | V4.2 | 2026-05 | **Snapshot enrichment** — candle patterns, tape analysis, daily demand/supply zones, premarket high/low, previous-week high/low, DOJI MTF override |
-| V4.3 | 2026-05 | **Notifications + execution** — Pushover push notifications, limit-order entry mode, configurable trail milestones, 3:1 R:R minimum, probability calibration knowledge base injected into Opus prompts |
+| V4.3 | 2026-05 | **Notifications + execution** — Pushover push notifications, limit-order entry mode, configurable trail milestones, 3:1 R:R minimum, probability calibration knowledge base |
+| V4.4 | 2026-05-25 | **Session type classifier + Phase 1-3 strategy expansion** — `session_classifier.py`, gap classification, pivot points, first candle levels, VWAP extension, 10 new feature flags (Phase 2-3 gated), watchdog, SESSION_AFTERNOON_PRIME_END=1555, EOD=16:05 |
+| V4.4.1 | 2026-05-25 | **Bug fixes + optimization** — FEATURE_DEAD_ZONE honored in can_enter(), FEATURE_NEWS_GATE in run_cycle, logger.py BASE_DIR, opening drive bar fix, structure pullback symmetry, repeated imports → module level, time.time()%N race → counters |
 
 ---
 
@@ -908,20 +1025,22 @@ stateDiagram-v2
 - Manages risk through layered protection (8 layers)
 - Records every tick and decision for continuous improvement
 - EOD learning system learns from each session automatically
+- Session classifier routes strategy by day type (trend vs range vs news)
 
 **Current limitations:**
 - Strategy stats database accumulates slowly — per-strategy weighting needs 20+ trades per strategy to activate
-- OFI and advanced DOM signals untested in real trading — paper trading data is accumulating
-- Single contract only — no scaling, no partial exits
+- Phase 2-3 features (VWAP_REVERSION, OR_EXTREME_FADE, OPENING_DRIVE_FADE, etc.) are built but gated — awaiting real session data to confirm detection accuracy
+- Single contract only — no scaling, no partial exits at TARGET_2
 - Paper trading — live execution will differ in spread and slippage
-- Learning system findings are injected as soft context — Claude reads them but there's no hard parameter update loop yet
+- Learning system findings are injected as soft context — no hard parameter update loop
 
 **What makes it genuinely AI-driven (not mechanical):**
-- Claude synthesizes 50+ market signals simultaneously and forms a view
+- Claude synthesizes 65+ market signals simultaneously and forms a view
 - Thesis probability forces explicit confidence calibration on every trade
 - Position management makes early-exit decisions based on structural deterioration
 - Pre-market game plan integrates learning from prior sessions
 - Counter-trend trades are allowed when structure is strong enough
+- Session type context changes Claude's entire framing for the day
 
 ---
 

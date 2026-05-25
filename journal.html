@@ -177,7 +177,7 @@ tr:hover td { background:rgba(255,255,255,0.015); }
     <div class="acct-label">Paper Account</div>
     <div class="acct-balance" id="sb-balance">$50,000.00</div>
     <div class="acct-change" id="sb-change" style="color:var(--text3)">—</div>
-    <div class="acct-meta" id="sb-meta">V4.1.0<br>No sessions yet</div>
+    <div class="acct-meta" id="sb-meta">V4.3.0<br>No sessions yet</div>
   </div>
 </div>
 
@@ -191,7 +191,7 @@ tr:hover td { background:rgba(255,255,255,0.015); }
         <div class="page-title">Overview</div>
         <div class="page-sub" id="last-updated">Loading...</div>
       </div>
-      <span class="badge" id="version-badge">V4.1.0</span>
+      <span class="badge" id="version-badge">V4.3.0</span>
     </div>
 
     <div class="metrics-grid" style="grid-template-columns:repeat(5,1fr);">
@@ -563,8 +563,11 @@ function render(data) {
   const chg = m.balance - m.starting_balance;
   $('sb-change').textContent = fmtDollar(chg);
   $('sb-change').style.color = chg >= 0 ? GREEN : RED;
-  $('sb-meta').innerHTML = 'V' + m.version + '<br>' + (m.sessions > 0 ? m.sessions + ' session' + (m.sessions!==1?'s':'') : 'No sessions yet');
-  $('version-badge').textContent = 'V' + m.version;
+  // Version sourced live from dashboard_data.json (see secondary fetch below);
+  // m.version is kept as a fallback for offline / pre-load renders.
+  const _ver = window._botVersion || m.version || '4.3.0';
+  $('sb-meta').innerHTML = 'V' + _ver + '<br>' + (m.sessions > 0 ? m.sessions + ' session' + (m.sessions!==1?'s':'') : 'No sessions yet');
+  $('version-badge').textContent = 'V' + _ver;
   $('last-updated').textContent = 'Updated: ' + m.last_updated;
 
   renderSummary(s);
@@ -1106,7 +1109,23 @@ document.querySelectorAll('.nav-item').forEach(item => {
 // ─────────────────────────────────────────────
 fetch('journal_data.json?t=' + Date.now())
   .then(r => { if (!r.ok) throw new Error(); return r.json(); })
-  .then(data => render(data))
+  .then(data => {
+    render(data);
+    // Pull live bot version from the running bot's dashboard file; patches
+    // the badge + sidebar meta without re-rendering the whole journal.
+    fetch('dashboard_data.json?t=' + Date.now())
+      .then(r => r.json())
+      .then(d => {
+        if (d.botVersion) {
+          window._botVersion = d.botVersion;
+          const badge = document.getElementById('version-badge');
+          if (badge) badge.textContent = 'V' + d.botVersion;
+          const meta = document.getElementById('sb-meta');
+          if (meta) meta.innerHTML = meta.innerHTML.replace(/V[\d\.]+/, 'V' + d.botVersion);
+        }
+      })
+      .catch(() => {});
+  })
   .catch(() => {
     render(EMPTY);
     $('last-updated').textContent = 'No data yet — waiting for first session (Tue May 27, 2026)';

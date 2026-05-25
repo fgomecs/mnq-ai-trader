@@ -587,6 +587,12 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
         _refresh_dashboard_with_snapshot("BLOCKED — news danger zone")
         return
 
+    global _post_news_analyzed
+    if FEATURE_POST_NEWS_REFRESH and snapshot.get("post_news_window") and not _post_news_analyzed:
+        update_watchlist(snapshot)
+        _post_news_analyzed = True
+        logger.info("POST-NEWS WINDOW — watchlist refreshed")
+
     # Only scan at configured interval
     if now_ts - last_analysis_time < ENTRY_SCAN_INTERVAL_SECS:
         return

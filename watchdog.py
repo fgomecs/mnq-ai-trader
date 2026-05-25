@@ -38,6 +38,20 @@ def is_main_running() -> bool:
         return True  # fail open — don't false-alert if wmic fails
 
 
+def is_gateway_running() -> bool:
+    import socket
+    port = int(os.getenv("IBKR_PORT", "7497"))
+    host = os.getenv("IBKR_HOST", "127.0.0.1")
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(3)
+        result = sock.connect_ex((host, port))
+        sock.close()
+        return result == 0
+    except Exception:
+        return False
+
+
 def dashboard_age_secs() -> float:
     try:
         data = json.loads(DASHBOARD_FILE.read_text(encoding="utf-8"))
@@ -102,7 +116,16 @@ def main():
                 last_alert = now
             print(f"[watchdog] WARNING — dashboard stale {int(age)}s")
         else:
-            print(f"[watchdog] OK — dashboard age {int(age)}s")
+            if not is_gateway_running():
+                if now - last_alert > ALERT_COOLDOWN:
+                    send_alert(
+                        "IBKR GATEWAY DOWN",
+                        f"Cannot reach Gateway on port {os.getenv('IBKR_PORT','7497')} — check TWS/Gateway."
+                    )
+                    last_alert = now
+                print("[watchdog] WARNING — IBKR Gateway not reachable")
+            else:
+                print(f"[watchdog] OK — Gateway up, dashboard age {int(age)}s")
 
 
 if __name__ == "__main__":

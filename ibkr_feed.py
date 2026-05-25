@@ -938,6 +938,9 @@ class IBKRFeed:
                 "consecutive_losses":  consecutive_losses,
             }
 
+            snapshot["vwap_extension"]     = round(last_price - vwap, 2) if vwap else 0.0
+            snapshot["vwap_extension_abs"] = round(abs(last_price - vwap), 2) if vwap else 0.0
+
             # Record snapshot to disk for backtest replay
             _recorder.record_snapshot(snapshot)
             return snapshot

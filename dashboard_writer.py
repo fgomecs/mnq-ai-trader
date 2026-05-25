@@ -14,8 +14,30 @@ Writes two JSON files:
 
 import json
 import os
+import tempfile
 from datetime import datetime
 from typing import Any, Optional
+
+
+def _atomic_json_write(path: str, payload: dict, indent: Optional[int] = None,
+                       ensure_ascii: bool = True) -> None:
+    """
+    Write JSON via temp file + os.replace so a crash mid-write cannot leave a
+    zero-byte / truncated file on disk (which would break the bot or the
+    browser dashboard on next read). os.replace is atomic on Windows + POSIX.
+    """
+    dir_ = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=dir_)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            json.dump(payload, fh, indent=indent, ensure_ascii=ensure_ascii)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 import pytz
 
@@ -61,8 +83,10 @@ def update_price_only(
             "netLiq":     account.get("netLiq")     if account else None,
             "unrealized": account.get("unrealized") if account else None,
         }
-        with open(PRICE_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f)
+        # Atomic write — a torn write would leave price_data.json invalid
+        # and the dashboard's 1Hz reader would error every tick until the
+        # next successful write.
+        _atomic_json_write(PRICE_FILE, data)
     except Exception:
         pass  # silent — speed-critical path
 
@@ -290,11 +314,18 @@ def update_dashboard(
         except Exception:
             pass
 
-        with open(DASHBOARD_FILE, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+        # Atomic write — dashboard_data.json is read concurrently by the
+        # browser; torn writes would intermittently break the UI.
+        _atomic_json_write(DASHBOARD_FILE, data, indent=2, ensure_ascii=False)
 
     except Exception as e:
-        print(f"Dashboard write error: {e}")
+        # Failure here is non-fatal (next cycle overwrites), but logging via
+        # logger ensures the error lands in trading_*.log not just stdout.
+        try:
+            from logger import logger as _logger
+            _logger.warning(f"Dashboard write error: {e}")
+        except Exception:
+            print(f"Dashboard write error: {e}")
 
 
 print("Dashboard writer loaded")

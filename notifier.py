@@ -12,6 +12,14 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader")) / ".env")
 
+# Best-effort import of the shared logger so notifier failures land in the
+# main trading log instead of stdout (which gets lost when running as a
+# detached process).
+try:
+    from logger import logger as _logger
+except Exception:
+    _logger = None
+
 PUSHOVER_USER  = os.getenv("PUSHOVER_USER_KEY", "")
 PUSHOVER_TOKEN = os.getenv("PUSHOVER_API_TOKEN", "")
 NOTIFY_ENABLED = os.getenv("NOTIFY_ENABLED", "true").lower() == "true"
@@ -38,7 +46,10 @@ def notify(title: str, message: str = "", priority: int = 0) -> bool:
         urllib.request.urlopen(req, timeout=5)
         return True
     except Exception as e:
-        print(f"[notifier] Failed: {e}")
+        if _logger is not None:
+            _logger.warning(f"[notifier] Failed: {e}")
+        else:
+            print(f"[notifier] Failed: {e}")
         return False
 
 

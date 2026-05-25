@@ -4,7 +4,14 @@ An institutional-grade AI-driven futures trading bot for **MNQ (Micro E-Mini Nas
 
 > **Status:** Paper trading — production-ready architecture, not yet live money.
 > **Account:** $50,000 simulated | **Max risk:** $500/day | **Max size:** 1 contract
-> **Version:** 4.1.0 (auto-managed)
+> **Version:** 4.3.x (auto-managed)
+
+**Deeper docs:**
+- `CLAUDE.md` — AI-assistant guidance, architecture truth, audit-tag reference
+- `PROJECT_SUMMARY.md` — dense technical map (modules, snapshot schema, JSON schemas, invariants)
+- `KNOWLEDGE_BASE.md` — academic research on strategy win rates and probability calibration
+- `BOT_EVALUATION.md` — performance evaluation framework and rolling stats
+- `ROADMAP.md` — completed work and what's next (V4.4 session replay, session-type classifier, etc.)
 
 ---
 
@@ -166,6 +173,10 @@ Computed in `_update_session_levels()` in `ibkr_feed.py` and injected into the s
 | OR high / low | First 15 minutes of RTH (9:30–9:45 ET) — three 5-min bars |
 | VWAP | Volume-weighted average price |
 | Previous week high / low | `prev_week_high` / `prev_week_low` — calculated from the daily bar cache and included in Claude's snapshot as reference levels for weekly liquidity |
+| Premarket high / low (V4.2) | `premarket_high` / `premarket_low` — 4am–9am ET globex extremes, computed in `_update_session_levels()`. Pre-filter adds 4 signals (above/below/testing each level). |
+| Daily demand/supply zones (V4.2) | `daily_zones` — `{demand_zones, supply_zones, near_demand, near_supply, zones_text}` built from daily-bar reversals via `_find_daily_zones()`. Pre-filter adds +1 bull near demand, +1 bear near supply. |
+| Candle patterns (V4.2) | `candle_patterns` — string describing detected patterns on 1m/5m bars (engulfing, hammer, shooting star, morning/evening star, inside-bar breakout). Source: `_detect_candle_patterns()`. |
+| Tape bias (V4.2) | `tape_bias` — `AGGRESSIVE_BUYING` / `AGGRESSIVE_SELLING` / `NEUTRAL` from large-print rolling counts. Pre-filter adds ±2 signals. Full `tape_analysis` dict also injected. |
 
 ### Pre-filter Signal Scoring
 
@@ -655,8 +666,22 @@ Anthropic API key with Opus access
 ### Install
 
 ```bash
-pip install ib_insync anthropic pandas pytz python-dotenv schedule
+pip install ib_insync anthropic pandas pytz python-dotenv schedule exchange-calendars
 ```
+
+`exchange-calendars` (XNYS) enables CME holiday and early-close detection. Without it the bot falls back to weekend-only gating and logs a warning.
+
+### Push Notifications (optional, V4.3)
+
+`notifier.py` sends iPhone push alerts via Pushover for key bot events (pre-market ready, OR established, trade entered/exited, stop→BE, EOD summary, IBKR connection events, loss warnings, errors, bot sleeping/awake).
+
+```env
+PUSHOVER_USER_KEY=u-your-user-key
+PUSHOVER_API_TOKEN=a-your-app-token
+NOTIFY_ENABLED=true
+```
+
+Get keys from `pushover.net` (one-time $5 per platform). Without keys, notifications are silently disabled — bot runs normally.
 
 ### Run
 
@@ -869,6 +894,8 @@ stateDiagram-v2
 | V4.0 | 2026-05-22 | **Predictive features** — thesis probability gate, OFI score, IBKR QQQ news (tick 292) |
 | V4.1 | 2026-05-23 | **Learning system** — 15 feature flags, ablation testing, EOD learning session, auto-versioning, mobile dashboard, market status bar |
 | V4.1.1 | 2026-05-23 | **Config audit** — ~60 magic numbers replaced with named constants in `config.py`, all `.env`-overridable; error handling normalized across all core files |
+| V4.2   | 2026-05   | **Snapshot enrichment** — candle pattern detection (engulfing/hammer/star/inside-bar) on 1m+5m, tape analysis (`tape_bias`, large-print rolling counts), daily demand/supply zones (`daily_zones`), premarket high/low session levels, previous-week high/low; DOJI MTF override (`FEATURE_DOJI_MTF_OVERRIDE`) — on DOJI OR days, allow trades when MTF is aligned and 5+ signals fire |
+| V4.3   | 2026-05   | **Pushover push notifications** (`notifier.py`) — iPhone alerts for pre-market ready, OR established, trade entered/exited, stop→breakeven, EOD summary, IBKR disconnect/reconnect, loss warnings, consecutive losses, bot sleeping/awake, errors. Setup: `PUSHOVER_USER_KEY` + `PUSHOVER_API_TOKEN` in `.env` (toggle with `NOTIFY_ENABLED=true`). UI refresh: navy color scheme across dashboard/mobile/journal. R:R minimum raised from 2:1 to 3:1 in entry prompt. `PROBABILITY_CONTEXT` knowledge base injected into Opus prompts to anchor THESIS_PROBABILITY calibration (see `KNOWLEDGE_BASE.md`). Journal exporter adds `avg_rr`, `overall_win_rate`, `profitability_zone`, `rr_by_week`, `zone_history`. |
 
 ---
 

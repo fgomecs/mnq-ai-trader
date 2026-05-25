@@ -1,5 +1,7 @@
 # MNQ AI Trader — Complete Project Summary
-*For AI reading this cold. Dense, accurate, no padding. Last verified: 2026-05-24.*
+*For AI reading this cold. Dense, accurate, no padding. Last verified: 2026-05-25 (V4.3).*
+
+**Companion docs:** `CLAUDE.md` (AI-assistant guidance + audit-tag reference), `README.md` (user-facing intro, install, run), `KNOWLEDGE_BASE.md` (academic win-rate / probability calibration research consumed by `claude_brain.py` prompts), `BOT_EVALUATION.md` (performance evaluation framework), `ROADMAP.md` (completed work + planned V4.4 session replay / session-type classifier).
 
 ---
 
@@ -9,7 +11,7 @@ Paper-trading bot for **MNQ (Micro E-mini Nasdaq-100)** futures. Pulls live L1+L
 
 **Strategy:** ICT (Inner Circle Trader) methodology. Opening Range Breakout with pullback entry. CHoCH (Change of Character) confirmation. Dual-sided bias — OR direction is a starting preference, not a law. Kill zones (NY AM 8:30–11, NY PM 1:30–4 ET).
 
-**Version as of this document:** 4.1.x (patch auto-bumped at EOD by `learning_session.py`).
+**Version as of this document:** 4.3.x (patch auto-bumped at EOD by `learning_session.py`). V4.2 added snapshot enrichment (candle patterns, tape bias, daily zones, premarket H/L) and `FEATURE_DOJI_MTF_OVERRIDE`. V4.3 added `notifier.py` Pushover push notifications, raised entry R:R floor to 3:1, and injected `PROBABILITY_CONTEXT` knowledge base into Opus prompts.
 
 ---
 
@@ -215,6 +217,14 @@ choch (text), inducement (text), session_levels (text)
 killzone, amd_phase, session_phase
 vwap, session_high, session_low
 candles (text: last 1m/5m bars, ~1200 chars)
+
+# V4.2 enrichment
+candle_patterns (text — engulfing/hammer/star/inside-bar on 1m/5m, via _detect_candle_patterns)
+tape_bias (AGGRESSIVE_BUYING / AGGRESSIVE_SELLING / NEUTRAL)
+tape_analysis (dict: large_print_count_60s, tape_bull_pressure, tape_bear_pressure, tape_bias, tape_text, recent_large_prints)
+daily_zones (dict: demand_zones, supply_zones, near_demand, near_supply, zones_text — from _find_daily_zones on daily bar reversals)
+premarket_high, premarket_low (4am-9am ET globex extremes, computed in _update_session_levels)
+prev_week_high, prev_week_low
 
 # DOM
 dom (text: 20 levels), dom_imbalance, dom_buy_pressure
@@ -544,6 +554,37 @@ Danger zone = HIGH impact event within `NEWS_DANGER_WINDOW_MINS` (45 min) before
 
 ---
 
+### `notifier.py` (~150 lines, V4.3)
+**Role:** iPhone push notifications via Pushover HTTP API. Best-effort, fail-safe — bot runs normally when keys absent.
+
+**Env vars:**
+- `PUSHOVER_USER_KEY` — user key from pushover.net
+- `PUSHOVER_API_TOKEN` — app token
+- `NOTIFY_ENABLED` (default `true`) — global kill switch
+
+**Implementation notes:** Uses stdlib `urllib.request` (no extra deps). `_clean()` strips non-ASCII and truncates to 500 chars to avoid Pushover 400 errors. `notify()` returns `True` on success / `False` on disabled or failure; failures log to shared `logger` if importable, else stdout.
+
+**Notification surface:**
+| Function | Trigger | Priority |
+|----------|---------|----------|
+| `notify_premarket(summary)` | After `analyze_premarket` completes (`main.py`) | 0 |
+| `notify_or_established(direction, high, low)` | First snapshot after OR forms | 0 |
+| `notify_trade_entered(direction, entry, stop, target)` | `executor._enter_trade` post-fill | 1 |
+| `notify_trade_exited(direction, entry, exit, pnl, reason)` | `executor._record_pnl` | 1 |
+| `notify_stop_to_breakeven(direction, entry)` | `_auto_trail_long/short` when stop hits entry | 0 |
+| `notify_consecutive_losses(count, daily_pnl)` | After exit when ≥3 consecutive losses | 1 |
+| `notify_loss_warning(used, limit)` | After exit when `|daily_pnl| ≥ 0.9 × MAX_DAILY_LOSS_USD` | 1 |
+| `notify_eod_summary(pnl, wins, losses, net_liq, version)` | `main.end_of_day` | 0 |
+| `notify_bot_sleeping(wake_time)` / `notify_bot_awake()` | `_wait_for_market_hours` enter/exit | -1 / 0 |
+| `notify_ibkr_disconnected()` / `notify_ibkr_reconnected()` | Wired to `feed.ib.disconnectedEvent` / `connectedEvent` | 1 / 0 |
+| `notify_error(location, error)` | `main()` top-level except | 1 |
+| `notify_backtest(date, pnl, wins, losses, wr)` | Backtester (manual) | -1 |
+| `notify_learning_done(version, key_finding)` | After EOD learning session | -1 |
+
+**Wired in:** `main.py` (premarket, OR, EOD, IBKR events, errors, sleep/wake), `executor.py` (entries, exits, stop→BE, loss warning, consecutive losses). Import is try-wrapped (`_notify_available` flag); missing module never breaks the bot.
+
+---
+
 ### `demo.py` (~200+ lines)
 **Role:** Standalone demo that populates dashboards without IBKR. No trading.
 
@@ -635,6 +676,7 @@ Set in `.env` or toggled by `ablation_runner.py`. All default to `true`.
 | `FEATURE_ORB_BIAS` | true | Opening Range direction used as LONG_PREFERRED / SHORT_PREFERRED starting bias. If false, watchlist defaults to NEUTRAL. |
 | `FEATURE_BIDIRECTIONAL` | true | Allow shorts on bull OR days and longs on bear OR days. If false, only trade in OR direction. |
 | `FEATURE_BIAS_DECAY` | true | After 90 min, if MTF+CHoCH+price all disagree with OR bias → flip to NEUTRAL. If false, OR bias persists all day. |
+| `FEATURE_DOJI_MTF_OVERRIDE` | true | On DOJI OR days (no clear direction), allow trades when MTF is `BULLISH_ALIGNED` or `BEARISH_ALIGNED` — requires 5+ pre-filter signals. (V4.2) |
 
 ### Predictive Signals
 | Flag | Default | Controls |
@@ -846,6 +888,23 @@ Written by `journal_exporter.run()` at EOD. Read by `journal.html` on page load.
 ---
 
 ## Recent Changes (This Session)
+
+### 0. V4.3 — Push notifications (commits `d018fab`, `a41ee18`, `cb7b5e5`)
+Added `notifier.py` (Pushover HTTP). Wired into `main.py` (premarket, OR established, EOD summary, IBKR connect/disconnect, errors, bot sleeping/awake) and `executor.py` (trade entered/exited, stop→breakeven, consecutive losses, loss warning). Env vars: `PUSHOVER_USER_KEY`, `PUSHOVER_API_TOKEN`, `NOTIFY_ENABLED`. Import is try-wrapped — bot runs normally without keys. `notify()` returns `True` on success.
+
+### 0a. V4.3 — Calibration & UI
+- R:R minimum raised from 2:1 to 3:1 in `SYSTEM_PROMPT` (commit `5b7a72c`)
+- `PROBABILITY_CONTEXT` knowledge base added and injected into Opus prompts to anchor THESIS_PROBABILITY (commit `ad44000`)
+- `KNOWLEDGE_BASE.md` added and referenced in CLAUDE.md (commit `de9749a`)
+- Profitability matrix + R:R sensitivity analysis added to journal (commits `e3aec72`, `4964068`)
+- Navy color scheme applied across `dashboard.html`, `mobile.html`, `journal.html`
+
+### 0b. V4.2 — Snapshot enrichment
+- `_detect_candle_patterns()` in `ibkr_feed.py` → `candle_patterns` field on snapshot (engulfing, hammer, shooting star, morning/evening star, inside-bar breakout, on 1m + 5m)
+- `_get_tape_analysis()` → `tape_bias` (AGGRESSIVE_BUYING/SELLING/NEUTRAL) + `tape_analysis` dict (large_print_count_60s, pressure stats, recent_large_prints). Pre-filter adds ±2 signals.
+- `_find_daily_zones()` → `daily_zones` dict (demand/supply zones from daily bar reversals). Pre-filter adds +1 bull near demand, +1 bear near supply.
+- `premarket_high` / `premarket_low` (4am–9am ET globex extremes) computed in `_update_session_levels()`. Pre-filter adds 4 signals.
+- `FEATURE_DOJI_MTF_OVERRIDE` flag: on DOJI OR days, allow trades when MTF aligned and 5+ signals fire.
 
 ### 1. Git automation removal (commit `1df1ea0`)
 **Problem:** `version_manager.py`, `learning_session.py`, and `ablation_runner.py` had `subprocess` git calls (add/commit/push/tag) that ran at EOD. These were fragile (SSH keys, network, dirty working tree).

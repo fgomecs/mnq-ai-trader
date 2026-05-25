@@ -11,8 +11,26 @@ Session 2 fixes from audit:
 
 import json
 import os
+import tempfile
 from datetime import datetime, timedelta
 from typing import Optional
+
+
+def _atomic_write(path: str, write_fn) -> None:
+    """Write via tempfile + os.replace so a crash mid-write can't corrupt
+    the lessons/trades JSON that the next session loads at startup."""
+    dir_ = os.path.dirname(path) or "."
+    fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=dir_)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            write_fn(fh)
+        os.replace(tmp, path)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 import anthropic
 import pytz
@@ -170,8 +188,7 @@ Respond ONLY with a JSON object (no markdown fences):
         "avg_loss": round(avg_loss, 2),
     })
 
-    with open(json_path, "w") as f:
-        json.dump(lessons_json, f, indent=2)
+    _atomic_write(json_path, lambda f: json.dump(lessons_json, f, indent=2))
 
     def _bullet(items: list) -> str:
         return "\n".join(f"- {x}" for x in items)
@@ -223,8 +240,7 @@ Grade: {lessons_json.get('overall_grade','?')} | P&L: ${daily_pnl:.2f} | Trades:
 {trade_details}
 """
 
-    with open(md_path, "w", encoding="utf-8") as f:
-        f.write(md)
+    _atomic_write(md_path, lambda f: f.write(md))
 
     logger.info(f"Daily summary saved: {md_path}")
     return md_path
@@ -378,8 +394,7 @@ def save_trade_to_memory(trade: dict) -> None:
 
     trades.append({"timestamp": datetime.now().isoformat(), **trade})
 
-    with open(filepath, "w") as f:
-        json.dump(trades, f, indent=2)
+    _atomic_write(filepath, lambda f: json.dump(trades, f, indent=2))
 
 
 def load_todays_trades() -> list:

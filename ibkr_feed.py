@@ -240,8 +240,22 @@ class IBKRFeed:
                 "age_seconds_estimate":  int(self._persist_interval),
                 "saved_at":              datetime.now(eastern).isoformat(),
             }
-            with open(self._persist_path, "w") as f:
-                _json.dump(state, f)
+            # Atomic write — tick_state.json is restored at boot when
+            # resuming the same trading day; a torn write would zero out
+            # cumulative delta and the volume profile on next start.
+            import os as _os, tempfile as _tempfile
+            _dir = _os.path.dirname(self._persist_path) or "."
+            _fd, _tmp = _tempfile.mkstemp(prefix=".tmp_", dir=_dir)
+            try:
+                with _os.fdopen(_fd, "w") as f:
+                    _json.dump(state, f)
+                _os.replace(_tmp, self._persist_path)
+            except Exception:
+                try:
+                    _os.unlink(_tmp)
+                except OSError:
+                    pass
+                raise
             self._persist_last_save = now
         except Exception as e:
             logger.debug(f"Tick state persist failed: {e}")

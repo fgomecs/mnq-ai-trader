@@ -418,8 +418,13 @@ def run() -> None:
 
     out_path = BASE_DIR / "journal_data.json"
     try:
-        with open(out_path, "w", encoding="utf-8") as fh:
+        # Atomic write — journal_data.json is read by the journal.html UI
+        # and rebuilt fully each EOD; a torn write would break the journal.
+        import tempfile as _tempfile, os as _os
+        _fd, _tmp = _tempfile.mkstemp(prefix=".tmp_", dir=str(BASE_DIR))
+        with _os.fdopen(_fd, "w", encoding="utf-8") as fh:
             json.dump(journal, fh, indent=2)
+        _os.replace(_tmp, str(out_path))
         print(
             f"[journal] Wrote {out_path.name} — "
             f"{n_days} days | {n_trades} trades | total P&L ${total_pnl:+.2f}"

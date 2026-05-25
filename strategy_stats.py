@@ -13,6 +13,7 @@ Stats file: <MEMORY_DIR>/strategy_stats.json
 import json
 import math
 import os
+import tempfile
 from datetime import datetime
 from typing import Optional
 
@@ -125,10 +126,21 @@ def load_stats() -> dict:
 
 
 def save_stats(stats: dict) -> None:
+    # Atomic write — strategy_stats.json is read on every trade record and
+    # at Claude pre-market injection. A torn write would crash both paths.
     os.makedirs(MEMORY_DIR, exist_ok=True)
     stats["meta"]["last_updated"] = datetime.now().isoformat()
-    with open(STATS_FILE, "w") as f:
-        json.dump(stats, f, indent=2)
+    fd, tmp = tempfile.mkstemp(prefix=".tmp_", dir=MEMORY_DIR)
+    try:
+        with os.fdopen(fd, "w") as f:
+            json.dump(stats, f, indent=2)
+        os.replace(tmp, STATS_FILE)
+    except Exception:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
 
 
 # ─── Bucket update ─────────────────────────────────────────

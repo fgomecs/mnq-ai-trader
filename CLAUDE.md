@@ -171,6 +171,19 @@ LARGE_PRINT_THRESHOLD=50          # Min contracts for a tick to count as a large
 4. For UI-only or prompt-text changes: replay the latest day with `backtester.py --date <today> --no-live-claude` to confirm pre-filter behavior didn't regress.
 5. For pre-filter / scoring / snapshot schema changes: replay several recent days with live Claude OFF first to confirm no parse errors, then with Claude ON for one day to see real P&L delta.
 
+## Probability Framework
+
+`KNOWLEDGE_BASE.md` contains structured academic research on strategy win rates, signal validity, and probability calibration.
+
+Key facts:
+- ORB win rate: 68–72% trend days, 31–38% range days
+- VWAP reversion: 72–78% range days
+- Full MTF alignment adds 7–11% to base win rate
+- OFI STRONG adds 6–10% to base win rate
+- News within 30 min reduces all signals by 15%
+
+When editing `claude_brain.py` prompts, preserve the probability context injection in `analyze_premarket()` and `analyze_market()`. This is the core calibration mechanism — do not remove it.
+
 ## Disclaimer kept here for assistants
 
 Paper trading only. Architecture is production-shaped but the system is **not running live money**. Any change that would loosen risk caps, daily loss limits, or hold-time gates should be flagged for explicit user confirmation before applying.

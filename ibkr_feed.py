@@ -955,15 +955,20 @@ class IBKRFeed:
             snapshot["opening_drive_fade_short"] = False
             snapshot["opening_drive_fade_long"]  = False
             if FEATURE_OPENING_DRIVE_FADE and self.first_candle_5min_high and self._bars_5min:
-                bar = self._bars_5min[0]
-                rng  = self.first_candle_5min_high - self.first_candle_5min_low
-                body = abs(bar.close - bar.open)
-                uwk  = self.first_candle_5min_high - max(bar.open, bar.close)
-                lwk  = min(bar.open, bar.close) - self.first_candle_5min_low
-                snapshot["opening_drive_up"]         = rng >= OPENING_DRIVE_MIN_POINTS and bar.close > bar.open
-                snapshot["opening_drive_down"]       = rng >= OPENING_DRIVE_MIN_POINTS and bar.close < bar.open
-                snapshot["opening_drive_fade_short"] = snapshot["opening_drive_up"]   and body > 0 and uwk >= body * OPENING_DRIVE_REJECTION_PCT
-                snapshot["opening_drive_fade_long"]  = snapshot["opening_drive_down"] and body > 0 and lwk >= body * OPENING_DRIVE_REJECTION_PCT
+                today = datetime.now(eastern).date()
+                bar = next((b for b in self._bars_5min if _bar_et(b).date() == today and _bar_et(b).hour == 9 and _bar_et(b).minute == 30), None)
+                if not bar:
+                    snapshot["opening_drive_up"] = snapshot["opening_drive_down"] = False
+                    snapshot["opening_drive_fade_short"] = snapshot["opening_drive_fade_long"] = False
+                else:
+                    rng  = self.first_candle_5min_high - self.first_candle_5min_low
+                    body = abs(bar.close - bar.open)
+                    uwk  = self.first_candle_5min_high - max(bar.open, bar.close)
+                    lwk  = min(bar.open, bar.close) - self.first_candle_5min_low
+                    snapshot["opening_drive_up"]         = rng >= OPENING_DRIVE_MIN_POINTS and bar.close > bar.open
+                    snapshot["opening_drive_down"]       = rng >= OPENING_DRIVE_MIN_POINTS and bar.close < bar.open
+                    snapshot["opening_drive_fade_short"] = snapshot["opening_drive_up"]   and body > 0 and uwk >= body * OPENING_DRIVE_REJECTION_PCT
+                    snapshot["opening_drive_fade_long"]  = snapshot["opening_drive_down"] and body > 0 and lwk >= body * OPENING_DRIVE_REJECTION_PCT
 
             snapshot["post_news_window"] = False
             if FEATURE_POST_NEWS_REFRESH:

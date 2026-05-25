@@ -124,6 +124,8 @@ def can_enter(state: SessionState, confluence_score: int = 0, snapshot: dict | N
                  SessionState.AFTERNOON_PRIME):
         return True, ""
     if state == SessionState.DEAD_ZONE:
+        if not FEATURE_DEAD_ZONE:
+            return True, ""
         if (FEATURE_DEAD_ZONE_VWAP_MAGNET and snapshot
                 and snapshot.get("vwap_extension_abs", 0) >= DEAD_ZONE_VWAP_MAGNET_MIN_EXT
                 and confluence_score >= DEAD_ZONE_VWAP_MAGNET_THRESHOLD):

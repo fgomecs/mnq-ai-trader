@@ -38,9 +38,9 @@
     border: 1px solid var(--border2); color: var(--text2); background: var(--bg3);
     text-transform: uppercase; letter-spacing: 0.5px;
   }
-  .pill.active { background: #1a2a1a; border-color: var(--green); color: var(--green); }
-  .pill.warn   { background: #2a1a1a; border-color: var(--red);   color: var(--red);   }
-  .pill.info   { background: #1a1a2a; border-color: var(--blue);  color: var(--blue);  }
+  .pill.active { background: rgba(0,230,118,0.09); border-color: var(--green); color: var(--green); }
+  .pill.warn   { background: rgba(255,59,107,0.09); border-color: var(--red);   color: var(--red);   }
+  .pill.info   { background: rgba(0,212,255,0.07); border-color: var(--blue);  color: var(--blue);  }
   #topright { display: flex; flex-direction: column; align-items: flex-end; font-size: 11px; color: var(--text2); }
   #clock { font-size: 16px; color: var(--text); font-weight: bold; }
   #data-mode { color: var(--green); font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -66,7 +66,7 @@
   #position-pnl { font-size: 14px; }
   .level-row {
     display: flex; justify-content: space-between;
-    padding: 3px 0; border-bottom: 1px solid #1e1e1e; font-size: 12px;
+    padding: 3px 0; border-bottom: 1px solid var(--border); font-size: 12px;
   }
   .level-label { color: var(--text2); }
   .level-val { color: var(--text); font-weight: bold; }
@@ -80,8 +80,8 @@
     border: 2px solid var(--border2); border-radius: 4px; margin-bottom: 10px;
     letter-spacing: 2px;
   }
-  #decision-badge.BUY  { border-color: var(--green); color: var(--green); background: #0a1a0a; }
-  #decision-badge.SELL { border-color: var(--red);   color: var(--red);   background: #1a0a0a; }
+  #decision-badge.BUY  { border-color: var(--green); color: var(--green); background: rgba(0,230,118,0.06); }
+  #decision-badge.SELL { border-color: var(--red);   color: var(--red);   background: rgba(255,59,107,0.06); }
   #decision-badge.HOLD { border-color: var(--text3); color: var(--text2); background: var(--bg3); }
   #decision-meta { display: flex; gap: 16px; margin-bottom: 10px; font-size: 12px; color: var(--text2); }
   #decision-meta span b { color: var(--text); }
@@ -100,8 +100,8 @@
     display: inline-block; padding: 3px 8px; border-radius: 2px; font-size: 12px;
     font-weight: bold; margin-bottom: 6px;
   }
-  .or-badge.bull { background: #0a1a0a; border: 1px solid var(--green); color: var(--green); }
-  .or-badge.bear { background: #1a0a0a; border: 1px solid var(--red);   color: var(--red); }
+  .or-badge.bull { background: rgba(0,230,118,0.06); border: 1px solid var(--green); color: var(--green); }
+  .or-badge.bear { background: rgba(255,59,107,0.06); border: 1px solid var(--red);   color: var(--red); }
   .or-badge.doji { background: var(--bg3); border: 1px solid var(--text3); color: var(--text2); }
   .ict-block {
     font-size: 12px; line-height: 1.7; color: var(--text2);
@@ -117,10 +117,10 @@
     font-size: 10px; font-weight: bold; padding: 2px 8px; border-radius: 3px;
     cursor: pointer; font-family: var(--font); letter-spacing: 0.5px;
   }
-  .chart-btn.active { background: #1a1a2a; border-color: var(--blue); color: var(--blue); }
+  .chart-btn.active { background: rgba(0,212,255,0.07); border-color: var(--blue); color: var(--blue); }
   .chart-btn:hover  { border-color: var(--text2); color: var(--text); }
   #market-status-bar {
-    height: 36px; background: #0a0a0a; border-top: 1px solid var(--border);
+    height: 36px; background: var(--bg3); border-top: 1px solid var(--border);
     display: grid; grid-template-columns: 240px 1fr 400px;
     align-items: center; padding: 0 12px; gap: 12px;
   }
@@ -130,16 +130,16 @@
     border-radius: 2px; letter-spacing: 0.5px; text-transform: uppercase;
     border: 1px solid var(--border2); color: var(--text2); white-space: nowrap; flex-shrink: 0;
   }
-  #ms-state.closed      { border-color: #555; color: #555; }
-  #ms-state.maintenance { border-color: #555; color: #555; }
-  #ms-state.globex      { border-color: var(--blue); color: var(--blue); background: #0a0f1a; }
-  #ms-state.premarket   { border-color: var(--yellow); color: var(--yellow); background: #1a1500; }
-  #ms-state.am-prime    { border-color: var(--green); color: var(--green); background: #0a1a0a;
+  #ms-state.closed      { border-color: var(--text3); color: var(--text3); }
+  #ms-state.maintenance { border-color: var(--text3); color: var(--text3); }
+  #ms-state.globex      { border-color: var(--blue);   color: var(--blue);   background: rgba(0,212,255,0.05); }
+  #ms-state.premarket   { border-color: var(--yellow); color: var(--yellow); background: rgba(255,214,0,0.05); }
+  #ms-state.am-prime    { border-color: var(--green);  color: var(--green);  background: rgba(0,230,118,0.06);
                            box-shadow: 0 0 6px rgba(0,230,118,0.3); }
-  #ms-state.dead-zone   { border-color: #888; color: #888; background: #111; }
-  #ms-state.pm-prime    { border-color: var(--green); color: var(--green); background: #0a1a0a; }
-  #ms-state.closing     { border-color: var(--orange); color: var(--orange); background: #1a0e00; }
-  #ms-state.news-event  { border-color: var(--red); color: var(--red); background: #1a0000;
+  #ms-state.dead-zone   { border-color: var(--text2);  color: var(--text2);  background: var(--bg3); }
+  #ms-state.pm-prime    { border-color: var(--green);  color: var(--green);  background: rgba(0,230,118,0.06); }
+  #ms-state.closing     { border-color: var(--orange); color: var(--orange); background: rgba(255,183,77,0.05); }
+  #ms-state.news-event  { border-color: var(--red);    color: var(--red);    background: rgba(255,59,107,0.06);
                            animation: pulse-red 1s infinite; }
   @keyframes pulse-red { 0%,100% { opacity:1; } 50% { opacity:0.6; } }
   #ms-countdown { font-size: 11px; color: var(--text3); white-space: nowrap; overflow:hidden; text-overflow:ellipsis; }
@@ -178,14 +178,14 @@
   .news-dot.red   { background: var(--red); }
   .headline-row {
     font-size: 12px; color: var(--text2); padding: 4px 0;
-    border-bottom: 1px solid #1a1a1a; white-space: normal;
+    border-bottom: 1px solid var(--border); white-space: normal;
     line-height: 1.5;
   }
   .headline-row .hl-time { color: var(--text3); margin-right: 4px; }
   .headline-row .hl-src  { color: var(--blue); margin-right: 4px; font-weight: bold; }
   .cal-row {
     font-size: 12px; color: var(--text2); padding: 3px 0;
-    border-bottom: 1px solid #1a1a1a; display: flex; gap: 8px; align-items: center;
+    border-bottom: 1px solid var(--border); display: flex; gap: 8px; align-items: center;
   }
   .cal-row .cal-time { color: var(--text3); min-width: 45px; }
   .cal-row .cal-impact { min-width: 8px; }
@@ -202,7 +202,7 @@
   /* ── TRADES TABLE ── */
   .trade-row {
     display: grid; grid-template-columns: 50px 45px 75px 75px 65px 1fr;
-    font-size: 12px; padding: 4px 0; border-bottom: 1px solid #1a1a1a;
+    font-size: 12px; padding: 4px 0; border-bottom: 1px solid var(--border);
     gap: 4px; align-items: center;
   }
   .trade-row.header { color: var(--text3); font-size: 12px; }
@@ -224,11 +224,11 @@
   #headlines-container::-webkit-scrollbar-thumb,
   #calendar-container::-webkit-scrollbar-thumb,
   #trades-container::-webkit-scrollbar-thumb {
-    background: #333; border-radius: 2px;
+    background: var(--border2); border-radius: 2px;
   }
   #headlines-container::-webkit-scrollbar-thumb:hover,
   #calendar-container::-webkit-scrollbar-thumb:hover,
-  #trades-container::-webkit-scrollbar-thumb:hover { background: #555; }
+  #trades-container::-webkit-scrollbar-thumb:hover { background: var(--text3); }
 </style>
 </head>
 <body>
@@ -331,7 +331,7 @@
             </div>
           </div>
           <div id="news-danger-alert" style="display:flex; align-items:center; gap:8px;
-            background:#1a0000; border:1px solid var(--red); border-radius:4px;
+            background:rgba(255,59,107,0.06); border:1px solid var(--red); border-radius:4px;
             padding:6px 12px; margin-bottom:8px; animation: pulse-red 1s infinite;
             visibility:hidden; opacity:0; transition:opacity 0.3s;">
             <span style="color:var(--red); font-size:14px;">⚠</span>

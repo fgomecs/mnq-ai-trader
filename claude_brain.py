@@ -36,6 +36,9 @@ from config import (
     VERSION,
     PRE_FILTER_SIGNAL_THRESHOLD, COUNTER_TREND_SIGNAL_THRESHOLD,
     SESSION_RANGE_SIGNAL_THRESHOLD, FEATURE_GAP_CLASSIFICATION, FEATURE_PIVOT_POINTS,
+    FEATURE_VWAP_REVERSION, VWAP_REVERSION_MIN_EXTENSION,
+    FEATURE_OR_EXTREME_FADE, FEATURE_SWEEP_REVERSAL,
+    FEATURE_OPENING_DRIVE_FADE, FEATURE_POST_NEWS_REFRESH,
     SKIP_CACHE_PRICE_DELTA, SKIP_CACHE_MAX_AGE_SECS,
     SKIP_CACHE_WATCHLIST_AGE_SECS, SKIP_LOG_EVERY_N,
     OR_THESIS_INVALIDATION_POINTS,
@@ -1167,6 +1170,35 @@ def pre_filter_signal(snapshot: dict) -> tuple:
             bear_signals += 1; bear_reasons.append("price at R2 pivot")
         if piv.get("s2") and abs(p - piv["s2"]) < 10:
             bull_signals += 1; bull_reasons.append("price at S2 pivot")
+
+    if FEATURE_VWAP_REVERSION:
+        ext = snapshot.get("vwap_extension", 0)
+        if ext >= VWAP_REVERSION_MIN_EXTENSION:
+            bear_signals += 2; bear_reasons.append("VWAP reversion (extended up)")
+        elif ext <= -VWAP_REVERSION_MIN_EXTENSION:
+            bull_signals += 2; bull_reasons.append("VWAP reversion (extended down)")
+
+    if FEATURE_OR_EXTREME_FADE:
+        if snapshot.get("or_2x_extension_up"):
+            bear_signals += 2; bear_reasons.append("OR 2x extension up (fade)")
+        if snapshot.get("or_2x_extension_down"):
+            bull_signals += 2; bull_reasons.append("OR 2x extension down (fade)")
+
+    if FEATURE_SWEEP_REVERSAL:
+        if snapshot.get("dom_sweep_up"):
+            bear_signals += 1; bear_reasons.append("DOM sweep up (reversal)")
+        if snapshot.get("dom_sweep_down"):
+            bull_signals += 1; bull_reasons.append("DOM sweep down (reversal)")
+
+    if FEATURE_OPENING_DRIVE_FADE:
+        if snapshot.get("opening_drive_fade_short"):
+            bear_signals += 2; bear_reasons.append("opening drive fade short")
+        if snapshot.get("opening_drive_fade_long"):
+            bull_signals += 2; bull_reasons.append("opening drive fade long")
+
+    if FEATURE_POST_NEWS_REFRESH and snapshot.get("post_news_window"):
+        bull_signals += 1; bull_reasons.append("post-news window")
+        bear_signals += 1; bear_reasons.append("post-news window")
 
     from session_classifier import get_current_session_type, SessionType
     required = SESSION_RANGE_SIGNAL_THRESHOLD if get_current_session_type() == SessionType.RANGE else PRE_FILTER_SIGNAL_THRESHOLD

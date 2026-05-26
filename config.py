@@ -114,7 +114,7 @@ SESSION_PRIME_WINDOW_END   = _env_int("SESSION_PRIME_WINDOW_END",   1100)  # 11:
 SESSION_DEAD_ZONE_END      = _env_int("SESSION_DEAD_ZONE_END",      1330)  # 1:30 PM ET
 SESSION_CLOSING_END        = _env_int("SESSION_CLOSING_END",        1600)  # 4:00 PM ET
 SESSION_AFTERNOON_PRIME_END= _env_int("SESSION_AFTERNOON_PRIME_END",1530)  # 3:30 PM ET
-EOD_SCHEDULE_TIME          = os.getenv("EOD_SCHEDULE_TIME", "15:30")
+EOD_SCHEDULE_TIME          = os.getenv("EOD_SCHEDULE_TIME", "15:55")
 MAIN_LOOP_SLEEP_SECS       = _env_float("MAIN_LOOP_SLEEP_SECS", 0.5)
 
 # ─── ENTRY GATES ───────────────────────────────────────────

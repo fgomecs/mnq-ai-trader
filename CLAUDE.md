@@ -83,7 +83,7 @@ ibkr_feed.get_snapshot() → snapshot dict (~60 fields)
 
 **Session classifier flow:** `main.run_cycle()` fires `classify_session_type()` once when state enters OR_ESTABLISHED. Result stored in `session_classifier._current`. Claude brain reads it on every `analyze_market()` and `update_watchlist()` call. Reset at EOD via `set_session_type(SessionType.UNKNOWN)` (in `end_of_day()`).
 
-**EOD journal flow:** `learning_session.py` calls `journal_exporter.py` after ablation. `journal_exporter.py` reads all `decisions_*.jsonl` files, rebuilds `journal_data.json` from scratch, writes it for `journal.html`. EOD fires at `EOD_SCHEDULE_TIME` (default 15:30 ET — coincides with `SESSION_AFTERNOON_PRIME_END`, so the bot effectively goes idle through the 15:30–16:00 CLOSING window).
+**EOD journal flow:** `learning_session.py` calls `journal_exporter.py` after ablation. `journal_exporter.py` reads all `decisions_*.jsonl` files, rebuilds `journal_data.json` from scratch, writes it for `journal.html`. EOD fires at `EOD_SCHEDULE_TIME` (default 15:55 ET — 5 min before RTH close, leaves the 15:30–15:55 CLOSING window live for exit-only position management).
 
 ### Snapshot dict — central contract
 
@@ -151,14 +151,15 @@ SESSION_PRIME_WINDOW_END=1100      # 11:00 ET — NY AM Prime ends
 SESSION_DEAD_ZONE_END=1330         # 13:30 ET — Dead Zone ends
 SESSION_AFTERNOON_PRIME_END=1530   # 15:30 ET — PM Prime ends
 SESSION_CLOSING_END=1600           # 16:00 ET — RTH close
-EOD_SCHEDULE_TIME=15:30            # 15:30 ET — EOD job (note: same as AFTERNOON_PRIME_END)
+EOD_SCHEDULE_TIME=15:55            # 15:55 ET — EOD job (5 min before RTH close)
 ```
 
 Entry-allowed states (from `can_enter()` in main.py):
 - **09:45 – 11:00 ET** — `OR_ESTABLISHED` + `PRIME_WINDOW`, freely
 - **11:00 – 13:30 ET** — `DEAD_ZONE`, only with confluence ≥ `DEAD_ZONE_CONFLUENCE_THRESHOLD` (8) or VWAP-magnet override
 - **13:30 – 15:30 ET** — `AFTERNOON_PRIME`, freely
-- **15:30 – 16:00 ET** — `CLOSING`, exit-only (and EOD already fired at 15:30 with default config)
+- **15:30 – 15:55 ET** — `CLOSING`, exit-only (EOD fires at 15:55)
+- **15:55 – 16:00 ET** — bot idle, position closed by EOD
 First possible entry: **09:45 ET**. Last possible entry: **15:30 ET**.
 
 ## Advanced Tuning

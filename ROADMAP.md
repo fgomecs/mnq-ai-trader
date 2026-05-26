@@ -515,3 +515,112 @@ Only after all other phases proven profitable.
 ---
 
 *Last updated: 2026-05-25. Add new items here — do not let features get lost in chat.*
+
+---
+
+## Operational Checklist & Known Gaps
+
+### Contract Roll — URGENT (June 18, 2026)
+
+Current contract MNQM6 expires June 18, 2026. IBKR stops accepting orders on expiring contracts a few days before expiry. Update .env before June 14, 2026:
+
+CONTRACT_EXPIRY=20260919
+CONTRACT_CONID=           # look up new conId in IBKR contract search for MNQU6
+
+After updating .env restart the bot. Failure to roll will cause order rejections mid-session with no warning.
+
+Next rolls after September: December 2026 (MNQZ6), March 2027 (MNQH7).
+
+---
+
+### Pre-Session Startup Checklist
+
+Every morning before 8:20 ET:
+- IBKR TWS or Gateway is running and logged in
+- API connections enabled in TWS settings (Edit → Global Configuration → API)
+- Two terminals open: py -3.11 main.py and py -3.11 -m http.server 8080 --bind 0.0.0.0
+- Optional third terminal: py -3.11 watchdog.py
+- Dashboard visible at localhost:8080/dashboard.html before bot boots
+- Mobile dashboard reachable at Tailscale IP before bot boots
+
+TODO: Create start_trading.bat to launch all three with one double-click. This reduces morning friction and eliminates the risk of forgetting the dashboard server.
+
+---
+
+### What To Do When Things Go Wrong
+
+IBKR disconnects mid-trade:
+- The stop order is already placed at the broker — it will execute without the bot
+- The watchdog will send a Pushover IBKR DISCONNECTED alert
+- Check the dashboard — if position shows LONG or SHORT and bot is offline, log into IBKR manually and monitor or close the position
+- Do not restart main.py while in a position unless you verify the broker position first
+- After reconnect the bot will reconcile via update_position_from_ibkr() on next cycle
+
+Bot crashes mid-session:
+- Watchdog detects main.py missing after 2 checks (60s) and sends BOT CRASHED alert
+- Stop orders remain active at IBKR — position is protected
+- Check logs/ for the last error before restarting
+- Restart with py -3.11 main.py — bot will reconnect and reconcile position on boot
+
+Daily loss limit hit:
+- Bot stops scanning and logs DAILY LOSS LIMIT HIT
+- Does not exit existing position — only blocks new entries
+- EOD routine still fires at 16:05 and closes any open position
+- Do not manually override the loss cap
+
+Dashboard shows stale data:
+- Check that the HTTP server is still running in its terminal
+- Check that main.py is still running
+- Hard refresh the browser with Ctrl+Shift+R
+- If bot is sleeping the dashboard will show BOT SLEEPING — this is normal
+
+---
+
+### Monitoring Workflow
+
+Recommended approach while learning the system:
+- Desktop dashboard open during session for full detail
+- Mobile dashboard on iPhone for away-from-desk awareness
+- Pushover alerts for all entries, exits, and errors
+- Check logs/trading_YYYYMMDD.log after session for any warnings or errors
+- After EOD fires, check journal.html for the session summary
+
+Do not watch every tick. The bot is designed to be left running. Constant monitoring leads to manual intervention which defeats the purpose.
+
+---
+
+### Paper Trading vs Live Differences
+
+Be aware when transitioning from paper to live:
+- Paper trading fills at bid/ask midpoint — live fills will have slippage
+- Limit orders may not fill at all on fast-moving entries — the bot has a 5-second timeout then converts to market
+- Spread on MNQ is typically 1 tick (0.25 points = $0.50) but widens during news events
+- Paper P&L will look cleaner than live P&L — expect 10-15% degradation from slippage alone
+- Do not go live until paper trading shows consistent positive expectancy over 20+ sessions
+
+---
+
+### Data Protection
+
+The data/ folder contains all recorded sessions and is the most valuable asset in the system. It is not committed to git (git-ignored). Protect it:
+
+TODO: Set up a daily robocopy or backup to an external drive or cloud folder:
+robocopy C:\trading\mnq-ai-trader\data D:\backup\mnq-data /MIR /LOG:backup.log
+
+If the PC dies without a backup all session recordings are lost and the learning flywheel resets.
+
+Same applies to memory/ folder which contains all learning reports and tick state.
+
+---
+
+### Known Behavioral Gaps (fix in future versions)
+
+No multi-day loss awareness: The bot treats every day identically. After 3 consecutive losing days it does not reduce aggressiveness or raise thresholds. A human trader would step back and review. Consider adding a consecutive losing days counter that raises MIN_THESIS_PROBABILITY by 5 points per losing day beyond 2.
+
+Paper trading fill quality: SimExecutor assumes fills at the snapshot price. Real limit orders may not fill if price moves through the level too fast. Backtester results will be optimistic compared to live.
+
+Learning system untested on real data: The full EOD pipeline (ablation → synthesis → version bump → journal export) has never run on real session data. Expect a debug pass after the first real session.
+
+Claude probability calibration: The 70% thesis probability gate is uncalibrated. Claude has no feedback loop on whether its stated probabilities are accurate. After 20 sessions compare stated probabilities to actual outcomes and adjust MIN_THESIS_PROBABILITY empirically.
+
+Dead zone data collection: FEATURE_DEAD_ZONE=false means the bot trades freely 11am-1:30pm ET. Historical data suggests this window is net negative. Monitor dead zone entries separately in the journal and restrict if the data confirms the historical pattern.

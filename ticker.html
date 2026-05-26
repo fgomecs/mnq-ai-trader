@@ -1,0 +1,579 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>DoBot Ticker</title>
+<link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=JetBrains+Mono:wght@300;400;500;700&display=swap" rel="stylesheet">
+<style>
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+:root {
+  --bg: #04050d;
+  --surface: #080c18;
+  --border: #0f1a30;
+  --green: #00ff88;
+  --red: #ff2d55;
+  --amber: #ffcc00;
+  --blue: #00c8ff;
+  --text: #e8f0ff;
+  --dim: #3a4a6a;
+  --mono: 'JetBrains Mono', monospace;
+  --display: 'Bebas Neue', sans-serif;
+}
+
+html, body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  height: 100%;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* ── SCAN LINE EFFECT ── */
+body::after {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0,0,0,0.08) 2px,
+    rgba(0,0,0,0.08) 4px
+  );
+  pointer-events: none;
+  z-index: 999;
+}
+
+.wrap {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 12px;
+  gap: 10px;
+}
+
+/* ── TOP STRIP ── */
+.top-strip {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 8px;
+}
+.logo {
+  font-family: var(--display);
+  font-size: 22px;
+  letter-spacing: 3px;
+  color: var(--blue);
+  text-shadow: 0 0 20px rgba(0,200,255,0.4);
+}
+.clock {
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 1px;
+}
+.session-badge {
+  font-size: 9px;
+  padding: 3px 8px;
+  border-radius: 2px;
+  background: rgba(0,200,255,0.08);
+  border: 1px solid rgba(0,200,255,0.2);
+  color: var(--blue);
+  letter-spacing: 1px;
+  text-transform: uppercase;
+}
+
+/* ── PRICE BLOCK ── */
+.price-block {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  padding: 8px 0;
+}
+.price-main {
+  font-family: var(--display);
+  font-size: 72px;
+  line-height: 1;
+  letter-spacing: 2px;
+  transition: color 0.1s;
+}
+.price-main.up   { color: var(--green); text-shadow: 0 0 30px rgba(0,255,136,0.3); }
+.price-main.down { color: var(--red);   text-shadow: 0 0 30px rgba(255,45,85,0.3); }
+.price-main.flat { color: var(--text); }
+
+.price-side {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.bid-ask {
+  display: flex;
+  gap: 10px;
+  font-size: 14px;
+  font-weight: 500;
+}
+.bid-label { color: var(--dim); font-size: 9px; letter-spacing: 1px; margin-right: 4px; }
+.bid-val   { color: var(--green); }
+.ask-val   { color: var(--red); }
+.spread    { font-size: 9px; color: var(--dim); letter-spacing: 1px; margin-top: 2px; }
+
+.change-row {
+  display: flex;
+  gap: 16px;
+  font-size: 11px;
+  color: var(--dim);
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+.change-row span { color: var(--text); }
+
+/* ── MINI STATS ── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+.stat-box {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+.stat-label {
+  font-size: 8px;
+  color: var(--dim);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.stat-val {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text);
+}
+.stat-val.pos { color: var(--green); }
+.stat-val.neg { color: var(--red); }
+.stat-val.neu { color: var(--amber); }
+
+/* ── CHART ── */
+.chart-wrap {
+  flex: 1;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+  position: relative;
+  overflow: hidden;
+  min-height: 0;
+}
+.chart-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.chart-title {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+}
+.chart-ohlc {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 0.5px;
+}
+.chart-ohlc span { color: var(--text); }
+
+canvas#chart {
+  width: 100%;
+  height: calc(100% - 28px);
+  display: block;
+}
+
+/* ── BOTTOM BAR ── */
+.bottom-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 1px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.pulse {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 1.5s ease-in-out infinite;
+  display: inline-block;
+  margin-right: 6px;
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50%       { opacity: 0.3; }
+}
+
+/* ── FLASH ── */
+@keyframes flashGreen {
+  0%   { background: rgba(0,255,136,0.15); }
+  100% { background: transparent; }
+}
+@keyframes flashRed {
+  0%   { background: rgba(255,45,85,0.15); }
+  100% { background: transparent; }
+}
+.flash-up   { animation: flashGreen 0.3s ease-out; }
+.flash-down { animation: flashRed   0.3s ease-out; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- TOP STRIP -->
+  <div class="top-strip">
+    <div class="logo">DOBOT</div>
+    <div class="session-badge" id="session-badge">LOADING</div>
+    <div class="clock" id="clock">--:--:--  ET</div>
+  </div>
+
+  <!-- PRICE BLOCK -->
+  <div class="price-block" id="price-block">
+    <div class="price-main flat" id="price-main">——</div>
+    <div class="price-side">
+      <div class="bid-ask">
+        <span><span class="bid-label">BID</span><span class="bid-val" id="bid">——</span></span>
+        <span><span class="bid-label">ASK</span><span class="ask-val" id="ask">——</span></span>
+      </div>
+      <div class="spread" id="spread">SPREAD ——</div>
+    </div>
+  </div>
+
+  <!-- STATS ROW -->
+  <div class="stats-row">
+    <div class="stat-box">
+      <div class="stat-label">Daily P&L</div>
+      <div class="stat-val" id="pnl">$0.00</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Position</div>
+      <div class="stat-val neu" id="position">FLAT</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Net Liq</div>
+      <div class="stat-val" id="netliq">——</div>
+    </div>
+    <div class="stat-box">
+      <div class="stat-label">Decision</div>
+      <div class="stat-val neu" id="decision">——</div>
+    </div>
+  </div>
+
+  <!-- CHART -->
+  <div class="chart-wrap">
+    <div class="chart-header">
+      <div class="chart-title">1M · LAST 6 CANDLES</div>
+      <div class="chart-ohlc" id="ohlc-label">O:<span id="co">—</span> H:<span id="ch">—</span> L:<span id="cl">—</span> C:<span id="cc">—</span></div>
+    </div>
+    <canvas id="chart"></canvas>
+  </div>
+
+  <!-- BOTTOM BAR -->
+  <div class="bottom-bar">
+    <div><span class="pulse"></span><span id="data-mode">CONNECTING</span></div>
+    <div id="last-update">——</div>
+    <div id="version">v——</div>
+  </div>
+
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────
+const GREEN = '#00ff88', RED = '#ff2d55', AMBER = '#ffcc00', DIM = '#1a2a40', TEXT = '#e8f0ff', BLUE = '#00c8ff';
+
+let _lastPrice = 0;
+let _bars      = [];   // completed 1-min bars from dashboard
+let _liveBar   = null; // current building bar {o,h,l,c}
+let _lastBid   = 0, _lastAsk = 0;
+
+// ── Clock ──────────────────────────────────────────────────
+function updateClock() {
+  document.getElementById('clock').textContent =
+    new Intl.DateTimeFormat('en-US', {
+      timeZone:'America/New_York',
+      hour:'2-digit', minute:'2-digit', second:'2-digit', hour12:false
+    }).format(new Date()) + '  ET';
+}
+setInterval(updateClock, 500);
+updateClock();
+
+// ── Price feed (price_data.json — 500ms) ──────────────────
+async function pollPrice() {
+  try {
+    const r = await fetch('price_data.json?t=' + Date.now());
+    if (!r.ok) return;
+    const d = await r.json();
+    if (!d.price || d.price <= 0) return;
+
+    const price = d.price;
+    const bid   = d.bid   || 0;
+    const ask   = d.ask   || 0;
+
+    // Price direction flash
+    const el = document.getElementById('price-main');
+    if (_lastPrice && price !== _lastPrice) {
+      const pb = document.getElementById('price-block');
+      pb.classList.remove('flash-up','flash-down');
+      void pb.offsetWidth;
+      pb.classList.add(price > _lastPrice ? 'flash-up' : 'flash-down');
+      el.className = 'price-main ' + (price > _lastPrice ? 'up' : 'down');
+    }
+    _lastPrice = price;
+
+    el.textContent = price.toFixed(2);
+
+    if (bid > 0) { document.getElementById('bid').textContent = bid.toFixed(2); _lastBid = bid; }
+    if (ask > 0) { document.getElementById('ask').textContent = ask.toFixed(2); _lastAsk = ask; }
+    if (_lastBid && _lastAsk) {
+      const spread = ((_lastAsk - _lastBid) * 4).toFixed(0);
+      document.getElementById('spread').textContent = `SPREAD ${spread} TICK${spread!=='1'?'S':''}`;
+    }
+
+    // P&L
+    const pnl = d.pnl || 0;
+    const pnlEl = document.getElementById('pnl');
+    pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
+    pnlEl.className = 'stat-val ' + (pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'neu');
+
+    // Position
+    const posEl = document.getElementById('position');
+    const pos = d.position || 'FLAT';
+    posEl.textContent = pos;
+    posEl.className = 'stat-val ' + (pos==='LONG'?'pos':pos==='SHORT'?'neg':'neu');
+
+    // Net liq
+    if (d.netLiq) document.getElementById('netliq').textContent = '$' + Number(d.netLiq).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
+
+    // Live bar update — update close of current building bar
+    if (_liveBar) {
+      _liveBar.c = price;
+      _liveBar.h = Math.max(_liveBar.h, price);
+      _liveBar.l = Math.min(_liveBar.l, price);
+      updateOhlcLabel(_liveBar);
+      drawChart();
+    }
+
+    document.getElementById('last-update').textContent = new Date().toLocaleTimeString('en-US',{hour12:false,timeZone:'America/New_York'});
+  } catch(e) {}
+}
+setInterval(pollPrice, 300);
+
+// ── Dashboard feed (dashboard_data.json — 2s) ────────────
+async function pollDash() {
+  try {
+    const r = await fetch('dashboard_data.json?t=' + Date.now());
+    if (!r.ok) return;
+    const d = await r.json();
+
+    // Session badge
+    const state = (d.data_mode||'').replace('BOT SLEEPING','SLEEPING').replace('LIVE L2','LIVE').replace('DELAYED','DELAYED');
+    document.getElementById('session-badge').textContent = d.botSleeping ? 'SLEEPING' : (d.killzone||state||'LIVE');
+    document.getElementById('data-mode').textContent = d.botSleeping ? ('WAKES ' + (d.wakeTime||'')) : state;
+    document.getElementById('version').textContent = d.botVersion ? 'v' + d.botVersion : '';
+
+    // Decision
+    const decEl = document.getElementById('decision');
+    const dec = d.lastDecision || 'HOLD';
+    decEl.textContent = dec;
+    decEl.className = 'stat-val ' + (dec==='BUY'?'pos':dec==='SELL'?'neg':'neu');
+
+    // Bars — take last 5 completed bars, build live bar from current price
+    const raw = d.bars1min || [];
+    if (raw.length > 0) {
+      // Last 5 completed bars
+      _bars = raw.slice(-5).map(b => ({
+        t: b.t || b.time || '',
+        o: b.open  || b.o || 0,
+        h: b.high  || b.h || 0,
+        l: b.low   || b.l || 0,
+        c: b.close || b.c || 0,
+      })).filter(b => b.o > 0);
+
+      // Build live bar from currentBarOpen + live price
+      const barOpen = d.currentBarOpen || (_lastPrice || 0);
+      if (barOpen > 0 && _lastPrice > 0) {
+        if (!_liveBar || Math.abs(_liveBar.o - barOpen) > 1) {
+          // New bar started
+          _liveBar = { o: barOpen, h: Math.max(barOpen, _lastPrice), l: Math.min(barOpen, _lastPrice), c: _lastPrice, live: true };
+        }
+      }
+      drawChart();
+    }
+  } catch(e) {}
+}
+setInterval(pollDash, 1000);
+pollDash();
+
+// ── OHLC label ────────────────────────────────────────────
+function updateOhlcLabel(b) {
+  if (!b) return;
+  document.getElementById('co').textContent = b.o.toFixed(2);
+  document.getElementById('ch').textContent = b.h.toFixed(2);
+  document.getElementById('cl').textContent = b.l.toFixed(2);
+  document.getElementById('cc').textContent = b.c.toFixed(2);
+}
+
+// ── Chart engine ──────────────────────────────────────────
+function drawChart() {
+  const canvas = document.getElementById('chart');
+  const dpr    = window.devicePixelRatio || 1;
+  const W      = canvas.parentElement.clientWidth - 20;
+  const H      = canvas.parentElement.clientHeight - 40;
+  if (W <= 0 || H <= 0) return;
+
+  canvas.width  = W * dpr;
+  canvas.height = H * dpr;
+  canvas.style.width  = W + 'px';
+  canvas.style.height = H + 'px';
+
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  // All bars = last 5 completed + live
+  const allBars = [..._bars];
+  if (_liveBar) allBars.push(_liveBar);
+  if (allBars.length === 0) {
+    ctx.fillStyle = DIM;
+    ctx.font = '11px JetBrains Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText('Waiting for bar data...', W/2, H/2);
+    return;
+  }
+
+  // Update OHLC label with live bar or last completed
+  const labelBar = _liveBar || allBars[allBars.length-1];
+  updateOhlcLabel(labelBar);
+
+  // Price range
+  const prices = allBars.flatMap(b => [b.h, b.l]);
+  let hi = Math.max(...prices);
+  let lo = Math.min(...prices);
+  const range = hi - lo || 10;
+  const pad   = range * 0.15;
+  hi += pad; lo -= pad;
+
+  const toY = v => H * 0.05 + (H * 0.88) * (1 - (v - lo) / (hi - lo));
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(15,26,48,0.8)';
+  ctx.lineWidth   = 1;
+  const steps = 5;
+  for (let i = 0; i <= steps; i++) {
+    const v = lo + (hi - lo) * (i / steps);
+    const y = toY(v);
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W, y);
+    ctx.stroke();
+    ctx.fillStyle = 'rgba(58,74,106,0.7)';
+    ctx.font = '8px JetBrains Mono';
+    ctx.textAlign = 'left';
+    ctx.fillText(v.toFixed(0), 2, y - 2);
+  }
+
+  // Candles
+  const n       = allBars.length;
+  const colW    = (W * 0.85) / n;
+  const bodyW   = Math.max(colW * 0.55, 4);
+  const startX  = W * 0.05;
+
+  allBars.forEach((b, i) => {
+    const x    = startX + i * colW + colW / 2;
+    const isLive = b.live;
+    const bull = b.c >= b.o;
+    const color = bull ? GREEN : RED;
+
+    // Glow on live candle
+    if (isLive) {
+      ctx.shadowColor = color;
+      ctx.shadowBlur  = 12;
+    } else {
+      ctx.shadowBlur = 0;
+    }
+
+    // Wick
+    ctx.strokeStyle = color;
+    ctx.lineWidth   = isLive ? 1.5 : 1;
+    ctx.beginPath();
+    ctx.moveTo(x, toY(b.h));
+    ctx.lineTo(x, toY(b.l));
+    ctx.stroke();
+
+    // Body
+    const bodyTop = toY(Math.max(b.o, b.c));
+    const bodyBot = toY(Math.min(b.o, b.c));
+    const bodyH   = Math.max(Math.abs(bodyBot - bodyTop), 2);
+
+    if (isLive) {
+      // Live candle: glowing fill
+      const grad = ctx.createLinearGradient(0, bodyTop, 0, bodyBot);
+      grad.addColorStop(0, color);
+      grad.addColorStop(1, color + '60');
+      ctx.fillStyle = grad;
+    } else {
+      ctx.fillStyle = bull ? color + 'bb' : color + 'bb';
+    }
+    ctx.fillRect(x - bodyW/2, bodyTop, bodyW, bodyH);
+
+    // Live candle border
+    if (isLive) {
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = 1.5;
+      ctx.strokeRect(x - bodyW/2, bodyTop, bodyW, bodyH);
+    }
+
+    ctx.shadowBlur = 0;
+
+    // Time label
+    if (b.t) {
+      ctx.fillStyle = isLive ? BLUE : DIM;
+      ctx.font      = isLive ? '8px JetBrains Mono' : '7px JetBrains Mono';
+      ctx.textAlign = 'center';
+      const label   = isLive ? 'LIVE' : (String(b.t).slice(-5));
+      ctx.fillText(label, x, H - 4);
+    }
+  });
+
+  // Current price line
+  if (_lastPrice > 0) {
+    const py = toY(_lastPrice);
+    ctx.setLineDash([3, 4]);
+    ctx.strokeStyle = TEXT + '40';
+    ctx.lineWidth   = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, py);
+    ctx.lineTo(W * 0.92, py);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Price tag
+    ctx.fillStyle = '#111d33';
+    ctx.fillRect(W * 0.92, py - 8, W * 0.08, 16);
+    ctx.fillStyle = TEXT;
+    ctx.font      = '8px JetBrains Mono';
+    ctx.textAlign = 'center';
+    ctx.fillText(_lastPrice.toFixed(1), W * 0.96, py + 3);
+  }
+}
+
+window.addEventListener('resize', drawChart);
+</script>
+</body>
+</html>

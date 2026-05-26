@@ -31,7 +31,13 @@
   #logo { font-size: 13px; font-weight: bold; color: var(--blue); letter-spacing: 1px; white-space:nowrap; }
   #version-badge { font-size: 10px; color: var(--text3); margin-top: 1px; white-space:nowrap; }
   #price-block { display: flex; flex-direction: column; }
-  #price-main { font-size: 28px; font-weight: bold; color: var(--text); line-height: 1; white-space:nowrap; overflow:hidden; }
+  #price-main { font-size: 28px; font-weight: bold; color: var(--text); line-height: 1; white-space:nowrap; overflow:hidden; transition: color 0.1s; }
+  #price-main.up   { color: #00ff88; text-shadow: 0 0 18px rgba(0,255,136,0.35); }
+  #price-main.down { color: #ff2d55; text-shadow: 0 0 18px rgba(255,45,85,0.35); }
+  @keyframes flashGreen { 0% { background: rgba(0,255,136,0.15); } 100% { background: transparent; } }
+  @keyframes flashRed   { 0% { background: rgba(255,45,85,0.15); } 100% { background: transparent; } }
+  .flash-up   { animation: flashGreen 0.3s ease-out; }
+  .flash-down { animation: flashRed   0.3s ease-out; }
   #price-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
   #status-pills { display: flex; gap: 8px; align-items: center; }
   .pill {
@@ -812,15 +818,28 @@ async function poll() {
 poll();
 setInterval(poll, 200);
 
+let _lastTickerPrice = 0;
 async function pollPrice() {
   try {
     const resp = await fetch('price_data.json?t=' + Date.now());
     if (!resp.ok) return;
     const d = await resp.json();
-    if (d.price) {
-      document.getElementById('price-main').textContent = d.price.toFixed(2);
-      document.getElementById('price-main').style.opacity = '1';
+    if (!d.price || d.price <= 0) return;
+    const price = d.price;
+    const el = document.getElementById('price-main');
+    if (_lastTickerPrice && price !== _lastTickerPrice) {
+      const pb = document.getElementById('price-block');
+      if (pb) {
+        pb.classList.remove('flash-up','flash-down');
+        void pb.offsetWidth;
+        pb.classList.add(price > _lastTickerPrice ? 'flash-up' : 'flash-down');
+      }
+      el.classList.remove('up','down');
+      el.classList.add(price > _lastTickerPrice ? 'up' : 'down');
     }
+    _lastTickerPrice = price;
+    el.textContent = price.toFixed(2);
+    el.style.opacity = '1';
     if (d.bid && d.bid > 0) document.getElementById('bid').textContent = d.bid.toFixed(2);
     if (d.ask && d.ask > 0) document.getElementById('ask').textContent = d.ask.toFixed(2);
     const bars = window._lastBars;
@@ -852,7 +871,7 @@ async function pollPrice() {
   } catch(e) {}
 }
 pollPrice();
-setInterval(pollPrice, 500);
+setInterval(pollPrice, 300);
 
 // Live clock — use Intl API for correct ET (handles DST automatically)
 

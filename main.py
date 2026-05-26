@@ -468,7 +468,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
         stype = classify_session_type(snapshot, or_range, 0)
         set_session_type(stype)
         _session_type_classified = True
-        logger.info(f"[SESSION_CLASSIFIER] Session classified as {stype.value} (OR range {or_range:.1f} pts)")
+        logger.info(f"[SESSION_CLASSIFIER] Session classified as {stype} (OR range {or_range:.1f} pts)")
 
     # ── Watchlist refresh (every 5 min) ───────────────────
     if now_ts - last_watchlist_time >= WATCHLIST_REFRESH_SECS:
@@ -1145,12 +1145,10 @@ def main() -> None:
             time.sleep(MAIN_LOOP_SLEEP_SECS)
 
     except KeyboardInterrupt:
-        logger.info("Shutdown requested")
+        logger.info("Bot stopped by user")
         _fast_ticker_running = False
-        end_of_day(feed, executor)
         cancel_all_orders(feed.ib)
         feed.disconnect()
-        logger.info("System shut down cleanly")
     except Exception as e:
         if _notify_available:
             notify_error("main.py", str(e))

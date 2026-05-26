@@ -1,7 +1,8 @@
 {
   "account": "MNQ Paper ($50,000)",
+  "bot_version": "4.4.1",
   "starting_balance": 50000.0,
-  "last_updated": "2026-05-25T15:05:42.957563+00:00",
+  "last_updated": "2026-05-26T14:00:06.759384+00:00",
   "equity_curve": [],
   "by_strategy": {},
   "by_hour": {},

@@ -956,7 +956,7 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     Returns (worth_calling_claude: bool, reason: str).
     """
     # Hard blocks
-    if snapshot.get("news_danger_zone"):
+    if FEATURE_NEWS_GATE and snapshot.get("news_danger_zone"):
         return False, "news danger zone"
 
     or_dir = snapshot.get("or_direction")

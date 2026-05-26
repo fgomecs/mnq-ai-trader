@@ -889,6 +889,55 @@ Refreshes every 5 seconds. Shows `BOT SLEEPING` in yellow with wake time when do
 
 ---
 
+## Remote Access
+
+### WSL2 Remote Access via Tailscale SSH
+
+Since the bot runs on WSL2, you can access the terminal remotely from any device using Tailscale SSH. Useful for checking logs, restarting the bot, or managing OpenClaw without sitting at your PC.
+
+Setup (one time):
+```bash
+sudo apt install openssh-server -y
+sudo service ssh start
+```
+
+Then from any device on your Tailscale network:
+```bash
+ssh fgomecs@100.97.169.17
+```
+
+On iPhone use Termius (free, App Store) with your Tailscale IP and SSH credentials.
+
+To make SSH start automatically when WSL2 opens:
+```bash
+echo "sudo service ssh start" >> ~/.bashrc
+```
+
+### OpenClaw Gateway
+
+OpenClaw runs alongside the bot and provides a WhatsApp interface for querying bot status from anywhere. Gateway must be running for Jarvis to respond.
+
+Start the gateway (runs in its own terminal):
+```bash
+openclaw gateway run
+```
+
+Gateway auto-starts on WSL2 boot if configured. Dashboard at http://127.0.0.1:18789 (token required).
+
+Jarvis commands via WhatsApp (send to your own number):
+```
+Run: cd /mnt/c/trading/mnq-ai-trader && python3 remote_control.py status
+Run: cd /mnt/c/trading/mnq-ai-trader && python3 remote_control.py summary
+Run: cd /mnt/c/trading/mnq-ai-trader && python3 remote_control.py pnl
+Run: cd /mnt/c/trading/mnq-ai-trader && python3 remote_control.py trades
+Run: cd /mnt/c/trading/mnq-ai-trader && python3 remote_control.py last_trade
+Run: cd /mnt/c/trading/mnq-ai-trader && python3 remote_control.py learning
+```
+
+Jarvis memory is loaded from `~/.openclaw/workspace/BOOTSTRAP.md` on every session start. Edit that file to update Jarvis personality or bot context.
+
+---
+
 ## Backtesting
 
 ### How It Works

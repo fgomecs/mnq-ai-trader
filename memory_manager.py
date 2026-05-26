@@ -134,8 +134,31 @@ def save_daily_summary(trades: list, daily_pnl: float, analysis_log: list) -> st
     trade_details = "\n".join(trade_detail_lines)
 
     lessons_json: dict = {}
+
+    # Day-of-week + bot activity context: prevents Claude from confabulating
+    # "must be a holiday" on zero-trade days when the bot was actually active.
+    today_dt   = datetime.strptime(today, "%Y-%m-%d")
+    weekday    = today_dt.strftime("%A")
+    activity_lines = []
+    try:
+        base_dir = os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader")
+        dec_path = os.path.join(base_dir, "data", f"decisions_{today}.jsonl")
+        if os.path.exists(dec_path):
+            n_calls = sum(1 for _ in open(dec_path, encoding="utf-8"))
+            if n_calls:
+                activity_lines.append(
+                    f"Bot was ACTIVE today — {n_calls} Opus entry calls were made. "
+                    f"This was a normal trading session, NOT a holiday or downtime."
+                )
+    except Exception:
+        pass
+    activity_context = "\n".join(activity_lines) or "(activity log unavailable)"
+
     prompt = f"""You are a professional trading coach reviewing today's MNQ futures trades.
-Today: {today} | Net P&L: ${daily_pnl:.2f} | Trades: {total} | Win rate: {win_rate:.0f}%
+Today: {today} ({weekday}) | Net P&L: ${daily_pnl:.2f} | Trades: {total} | Win rate: {win_rate:.0f}%
+
+CONTEXT:
+{activity_context}
 
 TRADE DETAILS:
 {trade_details}

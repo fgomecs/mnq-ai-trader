@@ -27,7 +27,6 @@ from config import (
     TRAIL_PROFIT_1_TICKS, TRAIL_PROFIT_1_LOCK,
     TRAIL_PROFIT_2_TICKS, TRAIL_PROFIT_2_LOCK,
     ENTRY_MODE, LIMIT_ORDER_MAX_SLIPPAGE, LIMIT_ORDER_TIMEOUT_SECS,
-    SIMULATE_COMMISSIONS, COMMISSION_PER_SIDE_USD,
 )
 from logger import logger
 
@@ -625,25 +624,14 @@ class Executor:
         diff = (exit_price - entry_price) if was_long else (entry_price - exit_price)
         pnl  = (diff / TICK_SIZE) * TICK_VALUE * contracts
 
-        # Prefer real broker commissions (captured via commissionReportEvent).
-        # Fall back to SIMULATE_COMMISSIONS only when the broker reported nothing —
-        # IBKR paper accounts do report commissions, so this normally takes the
-        # real-data path. The pending bucket covers both entry and exit fills.
-        commission        = 0.0
-        commission_source = "none"
+        # Real broker commissions captured via commissionReportEvent.
+        # IBKR (incl. paper) reports actual fill commissions, which is the
+        # source of truth — we deduct that, not a hardcoded estimate.
         with self._commission_lock:
-            broker_commission = self._broker_commission_pending
+            commission = self._broker_commission_pending
             self._broker_commission_pending = 0.0
-
-        if broker_commission > 0:
-            commission        = broker_commission
-            commission_source = "broker"
-        elif SIMULATE_COMMISSIONS:
-            commission        = COMMISSION_PER_SIDE_USD * 2 * contracts
-            commission_source = "simulated"
-
-        if commission > 0:
-            pnl -= commission
+        commission_source = "broker" if commission > 0 else "none"
+        pnl -= commission
 
         # FIX 6 — P&L sanity bound. On a 1-contract MNQ trade, the maximum
         # realistic single-trade P&L is roughly $200-300 (a 100-point move).

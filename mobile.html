@@ -186,6 +186,7 @@
   <div class="card-body">
     <div id="pos-display" class="yellow">FLAT</div>
     <div id="pos-pnl" style="color:var(--text2)">+$0.00</div>
+    <div id="pos-pnl-breakdown" style="font-size:12px;color:var(--text2);font-family:var(--font-mono);margin-top:2px">Net +$0.00 · Comm $0.00</div>
     <div style="margin-top:12px">
       <div class="pos-row"><span class="pos-label">Stop</span><span class="pos-val red" id="pos-stop">—</span></div>
       <div class="pos-row"><span class="pos-label">Entry</span><span class="pos-val" id="pos-entry">—</span></div>
@@ -434,6 +435,11 @@ async function poll() {
     const pnl = parseFloat(d.dailyPnl) || 0;
     el('pos-pnl').textContent  = fmtPnl(pnl);
     el('pos-pnl').style.color  = pnl > 0 ? 'var(--green)' : pnl < 0 ? 'var(--red)' : 'var(--text2)';
+
+    const commissions = parseFloat(d.dailyCommissions) || 0;
+    const netPnl      = (d.dailyNetPnl !== undefined && d.dailyNetPnl !== null) ? parseFloat(d.dailyNetPnl) : pnl;
+    const breakdownEl = el('pos-pnl-breakdown');
+    if (breakdownEl) breakdownEl.textContent = `Net ${fmtPnl(netPnl)} · Comm $${commissions.toFixed(2)}`;
     el('pos-stop').textContent   = d.stopPrice   ? fmt(d.stopPrice)   : '—';
     el('pos-entry').textContent  = d.entryPrice  ? fmt(d.entryPrice)  : '—';
     el('pos-target').textContent = d.targetPrice ? fmt(d.targetPrice) : '—';

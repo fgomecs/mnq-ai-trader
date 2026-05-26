@@ -174,16 +174,28 @@ def update_dashboard(
 
         trade_list = [
             {
-                "time":       t.get("time", ""),
-                "action":     t.get("action", ""),
-                "entry":      t.get("entry"),
-                "exit":       t.get("exit"),
-                "pnl":        t.get("pnl"),
-                "mode":       t.get("mode", "--"),
-                "exit_reason": (t.get("exit_reason") or "")[:100],
+                "time":              t.get("time", ""),
+                "action":             t.get("action", ""),
+                "entry":              t.get("entry"),
+                "exit":               t.get("exit"),
+                "pnl":                t.get("pnl"),
+                "commission":         t.get("commission", 0.0),
+                "commission_source":  t.get("commission_source", "none"),
+                "mode":               t.get("mode", "--"),
+                "exit_reason":       (t.get("exit_reason") or "")[:100],
             }
             for t in (trades or [])
         ]
+
+        # Real broker commissions captured by Executor are now part of each
+        # trade row. daily_pnl is already net of commissions (deducted in
+        # _record_pnl), so dailyNetPnl == daily_pnl; dailyCommissions is the
+        # absolute total for visibility.
+        daily_commissions = round(
+            sum(float(t.get("commission") or 0.0) for t in (trades or [])),
+            2,
+        )
+        daily_net_pnl = round(daily_pnl, 2)
 
         s = snapshot or {}
         or_high        = s.get("or_high")
@@ -221,8 +233,10 @@ def update_dashboard(
             "stopPrice":    stop_price,
             "targetPrice":  target_price,
             "currentPrice": current_price,
-            "dailyPnl":     round(daily_pnl, 2),
-            "maxLoss":      max_loss,
+            "dailyPnl":         round(daily_pnl, 2),
+            "dailyCommissions": daily_commissions,
+            "dailyNetPnl":      daily_net_pnl,
+            "maxLoss":          max_loss,
 
             "claudeStatus":        claude_status or "IDLE",
             "lastDecision":        last_decision or "",

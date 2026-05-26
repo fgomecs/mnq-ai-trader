@@ -825,13 +825,14 @@ async function pollPrice() {
     if (d.bid) document.getElementById('bid').textContent = d.bid.toFixed(2);
     if (d.ask) document.getElementById('ask').textContent = d.ask.toFixed(2);
     const chartEngine = window._chartEngine;
-    if (chartEngine && d.price && d.entry !== undefined) {
+    if (chartEngine && d.price) {
       const bars = chartEngine.bars;
       if (bars && bars.length > 0) {
         const lastBar = bars[bars.length - 1];
         if (lastBar) {
-          lastBar.high = Math.max(lastBar.high, d.price);
-          lastBar.low  = Math.min(lastBar.low,  d.price);
+          if (d.currentBarOpen) lastBar.open = d.currentBarOpen;
+          lastBar.high  = d.currentBarHigh ? Math.max(lastBar.high, d.currentBarHigh) : Math.max(lastBar.high, d.price);
+          lastBar.low   = d.currentBarLow  ? Math.min(lastBar.low,  d.currentBarLow)  : Math.min(lastBar.low,  d.price);
           lastBar.close = d.price;
           chartEngine.dirty = true;
         }

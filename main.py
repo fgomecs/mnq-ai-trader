@@ -160,6 +160,7 @@ _last_swing_low       = 999_999.0
 _fast_ticker_running  = False
 _last_snapshot_lock   = threading.Lock()
 _last_snapshot: dict  = {}
+_current_bar: dict    = {"minute": None, "open": 0.0, "high": 0.0, "low": 0.0}
 
 _session_type_classified = False
 _post_news_analyzed      = False
@@ -304,6 +305,18 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                 with _last_snapshot_lock:
                     account_data = _last_snapshot.get("account_data", {})
 
+            # Track current forming 1-min bar (reset on minute boundary)
+            if price > 0:
+                now_min = int(time.time() // 60)
+                if _current_bar["minute"] != now_min:
+                    _current_bar["minute"] = now_min
+                    _current_bar["open"]   = price
+                    _current_bar["high"]   = price
+                    _current_bar["low"]    = price
+                else:
+                    if price > _current_bar["high"]: _current_bar["high"] = price
+                    if price < _current_bar["low"]:  _current_bar["low"]  = price
+
             update_price_only(
                 price=price, bid=bid, ask=ask, volume=vol,
                 position=executor.current_position,
@@ -312,6 +325,7 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                 target_price=executor.target_price,
                 daily_pnl=executor.daily_pnl,
                 account=account_data,
+                current_bar=_current_bar if price > 0 else None,
             )
 
             # Every DASHBOARD_LIVE_PATCH_SECS — patch dashboard with live OR + position data

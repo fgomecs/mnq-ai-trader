@@ -297,8 +297,8 @@ def run_learning_session(
     # ── 4b. Truncation analysis (max_tokens detection) ────────
     truncation = _analyze_truncation(date_str)
     if truncation["truncated"]:
-        print(f"[learning] ⚠ Truncated entry calls: {truncation['truncated']}/{truncation['total']} "
-              f"({truncation['rate_pct']}%) — ${truncation['wasted_cost']} wasted")
+        print(f"[learning] WARN Truncated entry calls: {truncation['truncated']}/{truncation['total']} "
+              f"({truncation['rate_pct']}%) - ${truncation['wasted_cost']} wasted")
     if commission_analysis["flags"]:
         print(f"[learning] ⚠ Sizing flags: {commission_analysis['summary']}")
     elif commission_analysis["commission_total"] > 0:

@@ -15,7 +15,10 @@ Output schema:
     "daily_pnl":        [{"date","pnl","trades","wins","losses"}],
     "ofi_performance":  {"STRONG_BUY": {"trades","wins","pnl"}, ...},
     "thesis_buckets":   {"70-75":{"trades","wins","pnl"}, "75-80":...,
-                          "80-85":..., "85+":...}
+                          "80-85":..., "85+":...},
+    "commission_sources": {"broker"|"simulated"|"none": {
+                            "trades","wins","losses","pnl","win_rate",
+                            "commission_total"}}
   }
 
 Reads ONLY type="trade" and type="decision" records from decisions JSONL files.
@@ -249,6 +252,9 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
     by_hour:        dict[str, dict]   = {}
     ofi_perf:       dict[str, dict]   = {s: _empty_stats() for s in _OFI_SIGNALS}
     thesis_buckets: dict[str, dict]   = {name: _empty_stats() for name, *_ in _THESIS_BUCKETS}
+    # Commission-source breakdown: tracks how many trades used real broker
+    # commissions vs simulated vs none, plus the dollar total per source.
+    comm_by_source: dict[str, dict]   = {}
     all_rr_values:  list[float]       = []
     week_data:      dict[str, dict]   = {}   # ISO-week → {rr_values, wins, total}
     day_rr_data:    dict[str, list]   = {}   # date → list of rr values
@@ -274,12 +280,29 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
             pnl    = float(trade.get("pnl", 0.0))
             mode   = trade.get("mode", "UNKNOWN").upper()
             ts_utc = trade.get("ts", "")
+            try:
+                comm_amt = float(trade.get("commission") or 0.0)
+            except (TypeError, ValueError):
+                comm_amt = 0.0
+            comm_src   = (trade.get("commission_source") or "none").lower()
 
             day_pnl   += pnl
             if pnl > 0:
                 day_wins += 1
             else:
                 day_losses += 1
+
+            # ── commission-source breakdown ──────────────────
+            bucket = comm_by_source.setdefault(comm_src, {
+                "trades": 0, "wins": 0, "losses": 0, "pnl": 0.0, "commission_total": 0.0,
+            })
+            bucket["trades"]            += 1
+            bucket["pnl"]               += pnl
+            bucket["commission_total"]  += comm_amt
+            if pnl > 0:
+                bucket["wins"]   += 1
+            else:
+                bucket["losses"] += 1
 
             # ── by_strategy ──────────────────────────────────
             if mode not in by_strategy:
@@ -394,6 +417,13 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
         "daily_pnl":        daily_rows,
         "ofi_performance":  {k: _finalize_stats(v) for k, v in ofi_perf.items()},
         "thesis_buckets":   {k: _finalize_stats(v) for k, v in thesis_buckets.items()},
+        "commission_sources": {
+            k: {
+                **_finalize_stats({k2: v[k2] for k2 in ("trades", "wins", "losses", "pnl")}),
+                "commission_total": round(v["commission_total"], 2),
+            }
+            for k, v in comm_by_source.items()
+        },
         "avg_rr":            avg_rr,
         "overall_win_rate":  overall_win_rate,
         "profitability_zone": profitability_zone,

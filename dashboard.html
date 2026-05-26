@@ -842,28 +842,7 @@ async function pollPrice() {
     el.style.opacity = '1';
     if (d.bid && d.bid > 0) document.getElementById('bid').textContent = d.bid.toFixed(2);
     if (d.ask && d.ask > 0) document.getElementById('ask').textContent = d.ask.toFixed(2);
-    const bars = window._lastBars;
-    if (bars && bars.length > 0 && d.barOpen && d.barClose) {
-      const last = bars[bars.length - 1];
-      last.high  = Math.max(last.high,  d.barClose);
-      last.low   = Math.min(last.low,   d.barClose);
-      last.close = d.barClose;
-      if (window._chartRedraw) window._chartRedraw();
-    }
-    const chartEngine = window._chartEngine;
-    if (chartEngine && d.price) {
-      const bars = chartEngine.bars;
-      if (bars && bars.length > 0) {
-        const lastBar = bars[bars.length - 1];
-        if (lastBar) {
-          if (d.currentBarOpen) lastBar.open = d.currentBarOpen;
-          lastBar.high  = d.currentBarHigh ? Math.max(lastBar.high, d.currentBarHigh) : Math.max(lastBar.high, d.price);
-          lastBar.low   = d.currentBarLow  ? Math.min(lastBar.low,  d.currentBarLow)  : Math.min(lastBar.low,  d.price);
-          lastBar.close = d.price;
-          chartEngine.dirty = true;
-        }
-      }
-    }
+    if (window._chartTick) window._chartTick(price, d.currentBarOpen || d.barOpen);
     if (d.pnl !== undefined) {
       const pnlEl = document.getElementById('daily-pnl');
       if (pnlEl) pnlEl.textContent = (d.pnl >= 0 ? '+$' : '-$') + Math.abs(d.pnl).toFixed(2);
@@ -902,521 +881,196 @@ function updateClock() {
 setInterval(updateClock, 100);  // 100ms — smooth at 20x speed
 updateClock();
 
-// ── PRICE CHART ENGINE ───────────────────────────────────────
+// ── PRICE CHART ENGINE (ticker-style: 5 completed bars + 1 live) ─
 (function() {
-  let tf       = '1m';
-  let bars     = [];
-  let viewStart   = 0;
-  let viewBars    = 80;
-  const RIGHT_PAD = 8;   // empty bar slots to right of last candle
-  let autoFollow  = true; // auto-scroll to latest bar
-  let priceMin  = 0;
-  let priceMax  = 0;
-  let manualPrice = false;  // true when user has zoomed price axis
-  let priceRangeExtra = 0.08;
-  let isDragging    = false;
-  let dragStartX    = 0;
-  let dragStartY    = 0;
-  let dragStartView = 0;
-  let dragStartPMin = 0;
-  let dragStartPMax = 0;
-  let dragButton    = 0;   // 0=left, 2=right
-  let hoverZone     = 'chart';
-  let snapData      = null;
+  const GREEN = '#00ff88', RED = '#ff2d55', DIM = '#1a2a40', TEXT = '#e8f0ff', BLUE = '#00c8ff';
+
+  let tf         = '1m';
+  let _bars      = [];   // completed bars (last 5)
+  let _liveBar   = null; // current building bar {o,h,l,c,live:true}
+  let _lastPrice = 0;
+  let snapData   = null;
 
   const canvas = document.getElementById('price-chart');
   if (!canvas) return;
   const ctx = canvas.getContext('2d');
 
-  // Layout
-  const PAD_L  = 8;
-  const PAD_R  = 62;   // price axis width
-  const PAD_T  = 8;
-  const PAD_B  = 32;   // time axis height
-  const VOL_H  = 36;
-  const TIME_H = 18;   // time label strip height
-
-  function W() { return canvas.offsetWidth; }
-  function H() { return canvas.offsetHeight; }
-  function chartW() { return W() - PAD_L - PAD_R; }
-  function chartH() { return H() - PAD_T - PAD_B; }
-  function priceH() { return chartH() - VOL_H - TIME_H; }
-
-  function resize() {
+  function drawChart() {
     const dpr = window.devicePixelRatio || 1;
-    canvas.width  = canvas.offsetWidth  * dpr;
-    canvas.height = canvas.offsetHeight * dpr;
+    const W   = canvas.clientWidth  || canvas.offsetWidth;
+    const H   = canvas.clientHeight || canvas.offsetHeight;
+    if (W <= 0 || H <= 0) return;
+
+    canvas.width  = W * dpr;
+    canvas.height = H * dpr;
     ctx.setTransform(1,0,0,1,0,0);
     ctx.scale(dpr, dpr);
-    draw();
-  }
-  new ResizeObserver(resize).observe(canvas);
+    ctx.clearRect(0, 0, W, H);
 
-  function recalcPriceRange() {
-    if (manualPrice) return;   // user has manually zoomed — don't override
-    const visible = bars.slice(viewStart, viewStart + viewBars);
-    if (!visible.length) return;
-    let lo = Infinity, hi = -Infinity;
-    visible.forEach(b => { lo = Math.min(lo, b.l); hi = Math.max(hi, b.h); });
-    const pad = (hi - lo) * priceRangeExtra;
-    priceMin = lo - pad;
-    priceMax = hi + pad;
-    if (priceMin === priceMax) { priceMin -= 1; priceMax += 1; }
-  }
-
-  function yForPrice(p) {
-    const ph = priceH();
-    return PAD_T + ph - ((p - priceMin) / (priceMax - priceMin)) * ph;
-  }
-
-  function draw() {
-    const w = W(), h = H();
-    if (!w || !h) return;
-
-    ctx.fillStyle = '#07091a';
-    ctx.fillRect(0, 0, w, h);
-
-    if (!bars.length) {
-      ctx.fillStyle = '#3f5080'; ctx.font = '12px monospace';
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('Waiting for bar data…', w/2, h/2);
+    const allBars = [..._bars];
+    if (_liveBar) allBars.push(_liveBar);
+    if (allBars.length === 0) {
+      ctx.fillStyle = DIM;
+      ctx.font = '11px JetBrains Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText('Waiting for bar data...', W/2, H/2);
       return;
     }
 
-    viewBars  = Math.max(5, Math.min(viewBars, 300));
-    // Allow scrolling into future (left of last bar) — no upper clamp
-    viewStart = Math.max(0, viewStart);
-    recalcPriceRange();
+    const prices = allBars.flatMap(b => [b.h, b.l]);
+    let hi = Math.max(...prices);
+    let lo = Math.min(...prices);
+    const range = hi - lo || 10;
+    const pad   = range * 0.15;
+    hi += pad; lo -= pad;
 
-    const visible = bars.slice(viewStart, viewStart + viewBars);
-    const cw  = chartW();  // visible may have < viewBars items if showing future
-    const barPx = cw / viewBars;
-    const bodyW = Math.max(1, barPx * 0.65);
-    const ph  = priceH();
+    const toY = v => H * 0.05 + (H * 0.88) * (1 - (v - lo) / (hi - lo));
 
-    // Zones
-    const priceTop = PAD_T;
-    const priceBot = PAD_T + ph;
-    const volTop   = priceBot + 4;
-    const volBot   = priceBot + VOL_H;
-    const timeTop  = volBot + 2;
-    const timeBot  = timeTop + TIME_H;
-
-    // ── Price grid ───────────────────────────────────────
-    const steps = 7;
+    ctx.strokeStyle = 'rgba(15,26,48,0.8)';
+    ctx.lineWidth   = 1;
+    const steps = 5;
     for (let i = 0; i <= steps; i++) {
-      const p = priceMin + (priceMax - priceMin) * (i / steps);
-      const y = yForPrice(p);
-      if (y < priceTop || y > priceBot) continue;
-      ctx.strokeStyle = '#1a2744'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + cw, y); ctx.stroke();
-      // Price label on right axis
-      ctx.fillStyle = '#7890c0'; ctx.font = '9px monospace';
-      ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
-      ctx.fillText(p.toFixed(2), w - 3, y);
-    }
-
-    // ── Time grid + labels ───────────────────────────────
-    const labelEvery = Math.max(1, Math.floor(viewBars / 8));
-    ctx.fillStyle = '#444'; ctx.font = '9px monospace';
-    ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-    visible.forEach((b, i) => {
-      const x = PAD_L + i * barPx + barPx * 0.5;
-      if (i % labelEvery === 0) {
-        // Vertical grid line
-        ctx.strokeStyle = '#1a2744'; ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x, priceTop); ctx.lineTo(x, volBot); ctx.stroke();
-        // Time label
-        const t = b.t ? b.t.slice(11, 16) : '';
-        ctx.fillStyle = '#3f5080';
-        ctx.fillText(t, x, timeTop + 3);
-      }
-    });
-
-    // Divider lines
-    ctx.strokeStyle = '#1a2744'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(PAD_L, priceBot + 2); ctx.lineTo(PAD_L + cw, priceBot + 2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(PAD_L, timeTop); ctx.lineTo(PAD_L + cw, timeTop); ctx.stroke();
-
-    // ── OR lines ─────────────────────────────────────────
-    if (snapData?.orHigh && snapData?.orLow) {
-      const yH = yForPrice(snapData.orHigh), yL = yForPrice(snapData.orLow);
-      ['#ffd600','#ffd600'].forEach((c,idx) => {
-        const y = idx === 0 ? yH : yL;
-        ctx.strokeStyle = 'rgba(255,214,0,0.4)'; ctx.lineWidth = 1;
-        ctx.setLineDash([4,4]);
-        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
-        ctx.setLineDash([]);
-      });
-      ctx.fillStyle = 'rgba(255,214,0,0.6)'; ctx.font = '9px monospace';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-      ctx.fillText(`OR H ${snapData.orHigh.toFixed(2)}`, PAD_L+3, yH);
-      ctx.textBaseline = 'top';
-      ctx.fillText(`OR L ${snapData.orLow.toFixed(2)}`, PAD_L+3, yL);
-    }
-
-    // ── VWAP curve (per-bar) ─────────────────────────────
-    ctx.strokeStyle = 'rgba(255,214,0,0.85)'; ctx.lineWidth = 1.5;
-    ctx.setLineDash([]);
-    ctx.beginPath();
-    let vwapStarted = false;
-    visible.forEach((b, i) => {
-      if (!b.vwap) return;
-      const x = PAD_L + i * barPx + barPx * 0.5;
-      const y = yForPrice(b.vwap);
-      if (y < PAD_T || y > PAD_T + ph) return;
-      if (!vwapStarted) { ctx.moveTo(x, y); vwapStarted = true; }
-      else ctx.lineTo(x, y);
-    });
-    if (vwapStarted) {
+      const v = lo + (hi - lo) * (i / steps);
+      const y = toY(v);
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(W, y);
       ctx.stroke();
-      // VWAP label at end of line
-      const lastBar = [...visible].reverse().find(b => b.vwap);
-      if (lastBar) {
-        const lx = PAD_L + (visible.indexOf(lastBar)) * barPx + barPx*0.5;
-        const ly = yForPrice(lastBar.vwap);
-        ctx.fillStyle = '#ffd600'; ctx.font = 'bold 9px monospace';
-        ctx.textAlign = 'right'; ctx.textBaseline = 'bottom';
-        ctx.fillText('VWAP', lx, ly - 2);
-      }
+      ctx.fillStyle = 'rgba(120,140,170,0.55)';
+      ctx.font = '8px JetBrains Mono, monospace';
+      ctx.textAlign = 'left';
+      ctx.fillText(v.toFixed(0), 2, y - 2);
     }
 
-    // ── Session H/L ───────────────────────────────────────
-    [[snapData?.sessionHigh,'#4fc3f750','SH'],[snapData?.sessionLow,'#4fc3f750','SL']].forEach(([p,c,l]) => {
-      if (!p) return;
-      const y = yForPrice(p);
-      ctx.strokeStyle = c; ctx.lineWidth = 1; ctx.setLineDash([2,4]);
-      ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
-      ctx.setLineDash([]);
-      ctx.fillStyle = '#4fc3f7'; ctx.font = '9px monospace';
-      ctx.textAlign = 'left'; ctx.textBaseline = 'bottom';
-      ctx.fillText(l, PAD_L+3, y);
-    });
+    const n      = allBars.length;
+    const colW   = (W * 0.85) / n;
+    const bodyW  = Math.max(colW * 0.55, 4);
+    const startX = W * 0.05;
 
-    // ── Volume bars ───────────────────────────────────────
-    const volMax = Math.max(1, ...visible.map(b => b.v));
-    visible.forEach((b, i) => {
-      const x   = PAD_L + i * barPx;
-      const bull = b.c >= b.o;
-      const vH   = Math.max(1, (b.v / volMax) * (VOL_H - 4) * 0.95);
-      ctx.fillStyle = bull ? 'rgba(0,230,118,0.35)' : 'rgba(255,68,68,0.35)';
-      ctx.fillRect(x + barPx*0.1, volBot - vH, barPx*0.8, vH);
-    });
+    allBars.forEach((b, i) => {
+      const x      = startX + i * colW + colW / 2;
+      const isLive = b.live;
+      const bull   = b.c >= b.o;
+      const color  = bull ? GREEN : RED;
 
-    // ── Forming bar solid, closed bar solid ───────────────
-    // Forming bar is solid just like closed — only difference is slight opacity
-    visible.forEach((b, i) => {
-      const x    = PAD_L + i * barPx;
-      const xC   = x + barPx * 0.5;
-      const bull  = b.c >= b.o;
-      const color = bull ? '#00e676' : '#ff4444';
-      const yO   = yForPrice(b.o), yC = yForPrice(b.c);
-      const yHi  = yForPrice(b.h), yLo = yForPrice(b.l);
-      const alpha = b.forming ? '99' : '';  // forming = slightly dimmer
-      // Wick
-      ctx.strokeStyle = color + alpha; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(xC, yHi); ctx.lineTo(xC, yLo); ctx.stroke();
-      // Body — solid always
-      const bodyTop = Math.min(yO, yC);
-      const bH = Math.max(1, Math.abs(yO - yC));
-      ctx.fillStyle = color + alpha;
-      ctx.fillRect(x + barPx*0.2, bodyTop, bodyW, bH);
-    });
+      if (isLive) { ctx.shadowColor = color; ctx.shadowBlur = 12; }
+      else        { ctx.shadowBlur = 0; }
 
-    // ── Trade markers ─────────────────────────────────────
-    const markers = snapData?.tradeMarkers || [];
-    markers.forEach(m => {
-      const mTime = (m.t || '').slice(0, 16);
-      const idx   = bars.findIndex(b => b.t?.slice(0,16) === mTime);
-      if (idx < viewStart || idx >= viewStart + viewBars) return;
-      const i      = idx - viewStart;
-      const x      = PAD_L + i * barPx + barPx * 0.5;
-      const isLong = m.dir === 'LONG';
-      const entryCol = isLong ? '#00873a' : '#b71c1c';
-      const exitCol  = '#888888';
-      const entryY   = yForPrice(m.price);
-      const exitY    = m.exit ? yForPrice(m.exit) : null;
-      const S        = 7;   // triangle half-size
+      ctx.strokeStyle = color;
+      ctx.lineWidth   = isLive ? 1.5 : 1;
+      ctx.beginPath();
+      ctx.moveTo(x, toY(b.h));
+      ctx.lineTo(x, toY(b.l));
+      ctx.stroke();
 
-      function tri(cx, cy, pointUp, color) {
-        ctx.beginPath();
-        if (pointUp) {
-          ctx.moveTo(cx,   cy - S);       // tip
-          ctx.lineTo(cx - S, cy + S);
-          ctx.lineTo(cx + S, cy + S);
-        } else {
-          ctx.moveTo(cx,   cy + S);       // tip
-          ctx.lineTo(cx - S, cy - S);
-          ctx.lineTo(cx + S, cy - S);
-        }
-        ctx.closePath();
-        ctx.fillStyle = color;
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(255,255,255,0.3)';
-        ctx.lineWidth = 0.5;
-        ctx.stroke();
-      }
+      const bodyTop = toY(Math.max(b.o, b.c));
+      const bodyBot = toY(Math.min(b.o, b.c));
+      const bodyH   = Math.max(Math.abs(bodyBot - bodyTop), 2);
 
-      // Entry triangle — below bar for long (pointing up), above bar for short (pointing down)
-      if (isLong) {
-        const bar = bars[idx];
-        const baseY = bar ? yForPrice(bar.l) + S + 4 : entryY + S + 4;
-        tri(x, baseY, true, entryCol);
+      if (isLive) {
+        const grad = ctx.createLinearGradient(0, bodyTop, 0, bodyBot);
+        grad.addColorStop(0, color);
+        grad.addColorStop(1, color + '60');
+        ctx.fillStyle = grad;
       } else {
-        const bar = bars[idx];
-        const baseY = bar ? yForPrice(bar.h) - S - 4 : entryY - S - 4;
-        tri(x, baseY, false, entryCol);
+        ctx.fillStyle = color + 'bb';
       }
+      ctx.fillRect(x - bodyW/2, bodyTop, bodyW, bodyH);
 
-      // Entry price horizontal tick
-      ctx.strokeStyle = entryCol + 'aa';
-      ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(x - 4, entryY); ctx.lineTo(x + 4, entryY); ctx.stroke();
+      if (isLive) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth   = 1.5;
+        ctx.strokeRect(x - bodyW/2, bodyTop, bodyW, bodyH);
+      }
+      ctx.shadowBlur = 0;
 
-      // Exit triangle + connecting dotted line
-      if (exitY !== null) {
-        // Dotted line connecting entry price to exit price level
-        ctx.strokeStyle = entryCol + '66';
-        ctx.lineWidth = 1;
-        ctx.setLineDash([3, 4]);
-        ctx.beginPath();
-        ctx.moveTo(x, entryY);
-        ctx.lineTo(x, exitY);
-        ctx.stroke();
-        ctx.setLineDash([]);
-
-        // Exit: opposite triangle direction in grey
-        if (isLong) {
-          tri(x, exitY - S - 4, false, exitCol);  // long exit = pointing down
-        } else {
-          tri(x, exitY + S + 4, true, exitCol);   // short exit = pointing up
-        }
-
-        // Exit price tick
-        ctx.strokeStyle = exitCol + 'aa';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x - 4, exitY); ctx.lineTo(x + 4, exitY); ctx.stroke();
+      if (b.t) {
+        ctx.fillStyle = isLive ? BLUE : 'rgba(120,140,170,0.7)';
+        ctx.font      = isLive ? '8px JetBrains Mono, monospace' : '7px JetBrains Mono, monospace';
+        ctx.textAlign = 'center';
+        const label   = isLive ? 'LIVE' : (String(b.t).slice(-5));
+        ctx.fillText(label, x, H - 4);
       }
     });
 
-    // ── Current price ─────────────────────────────────────
-    if (snapData?.currentPrice) {
-      const y = yForPrice(snapData.currentPrice);
-      if (y >= priceTop && y <= priceBot) {
-        ctx.strokeStyle = 'rgba(255,255,255,0.8)'; ctx.lineWidth = 1;
-        ctx.setLineDash([2,3]);
-        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L+cw, y); ctx.stroke();
-        ctx.setLineDash([]);
-        // Price badge on right axis
-        ctx.fillStyle = '#fff';
-        ctx.fillRect(PAD_L+cw+1, y-9, PAD_R-2, 18);
-        ctx.fillStyle = '#000'; ctx.font = 'bold 10px monospace';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(snapData.currentPrice.toFixed(2), PAD_L+cw+PAD_R/2, y);
-      }
-    }
+    if (_lastPrice > 0) {
+      const py = toY(_lastPrice);
+      ctx.setLineDash([3, 4]);
+      ctx.strokeStyle = TEXT + '40';
+      ctx.lineWidth   = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, py);
+      ctx.lineTo(W * 0.92, py);
+      ctx.stroke();
+      ctx.setLineDash([]);
 
-    // ── Entry / stop / target ─────────────────────────────
-    if (snapData?.position !== 'FLAT') {
-      // Entry / Stop / Target — distinct colors, labeled badges on right axis
-      const tradeLines = [
-        [snapData?.entryPrice, '#ffd600', 'ENTRY'],   // yellow
-        [snapData?.stopPrice,  '#ff6b35', 'STOP'],    // orange-red (distinct from candles)
-        [snapData?.targetPrice,'#00bcd4', 'TARGET'],  // cyan (distinct from candles)
-      ];
-      tradeLines.forEach(([p, c, label]) => {
-        if (!p || p <= 0) return;
-        const y = yForPrice(p);
-        if (y < PAD_T - 5 || y > PAD_T + ph + 5) return;
-        // Dashed line
-        ctx.strokeStyle = c; ctx.lineWidth = 1.5; ctx.setLineDash([5, 3]);
-        ctx.beginPath(); ctx.moveTo(PAD_L, y); ctx.lineTo(PAD_L + cw, y); ctx.stroke();
-        ctx.setLineDash([]);
-        // Badge on right axis — filled background
-        const badgeW = PAD_R - 2;
-        ctx.fillStyle = c;
-        ctx.fillRect(PAD_L + cw + 1, y - 9, badgeW, 18);
-        ctx.fillStyle = '#000'; ctx.font = 'bold 9px monospace';
-        ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.fillText(`${label} ${p.toFixed(2)}`, PAD_L + cw + badgeW/2, y);
-      });
+      ctx.fillStyle = '#111d33';
+      ctx.fillRect(W * 0.92, py - 8, W * 0.08, 16);
+      ctx.fillStyle = TEXT;
+      ctx.font      = '8px JetBrains Mono, monospace';
+      ctx.textAlign = 'center';
+      ctx.fillText(_lastPrice.toFixed(1), W * 0.96, py + 3);
     }
-
   }
 
-
-  // ── Mouse drag — left click = 2D pan (time + price) ─
-  canvas.addEventListener('mousedown', e => {
-    if (e.button !== 0) return;
-    e.preventDefault();
-    isDragging    = true;
-    dragStartX    = e.clientX;
-    dragStartY    = e.clientY;
-    dragStartView = viewStart;
-    dragStartPMin = priceMin;
-    dragStartPMax = priceMax;
-    canvas.style.cursor = 'move';
-  });
-
-  window.addEventListener('mousemove', e => {
-    if (!isDragging) {
-      // Zone detection for cursor hint (only when over canvas)
-      const rect = canvas.getBoundingClientRect();
-      const mx = e.clientX - rect.left;
-      const my = e.clientY - rect.top;
-      if (mx < 0 || mx > rect.width || my < 0 || my > rect.height) return;
-      const cw = chartW(), ph = priceH();
-      const volBot = PAD_T + ph + VOL_H + 4;
-      if (mx > PAD_L + cw) { hoverZone = 'price'; canvas.style.cursor = 'ns-resize'; }
-      else if (my > volBot + 2) { hoverZone = 'time'; canvas.style.cursor = 'ew-resize'; }
-      else { hoverZone = 'chart'; canvas.style.cursor = 'crosshair'; }
-
-      // Crosshair OHLCV
-      if (hoverZone === 'chart' && bars.length) {
-        const barPx = cw / viewBars;
-        const idx = viewStart + Math.floor((mx - PAD_L) / barPx);
-        if (idx >= 0 && idx < bars.length) {
-          const b = bars[idx];
-          const chEl = document.getElementById('chart-crosshair');
-          if (chEl) chEl.textContent =
-            `${b.t?.slice(11,16)||''}  O:${b.o.toFixed(2)} H:${b.h.toFixed(2)} L:${b.l.toFixed(2)} C:${b.c.toFixed(2)}  Vol:${b.v}`;
-        }
-      }
-      return;
+  function rebuildLive(barOpen) {
+    if (!barOpen || !_lastPrice) return;
+    if (!_liveBar || Math.abs(_liveBar.o - barOpen) > 1) {
+      _liveBar = {
+        o: barOpen,
+        h: Math.max(barOpen, _lastPrice),
+        l: Math.min(barOpen, _lastPrice),
+        c: _lastPrice,
+        live: true,
+      };
     }
-
-    // ── Dragging: 2D pan ──────────────────────────────────
-    const dx = e.clientX - dragStartX;
-    const dy = e.clientY - dragStartY;
-    const cw = chartW(), ph = priceH();
-    const barPx = cw / viewBars;
-
-    // Horizontal: pan time axis
-    const newVS = dragStartView - Math.round(dx / barPx);
-    viewStart   = Math.max(0, newVS);   // no upper clamp — allow future space
-    if (newVS !== dragStartView) autoFollow = false;
-
-    // Vertical: pan price axis (drag up = higher prices)
-    if (Math.abs(dy) > 2) {
-      const pricePx = (dragStartPMax - dragStartPMin) / ph;
-      priceMin = dragStartPMin + dy * pricePx;
-      priceMax = dragStartPMax + dy * pricePx;
-      manualPrice = true;
-    }
-
-    canvas.style.cursor = 'move';
-    draw();
-  });
-
-  window.addEventListener('mouseup', e => {
-    if (e.button !== 0) return;
-    isDragging = false;
-    canvas.style.cursor = 'crosshair';
-  });
-
-  canvas.addEventListener('mouseleave', () => {
-    if (!isDragging) {
-      hoverZone = 'chart';
-      const chEl = document.getElementById('chart-crosshair');
-      if (chEl) chEl.textContent = '';
-    }
-  });
-
-  canvas.addEventListener('contextmenu', e => e.preventDefault());
-
-
-  // ── Scroll — axis-aware zoom ──────────────────────────
-  canvas.addEventListener('wheel', e => {
-    e.preventDefault();
-    const delta = e.deltaY > 0 ? 1 : -1;
-
-    if (hoverZone === 'price') {
-      // Price axis zoom — expand/contract range around centre
-      const range  = priceMax - priceMin;
-      const center = (priceMax + priceMin) / 2;
-      const factor = delta > 0 ? 1.12 : 0.88;
-      priceMin = center - (range * factor) / 2;
-      priceMax = center + (range * factor) / 2;
-      manualPrice = true;   // lock auto-scale
-    } else if (hoverZone === 'time') {
-      // Time axis zoom — more/fewer bars
-      const rect = canvas.getBoundingClientRect();
-      const mx   = e.clientX - rect.left;
-      const frac = (mx - PAD_L) / chartW();
-      const oldBars = viewBars;
-      viewBars = Math.max(10, Math.min(300, viewBars + delta * Math.max(1, Math.floor(viewBars * 0.1))));
-      const centerIdx = viewStart + Math.round(frac * oldBars);
-      viewStart = Math.max(0, Math.round(centerIdx - frac * viewBars));
-    } else {
-      // Chart area — time zoom (default)
-      const frac = 0.5;
-      const oldBars = viewBars;
-      viewBars = Math.max(10, Math.min(300, viewBars + delta * Math.max(1, Math.floor(viewBars * 0.1))));
-      viewStart = Math.max(0, Math.round((viewStart + oldBars/2) - viewBars/2));
-    }
-    draw();
-  }, { passive: false });
-
-  canvas.addEventListener('dblclick', () => {
-    viewBars = 80; viewStart = Math.max(0, bars.length - viewBars);
-    priceRangeExtra = 0.08; manualPrice = false; autoFollow = true;
-    recalcPriceRange(); draw();
-  });
-
-  // ── Public API ────────────────────────────────────────
-  window._chartEngine = {
-    get bars() { return bars; },
-    set dirty(v) { if (v) draw(); }
-  };
-  window._chartRedraw = draw;
-
-  // Per-timeframe state cache — preserves view/zoom across tab switches
-  const _tfCache = { '1m': null, '5m': null };
-  function _saveTfState() {
-    _tfCache[tf] = {
-      viewStart, viewBars, priceMin, priceMax,
-      manualPrice, priceRangeExtra, autoFollow
-    };
-  }
-  function _restoreTfState() {
-    const s = _tfCache[tf];
-    if (!s) return false;
-    viewStart       = s.viewStart;
-    viewBars        = s.viewBars;
-    priceMin        = s.priceMin;
-    priceMax        = s.priceMax;
-    manualPrice     = s.manualPrice;
-    priceRangeExtra = s.priceRangeExtra;
-    autoFollow      = s.autoFollow;
-    return true;
   }
 
+  // Public API ───────────────────────────────────────────────
   window.chartUpdate = function(data) {
     snapData = data;
-    const newBars = tf === '1m' ? (data.bars1min || []) : (data.bars5min || []);
-    if (!newBars.length) { draw(); return; }
-    bars = newBars;
-    window._lastBars = bars;
-    // Always scroll to the latest bars — chart pins to the right edge
-    viewStart = Math.max(0, bars.length - (viewBars - RIGHT_PAD));
-    if (!manualPrice) recalcPriceRange();
-    draw();
+    const src = tf === '1m' ? (data.bars1min || []) : (data.bars5min || []);
+    const norm = src.map(b => ({
+      t: b.t || b.time || '',
+      o: b.open  ?? b.o ?? 0,
+      h: b.high  ?? b.h ?? 0,
+      l: b.low   ?? b.l ?? 0,
+      c: b.close ?? b.c ?? 0,
+    })).filter(b => b.o > 0);
+
+    _bars = norm.slice(-5);
+    const barOpen = data.currentBarOpen || (_lastPrice || 0);
+    rebuildLive(barOpen);
+    drawChart();
+  };
+
+  window._chartRedraw = drawChart;
+
+  // Called from pollPrice on every 300ms tick to flush live bar
+  window._chartTick = function(price, currentBarOpen) {
+    if (!price || price <= 0) return;
+    _lastPrice = price;
+    if (!_liveBar && currentBarOpen) rebuildLive(currentBarOpen);
+    if (_liveBar) {
+      _liveBar.c = price;
+      _liveBar.h = Math.max(_liveBar.h, price);
+      _liveBar.l = Math.min(_liveBar.l, price);
+    }
+    drawChart();
   };
 
   window.setChartTF = function(newTf) {
     if (newTf === tf) return;
-    _saveTfState();
     tf = newTf;
-    document.getElementById('chart-1m').className = 'chart-btn' + (tf==='1m'?' active':'');
-    document.getElementById('chart-5m').className = 'chart-btn' + (tf==='5m'?' active':'');
-    const restored = _restoreTfState();
-    if (!restored) {
-      bars = []; viewStart = 0; viewBars = 80;
-      priceRangeExtra = 0.08; manualPrice = false;
-    }
+    const b1 = document.getElementById('chart-1m');
+    const b5 = document.getElementById('chart-5m');
+    if (b1) b1.className = 'chart-btn' + (tf==='1m'?' active':'');
+    if (b5) b5.className = 'chart-btn' + (tf==='5m'?' active':'');
+    _bars = []; _liveBar = null;
     if (snapData) window.chartUpdate(snapData);
   };
 
+  window.addEventListener('resize', drawChart);
 })();
 // ── END CHART ────────────────────────────────────────────────
 (function() {

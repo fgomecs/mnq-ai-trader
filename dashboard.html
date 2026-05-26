@@ -529,10 +529,9 @@ function render(d) {
   if (verEl) verEl.textContent = d.botVersion ? `v${d.botVersion}` : 'v—';
 
   // Price
-  const price = d.currentPrice || 0;
-  el('price-main').textContent = price ? price.toFixed(2) : '—';
-  el('bid').textContent = fmt(d.bid, 2);
-  el('ask').textContent = fmt(d.ask, 2);
+  if (d.currentPrice && d.currentPrice > 0) el('price-main').textContent = d.currentPrice.toFixed(2);
+  if (d.bid && d.bid > 0) el('bid').textContent = fmt(d.bid, 2);
+  if (d.ask && d.ask > 0) el('ask').textContent = fmt(d.ask, 2);
 
   // Status pills
   const status = (d.claudeStatus || 'IDLE').toUpperCase();

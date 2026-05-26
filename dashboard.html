@@ -824,6 +824,19 @@ async function pollPrice() {
     }
     if (d.bid) document.getElementById('bid').textContent = d.bid.toFixed(2);
     if (d.ask) document.getElementById('ask').textContent = d.ask.toFixed(2);
+    const chartEngine = window._chartEngine;
+    if (chartEngine && d.price && d.entry !== undefined) {
+      const bars = chartEngine.bars;
+      if (bars && bars.length > 0) {
+        const lastBar = bars[bars.length - 1];
+        if (lastBar) {
+          lastBar.high = Math.max(lastBar.high, d.price);
+          lastBar.low  = Math.min(lastBar.low,  d.price);
+          lastBar.close = d.price;
+          chartEngine.dirty = true;
+        }
+      }
+    }
     if (d.pnl !== undefined) {
       const pnlEl = document.getElementById('daily-pnl');
       if (pnlEl) pnlEl.textContent = (d.pnl >= 0 ? '+$' : '-$') + Math.abs(d.pnl).toFixed(2);
@@ -1324,6 +1337,11 @@ updateClock();
   });
 
   // ── Public API ────────────────────────────────────────
+  window._chartEngine = {
+    get bars() { return bars; },
+    set dirty(v) { if (v) draw(); }
+  };
+
   window.chartUpdate = function(data) {
     snapData = data;
     const newBars = tf === '1m' ? (data.bars1min || []) : (data.bars5min || []);

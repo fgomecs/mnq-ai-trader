@@ -1,12 +1,57 @@
 {
   "account": "MNQ Paper ($50,000)",
-  "bot_version": "4.4.1",
+  "bot_version": "4.4.2",
   "starting_balance": 50000.0,
-  "last_updated": "2026-05-26T20:14:59.359524+00:00",
-  "equity_curve": [],
-  "by_strategy": {},
-  "by_hour": {},
-  "daily_pnl": [],
+  "last_updated": "2026-05-26T22:28:51.934996+00:00",
+  "equity_curve": [
+    {
+      "date": "2026-05-26",
+      "equity": 50055.36,
+      "daily_pnl": 55.36,
+      "trades": 8
+    }
+  ],
+  "by_strategy": {
+    "OB_BOUNCE": {
+      "trades": 8,
+      "wins": 4,
+      "losses": 4,
+      "pnl": 55.36,
+      "win_rate": 50.0
+    }
+  },
+  "by_hour": {
+    "13": {
+      "trades": 1,
+      "wins": 1,
+      "losses": 0,
+      "pnl": 71.26,
+      "win_rate": 100.0
+    },
+    "14": {
+      "trades": 3,
+      "wins": 1,
+      "losses": 2,
+      "pnl": -27.22,
+      "win_rate": 33.3
+    },
+    "15": {
+      "trades": 4,
+      "wins": 2,
+      "losses": 2,
+      "pnl": 11.32,
+      "win_rate": 50.0
+    }
+  },
+  "daily_pnl": [
+    {
+      "date": "2026-05-26",
+      "pnl": 55.36,
+      "trades": 8,
+      "wins": 4,
+      "losses": 4
+    }
+  ],
   "ofi_performance": {
     "STRONG_BUY": {
       "trades": 0,
@@ -23,11 +68,11 @@
       "win_rate": 0.0
     },
     "NEUTRAL": {
-      "trades": 0,
-      "wins": 0,
-      "losses": 0,
-      "pnl": 0.0,
-      "win_rate": 0.0
+      "trades": 8,
+      "wins": 4,
+      "losses": 4,
+      "pnl": 55.36,
+      "win_rate": 50.0
     },
     "SELL": {
       "trades": 0,
@@ -46,11 +91,11 @@
   },
   "thesis_buckets": {
     "70-75": {
-      "trades": 0,
-      "wins": 0,
-      "losses": 0,
-      "pnl": 0.0,
-      "win_rate": 0.0
+      "trades": 8,
+      "wins": 4,
+      "losses": 4,
+      "pnl": 55.36,
+      "win_rate": 50.0
     },
     "75-80": {
       "trades": 0,
@@ -74,9 +119,33 @@
       "win_rate": 0.0
     }
   },
-  "avg_rr": 0.0,
-  "overall_win_rate": 0.0,
-  "profitability_zone": "NOT_PROFITABLE",
-  "rr_by_week": [],
-  "zone_history": []
+  "commission_sources": {
+    "broker": {
+      "trades": 8,
+      "wins": 4,
+      "losses": 4,
+      "pnl": 55.36,
+      "win_rate": 50.0,
+      "commission_total": 9.3
+    }
+  },
+  "avg_rr": 0.34,
+  "overall_win_rate": 50.0,
+  "profitability_zone": "BREAK_EVEN",
+  "rr_by_week": [
+    {
+      "week": "2026-W22",
+      "avg_rr": 0.34,
+      "win_rate": 50.0,
+      "zone": "BREAK_EVEN"
+    }
+  ],
+  "zone_history": [
+    {
+      "date": "2026-05-26",
+      "win_rate": 50.0,
+      "avg_rr": 0.34,
+      "zone": "BREAK_EVEN"
+    }
+  ]
 }

@@ -628,15 +628,16 @@ function aggregateBars(bars, periodMins) {
     const bucket = Math.floor(ts / periodMins);
     if (!group || group._bucket !== bucket) {
       if (group) out.push(group);
-      group = { _bucket: bucket, t: b.t, o: b.o, h: b.h, l: b.l, c: b.c };
+      group = { _bucket: bucket, t: b.t, o: b.o, h: b.h, l: b.l, c: b.c, vwap: b.vwap || 0 };
     } else {
       group.h = Math.max(group.h, b.h);
       group.l = Math.min(group.l, b.l);
       group.c = b.c;
+      if (b.vwap) group.vwap = b.vwap;   // last bar's VWAP in the bucket
     }
   }
   if (group) out.push(group);
-  return out.map(g => ({ t: g.t, o: g.o, h: g.h, l: g.l, c: g.c }));
+  return out.map(g => ({ t: g.t, o: g.o, h: g.h, l: g.l, c: g.c, vwap: g.vwap || 0 }));
 }
 
 // ── Clock ──────────────────────────────────────────────────
@@ -793,6 +794,7 @@ async function pollDash() {
     // Bars — normalize 1-min source then aggregate per timeframe
     const norm = (arr) => (arr || []).map(b => ({
       t: b.t || b.time || '',
+      vwap: b.vwap || 0,
       o: b.open  || b.o || 0,
       h: b.high  || b.h || 0,
       l: b.low   || b.l || 0,
@@ -815,7 +817,7 @@ async function pollDash() {
       const barOpen = d.currentBarOpen || (_lastPrice || 0);
       if (barOpen > 0 && _lastPrice > 0) {
         if (!_liveBar || Math.abs(_liveBar.o - barOpen) > 1) {
-          _liveBar = { o: barOpen, h: Math.max(barOpen, _lastPrice), l: Math.min(barOpen, _lastPrice), c: _lastPrice, live: true };
+          _liveBar = { o: barOpen, h: Math.max(barOpen, _lastPrice), l: Math.min(barOpen, _lastPrice), c: _lastPrice, vwap: d.vwap || 0, live: true };
         }
       }
       _bars = tfBars[currentTF];
@@ -923,21 +925,6 @@ function drawChart() {
     });
   }
 
-  // VWAP — solid yellow line
-  if (_vwap > 0 && _vwap >= lo && _vwap <= hi) {
-    const y = toY(_vwap);
-    ctx.strokeStyle = '#ffcc00';
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(W * 0.92, y);
-    ctx.stroke();
-    ctx.fillStyle = '#ffcc00';
-    ctx.font = '8px JetBrains Mono';
-    ctx.textAlign = 'right';
-    ctx.fillText('VWAP', W - 4, y - 2);
-  }
-
   // OR High / Low — amber dashed
   ctx.setLineDash([4, 4]);
   ctx.strokeStyle = '#ffcc00';
@@ -1039,6 +1026,30 @@ function drawChart() {
       ctx.fillText(label, x, H - 4);
     }
   });
+
+  // VWAP curve — per-bar line connecting each visible bar's vwap
+  const hasVwap = visible.some(b => b.vwap && b.vwap > 0);
+  if (hasVwap) {
+    ctx.strokeStyle = 'rgba(255,200,0,0.8)';
+    ctx.lineWidth   = 1.5;
+    ctx.beginPath();
+    let started = false;
+    let lastX = 0, lastY = 0;
+    visible.forEach((b, i) => {
+      if (!b.vwap || b.vwap <= 0) { started = false; return; }
+      const x = startX + i * colW + colW / 2;
+      const y = toY(Math.min(Math.max(b.vwap, lo), hi));
+      if (!started) { ctx.moveTo(x, y); started = true; }
+      else          { ctx.lineTo(x, y); }
+      lastX = x; lastY = y;
+    });
+    ctx.stroke();
+    // Label at the right end
+    ctx.fillStyle = 'rgba(255,200,0,0.9)';
+    ctx.font      = '8px JetBrains Mono';
+    ctx.textAlign = 'left';
+    ctx.fillText('VWAP', Math.min(lastX + 4, W - 30), lastY - 2);
+  }
 
   // Current price line
   if (_lastPrice > 0) {

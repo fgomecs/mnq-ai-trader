@@ -624,3 +624,78 @@ Learning system untested on real data: The full EOD pipeline (ablation → synth
 Claude probability calibration: The 70% thesis probability gate is uncalibrated. Claude has no feedback loop on whether its stated probabilities are accurate. After 20 sessions compare stated probabilities to actual outcomes and adjust MIN_THESIS_PROBABILITY empirically.
 
 Dead zone data collection: FEATURE_DEAD_ZONE=false means the bot trades freely 11am-1:30pm ET. Historical data suggests this window is net negative. Monitor dead zone entries separately in the journal and restrict if the data confirms the historical pattern.
+
+## Phase 6 — Jarvis Voice & Personal Assistant
+
+### V5.0 — Bot Speaks During Trading
+
+Bot narrates session events in real time via ElevenLabs TTS. New `voice.py` module wraps the ElevenLabs API and exposes a `speak(text, priority)` queue consumed by a daemon thread so audio never blocks `run_cycle`.
+
+Triggers:
+- Trade entered (direction, size, stop, target)
+- Trade closed (P&L, reason: target/stop/manual)
+- Stop moved to breakeven
+- Pre-market analysis complete (8:30 ET)
+- OR established (9:45 ET)
+- Session classified (TREND / RANGE / NEWS / HOLIDAY)
+- HOLD with notable reason (skip-cache miss, thesis change)
+- EOD summary (P&L, W-L, best/worst trade)
+- Loss warning (approaching daily cap)
+
+New `.env`:
+```
+ELEVENLABS_API_KEY=
+ELEVENLABS_VOICE_ID=
+FEATURE_VOICE=false
+```
+
+Cost: ~$5/month at expected event volume.
+
+### V5.1 — Two-Way Push-to-Talk
+
+Push-to-talk hotkey opens the mic, Whisper API transcribes, `voice_assistant.py` reads current `dashboard_data.json` + today's `decisions_*.jsonl`, Claude synthesizes a natural trader-style response, ElevenLabs speaks it back. Single round-trip — no continuous listening.
+
+New `.env`:
+```
+WHISPER_API_KEY=
+VOICE_HOTKEY=ctrl+space
+FEATURE_VOICE_ASSISTANT=false
+```
+
+### V5.2 — Unified Jarvis Router
+
+One voice, two brains. A router classifies each utterance and dispatches:
+- Trading questions → **DoBot** (this repo's context: snapshots, decisions, P&L, session state)
+- Life admin / general → **OpenClaw** (calendar, email, notes, web)
+
+Both share the same ElevenLabs voice so the experience feels like one assistant.
+
+New `.env`:
+```
+FEATURE_UNIFIED_JARVIS=false
+```
+
+### V5.3 — Wake Word
+
+"Hey DoBot" wake word using Porcupine (commercial, more accurate) or OpenWakeWord (OSS, free). Only armed during active trading hours to avoid false triggers and CPU drain off-session.
+
+New `.env`:
+```
+FEATURE_WAKE_WORD=false
+```
+
+### Jarvis Build Order
+
+1. **V5.0 `voice.py`** — ship before Tuesday. One-way narration is the highest-value, lowest-risk piece.
+2. **V5.1 push-to-talk** — two-way interaction without the wake-word complexity.
+3. **V5.2 unified OpenClaw router** — extends scope beyond trading.
+4. **V5.3 wake word** — last; needs the other layers stable before hands-free makes sense.
+
+### Cost Estimate
+
+| Service | Monthly |
+|---|---|
+| ElevenLabs (TTS) | $5 |
+| Whisper (STT) | $2 |
+| Claude (voice synthesis turns) | $3 |
+| **Total** | **$10/month** |

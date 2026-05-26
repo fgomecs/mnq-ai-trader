@@ -19,7 +19,9 @@ V4.4 additions:
 import os
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load .env from this file's directory rather than cwd so the bot reads
+# the right env vars no matter where it's invoked from.
+load_dotenv(dotenv_path=os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
 
 
 def _env_float(key: str, default: float) -> float:

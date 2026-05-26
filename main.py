@@ -400,6 +400,21 @@ def run_premarket(feed: IBKRFeed) -> None:
     if premarket_done:
         return
 
+    # Wipe stale dashboard state from yesterday's EOD. The bot keeps running
+    # across days (boot-time C.6 clear only runs once), so dashboard_writer's
+    # merge logic carries yesterday's trades, P&L, and EOD reasoning all
+    # night until the first new Claude write replaces it. Removing the file
+    # forces a clean baseline at the start of every trading day, matching
+    # the boot-time behavior. Runs once per day (gated by premarket_done).
+    try:
+        import os as _os
+        from config import DASHBOARD_FILE as _DASH_FILE
+        if _os.path.exists(_DASH_FILE):
+            _os.remove(_DASH_FILE)
+            logger.info("Cleared stale dashboard state from previous trading day")
+    except Exception as e:
+        logger.warning(f"Could not clear dashboard state at pre-market: {e}")
+
     logger.info("=" * 50)
     logger.info("PRE-MARKET ANALYSIS")
     logger.info("=" * 50)

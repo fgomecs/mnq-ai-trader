@@ -813,6 +813,26 @@ async function poll() {
 poll();
 setInterval(poll, 200);
 
+async function pollPrice() {
+  try {
+    const resp = await fetch('price_data.json?t=' + Date.now());
+    if (!resp.ok) return;
+    const d = await resp.json();
+    if (d.price) {
+      document.getElementById('price-main').textContent = d.price.toFixed(2);
+      document.getElementById('price-main').style.opacity = '1';
+    }
+    if (d.bid) document.getElementById('bid').textContent = d.bid.toFixed(2);
+    if (d.ask) document.getElementById('ask').textContent = d.ask.toFixed(2);
+    if (d.pnl !== undefined) {
+      const pnlEl = document.getElementById('daily-pnl');
+      if (pnlEl) pnlEl.textContent = (d.pnl >= 0 ? '+$' : '-$') + Math.abs(d.pnl).toFixed(2);
+    }
+  } catch(e) {}
+}
+pollPrice();
+setInterval(pollPrice, 500);
+
 // Live clock — use Intl API for correct ET (handles DST automatically)
 
 

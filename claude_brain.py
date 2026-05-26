@@ -211,6 +211,10 @@ Your probability directly controls trade frequency — be calibrated, not optimi
 ═══════════════════════════════════════
 RESPONSE FORMAT — EXACT, NO EXCEPTIONS
 ═══════════════════════════════════════
+CRITICAL: Output the structured fields below FIRST, with NO preamble, NO prose,
+NO analysis before them. Start your response with "DECISION:" on line 1.
+REASONING comes LAST so that if output truncates, the decision is still parseable.
+
 DECISION: [BUY / SELL / HOLD]
 CONFIDENCE: [LOW / MEDIUM / HIGH]
 THESIS_PROBABILITY: [0-100]
@@ -1540,7 +1544,7 @@ STOP_PRICE is MANDATORY for BUY/SELL. If you cannot identify a structure-based s
     try:
         response = client.messages.create(
             model=CLAUDE_ENTRY_MODEL,
-            max_tokens=500,
+            max_tokens=2000,
             system=_build_system(SYSTEM_PROMPT),
             messages=[{
                 "role": "user",
@@ -1548,6 +1552,17 @@ STOP_PRICE is MANDATORY for BUY/SELL. If you cannot identify a structure-based s
             }],
         )
         cost_info = _log_cache_usage(response, model=CLAUDE_ENTRY_MODEL, purpose="entry")
+
+        # Detect output truncation — if stop_reason is "max_tokens", the
+        # structured DECISION/STOP_PRICE/THESIS_PROBABILITY lines may be missing
+        # and parse_decision will silently return a default HOLD. Log loudly so
+        # this doesn't drain spend on unparseable responses.
+        stop_reason = getattr(response, "stop_reason", None)
+        if stop_reason == "max_tokens":
+            logger.warning(
+                f"Entry response hit max_tokens limit — output truncated, "
+                f"decision may be unparseable. Increase max_tokens or tighten the prompt."
+            )
 
         # Concatenate text blocks if Claude returns multiple
         raw = "".join(

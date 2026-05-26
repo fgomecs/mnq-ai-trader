@@ -88,6 +88,20 @@ class Executor:
         # overwrite it with a looser value
         self._claude_trail_stop:        float                      = 0.0
 
+        # Real broker commissions captured via commissionReportEvent.
+        # _pending: accumulated since last _record_pnl (consumed and reset per trade).
+        # _session: running total for the day (diagnostic).
+        # _seen_exec_ids: dedupe — ib_insync can fire the event twice for the same fill.
+        self._commission_lock          = threading.Lock()
+        self._broker_commission_pending: float = 0.0
+        self._broker_commission_session: float = 0.0
+        self._seen_exec_ids:            set   = set()
+        try:
+            self.ib.commissionReportEvent += self._on_commission_report
+            logger.info("commissionReportEvent handler registered")
+        except Exception as e:
+            logger.warning(f"Could not register commissionReportEvent handler: {e}")
+
     # ─── Protection loop ───────────────────────────────────
 
     def start_protection_loop(self) -> None:
@@ -363,6 +377,43 @@ class Executor:
             self._stop_order_id   = None
             self._target_order_id = None
 
+    # ─── Overfill guard ────────────────────────────────────
+
+    def _reconcile_overfill(self, direction: str, intended: int) -> None:
+        """
+        After entry order submission, verify the broker holds exactly the
+        intended contract count. If a limit+MKT race produced a double-fill
+        (broker shows 2x), flatten the excess immediately so we never carry
+        more contracts than MAX_CONTRACTS / than we sized the bracket for.
+
+        This is the root-cause guard for the position=-2 bug: the LIMIT
+        order's cancel doesn't always beat the fill, and the MKT fallback
+        then opens a second contract. Detect and unwind here.
+        """
+        try:
+            broker_pos = self._broker_position()
+            expected   = intended if direction == "BUY" else -intended
+            if broker_pos == expected:
+                return   # correct size
+            if (expected > 0 and broker_pos > expected) or (expected < 0 and broker_pos < expected):
+                excess = broker_pos - expected
+                flatten_action = "SELL" if excess > 0 else "BUY"
+                flatten_qty    = abs(excess)
+                logger.error(
+                    f"OVERFILL DETECTED: broker={broker_pos} intended={expected} "
+                    f"(double-fill from limit+MKT race). Flattening {flatten_qty} "
+                    f"contract(s) immediately."
+                )
+                flatten = MarketOrder(flatten_action, flatten_qty)
+                flatten.tif        = "GTC"
+                flatten.outsideRth = True
+                self.ib.placeOrder(self.contract, flatten)
+                self.ib.sleep(1.5)
+                broker_after = self._broker_position()
+                logger.info(f"Post-overfill flatten: broker now {broker_after} (expected {expected})")
+        except Exception as e:
+            logger.error(f"Overfill reconcile error: {e}")
+
     # ─── Enter trade ───────────────────────────────────────
 
     def _enter_trade(
@@ -418,6 +469,28 @@ class Executor:
                             pass
                         break
 
+                # CRITICAL — re-check fills AFTER cancel/timeout. A fill can land
+                # between the last poll and the cancel confirmation; without this
+                # re-check we'd submit a MKT fallback and end up with 2 contracts
+                # at the broker while local state only tracks 1 (the position=-2
+                # bug). Also verify against the broker as a second line of defense.
+                if not filled:
+                    if entry_trade.fills:
+                        filled = True
+                        logger.info("Limit filled during cancel window — skipping MKT fallback")
+                    else:
+                        try:
+                            broker_pos_now = self._broker_position()
+                        except Exception:
+                            broker_pos_now = 0
+                        expected_sign = 1 if direction == "BUY" else -1
+                        if broker_pos_now == expected_sign * contracts:
+                            filled = True
+                            logger.info(
+                                f"Broker shows position {broker_pos_now} matching intended "
+                                f"entry — limit filled silently, skipping MKT fallback"
+                            )
+
                 if not filled:
                     # Fallback to market order
                     logger.info("Limit not filled — submitting MKT fallback")
@@ -427,6 +500,10 @@ class Executor:
                     entry_trade            = self.ib.placeOrder(self.contract, entry_order)
                     self._pending_limit_order_id = None
                     self.ib.sleep(1.5)
+
+                    # Post-fallback safety: if the limit ALSO filled (race lost),
+                    # broker will show 2x contracts. Flatten the excess immediately.
+                    self._reconcile_overfill(direction, contracts)
             else:
                 # Pure market entry (ENTRY_MODE=MARKET or no valid limit price)
                 # P1.2: explicit outsideRth=True for futures
@@ -436,6 +513,7 @@ class Executor:
                 entry_trade            = self.ib.placeOrder(self.contract, entry_order)
                 self._pending_limit_order_id = None
                 self.ib.sleep(1.5)
+                self._reconcile_overfill(direction, contracts)
 
             self._pending_limit_order_id = None
 
@@ -547,10 +625,24 @@ class Executor:
         diff = (exit_price - entry_price) if was_long else (entry_price - exit_price)
         pnl  = (diff / TICK_SIZE) * TICK_VALUE * contracts
 
-        # Deduct round-trip commission when enabled (entry + exit side, per contract)
-        commission = 0.0
-        if SIMULATE_COMMISSIONS:
-            commission = COMMISSION_PER_SIDE_USD * 2 * contracts
+        # Prefer real broker commissions (captured via commissionReportEvent).
+        # Fall back to SIMULATE_COMMISSIONS only when the broker reported nothing —
+        # IBKR paper accounts do report commissions, so this normally takes the
+        # real-data path. The pending bucket covers both entry and exit fills.
+        commission        = 0.0
+        commission_source = "none"
+        with self._commission_lock:
+            broker_commission = self._broker_commission_pending
+            self._broker_commission_pending = 0.0
+
+        if broker_commission > 0:
+            commission        = broker_commission
+            commission_source = "broker"
+        elif SIMULATE_COMMISSIONS:
+            commission        = COMMISSION_PER_SIDE_USD * 2 * contracts
+            commission_source = "simulated"
+
+        if commission > 0:
             pnl -= commission
 
         # FIX 6 — P&L sanity bound. On a 1-contract MNQ trade, the maximum
@@ -604,11 +696,12 @@ class Executor:
             "action":       "SELL" if was_long else "BUY",
             "entry":        entry_price,
             "exit":         exit_price,
-            "pnl":          round(pnl, 2),
-            "commission":   round(commission, 2),
-            "hold_seconds": round(hold_secs),
-            "mode":         self.trade_mode,
-            "exit_reason":  reason,
+            "pnl":               round(pnl, 2),
+            "commission":        round(commission, 2),
+            "commission_source": commission_source,
+            "hold_seconds":      round(hold_secs),
+            "mode":              self.trade_mode,
+            "exit_reason":       reason,
         })
 
         if _notify_available:
@@ -625,6 +718,48 @@ class Executor:
             notify_loss_warning(abs(self.daily_pnl), MAX_DAILY_LOSS_USD)
 
         return pnl
+
+    def _on_commission_report(self, trade, fill, report) -> None:
+        """
+        ib_insync commissionReportEvent handler. Fires once per fill once IBKR
+        reports the realised commission. Accumulates into a pending bucket that
+        _record_pnl drains on trade close. Dedupes by execId — the event can
+        fire twice for the same fill in some ib_insync versions.
+
+        Runs on the ib_insync event-loop thread. Uses a dedicated lock so it
+        never contends with the main Executor._lock.
+        """
+        try:
+            exec_id = getattr(report, "execId", None) or getattr(fill.execution, "execId", "")
+            comm    = float(getattr(report, "commission", 0.0) or 0.0)
+        except Exception as e:
+            logger.warning(f"commissionReport parse failed: {e}")
+            return
+
+        if comm <= 0:
+            return
+
+        # Only count fills for our symbol — guards against multi-contract
+        # accounts where unrelated fills could leak in.
+        try:
+            if fill.contract.symbol != SYMBOL:
+                return
+        except Exception:
+            pass
+
+        with self._commission_lock:
+            if exec_id and exec_id in self._seen_exec_ids:
+                return
+            if exec_id:
+                self._seen_exec_ids.add(exec_id)
+            self._broker_commission_pending += comm
+            self._broker_commission_session += comm
+
+        logger.info(
+            f"Commission captured: ${comm:.2f} (execId={exec_id}) — "
+            f"pending=${self._broker_commission_pending:.2f}, "
+            f"session=${self._broker_commission_session:.2f}"
+        )
 
     def _reset_position_state(self) -> None:
         self.current_position  = 0

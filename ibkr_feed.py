@@ -916,8 +916,8 @@ class IBKRFeed:
                 "ibkr_headlines_text": self.get_ibkr_headlines_text(3),
 
                 # Bar data for dashboard chart with per-bar VWAP
-                "bars_1min": self._serialize_bars_with_vwap(list(self._bars_1min)[-195:]),
-                "bars_5min": self._serialize_bars_with_vwap(list(self._bars_5min)[-195:]),
+                "bars_1min": self._serialize_bars_with_vwap(list(self._bars_1min)[-300:]),
+                "bars_5min": self._serialize_bars_with_vwap(list(self._bars_5min)[-150:]),
                 # Current forming bar (uses live price)
                 "currentBarOpen": self._bars_1min[-1].close if self._bars_1min else current_price,
 

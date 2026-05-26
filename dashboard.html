@@ -824,6 +824,14 @@ async function pollPrice() {
     }
     if (d.bid && d.bid > 0) document.getElementById('bid').textContent = d.bid.toFixed(2);
     if (d.ask && d.ask > 0) document.getElementById('ask').textContent = d.ask.toFixed(2);
+    const bars = window._lastBars;
+    if (bars && bars.length > 0 && d.barOpen && d.barClose) {
+      const last = bars[bars.length - 1];
+      last.high  = Math.max(last.high,  d.barClose);
+      last.low   = Math.min(last.low,   d.barClose);
+      last.close = d.barClose;
+      if (window._chartRedraw) window._chartRedraw();
+    }
     const chartEngine = window._chartEngine;
     if (chartEngine && d.price) {
       const bars = chartEngine.bars;
@@ -1342,12 +1350,14 @@ updateClock();
     get bars() { return bars; },
     set dirty(v) { if (v) draw(); }
   };
+  window._chartRedraw = draw;
 
   window.chartUpdate = function(data) {
     snapData = data;
     const newBars = tf === '1m' ? (data.bars1min || []) : (data.bars5min || []);
     if (!newBars.length) { draw(); return; }
     bars = newBars;
+    window._lastBars = bars;
     if (autoFollow) {
       viewStart = Math.max(0, bars.length - (viewBars - RIGHT_PAD));
     }

@@ -326,6 +326,8 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                 daily_pnl=executor.daily_pnl,
                 account=account_data,
                 current_bar=_current_bar if price > 0 else None,
+                session_high=_last_snapshot.get("session_high"),
+                session_low=_last_snapshot.get("session_low"),
             )
 
             # Every DASHBOARD_LIVE_PATCH_SECS — patch dashboard with live OR + position data

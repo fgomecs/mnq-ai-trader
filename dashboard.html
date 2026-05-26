@@ -822,8 +822,8 @@ async function pollPrice() {
       document.getElementById('price-main').textContent = d.price.toFixed(2);
       document.getElementById('price-main').style.opacity = '1';
     }
-    if (d.bid) document.getElementById('bid').textContent = d.bid.toFixed(2);
-    if (d.ask) document.getElementById('ask').textContent = d.ask.toFixed(2);
+    if (d.bid && d.bid > 0) document.getElementById('bid').textContent = d.bid.toFixed(2);
+    if (d.ask && d.ask > 0) document.getElementById('ask').textContent = d.ask.toFixed(2);
     const chartEngine = window._chartEngine;
     if (chartEngine && d.price) {
       const bars = chartEngine.bars;

@@ -47,13 +47,63 @@ body::after {
   z-index: 999;
 }
 
+.outer {
+  display: flex;
+  flex-direction: row;
+  height: 100vh;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg);
+}
 .wrap {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  height: 100vh;
-  padding: 12px;
   gap: 10px;
+  padding: 0;
 }
+.levels-sidebar {
+  width: 110px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  overflow: hidden;
+}
+.levels-title {
+  font-size: 8px;
+  color: var(--dim);
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--border);
+  text-align: center;
+}
+.levels-list { display: flex; flex-direction: column; gap: 3px; flex: 1; }
+.level-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 3px 4px;
+  border-radius: 2px;
+  transition: background 0.2s;
+  cursor: default;
+}
+.level-row.near {
+  background: rgba(255,204,0,0.08);
+  border: 1px solid rgba(255,204,0,0.2);
+}
+.level-row.near .level-val { color: var(--amber); }
+.level-label { font-size: 8px; color: var(--dim); letter-spacing: 1px; font-weight: 700; }
+.level-val   { font-size: 9px; color: var(--text); font-family: var(--mono); font-weight: 500; }
+.level-dot   { width: 4px; height: 4px; border-radius: 50%; background: var(--border); flex-shrink: 0; margin-left: 3px; }
+.level-dot.active { background: var(--amber); box-shadow: 0 0 6px var(--amber); animation: pulse 1s ease-in-out infinite; }
+.level-separator { height: 1px; background: var(--border); margin: 2px 0; }
 
 /* ── TOP STRIP ── */
 .top-strip {
@@ -188,6 +238,80 @@ body::after {
 }
 .chart-ohlc span { color: var(--text); }
 
+.tf-row { display: flex; gap: 4px; }
+.tf-btn {
+  font-family: var(--mono);
+  font-size: 9px;
+  font-weight: 500;
+  padding: 3px 8px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 2px;
+  color: var(--dim);
+  cursor: pointer;
+  letter-spacing: 1px;
+  transition: all 0.15s;
+}
+.tf-btn:hover  { color: var(--text); border-color: #1a2a40; }
+.tf-btn.active { color: var(--blue); border-color: rgba(0,200,255,0.4); background: rgba(0,200,255,0.08); }
+
+.signal-row { display:flex; flex-wrap:wrap; gap:5px; padding:6px 0; }
+.sig { font-size:9px; padding:3px 8px; border-radius:2px; letter-spacing:1px; font-weight:700; border:1px solid #0f1a30; color:#1a2a40; background:#080c18; cursor:default; transition:all 0.2s; }
+.sig.active-green  { color:#00ff88; border-color:rgba(0,255,136,0.4); background:rgba(0,255,136,0.08); }
+.sig.active-yellow { color:#ffcc00; border-color:rgba(255,204,0,0.4);  background:rgba(255,204,0,0.08); }
+.sig.active-red    { color:#ff2d55; border-color:rgba(255,45,85,0.4);  background:rgba(255,45,85,0.08); }
+
+.claude-panel { background:var(--surface); border:1px solid var(--border); border-radius:4px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; }
+.claude-header { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+.claude-left { display:flex; align-items:center; gap:12px; }
+.decision-badge { font-family:var(--display); font-size:28px; letter-spacing:2px; min-width:80px; }
+.decision-badge.buy  { color:var(--green); text-shadow:0 0 20px rgba(0,255,136,0.4); }
+.decision-badge.sell { color:var(--red);   text-shadow:0 0 20px rgba(255,45,85,0.4); }
+.decision-badge.hold { color:var(--dim); }
+.claude-meta { display:flex; flex-direction:column; gap:3px; }
+.meta-item { font-size:9px; color:var(--dim); letter-spacing:1px; }
+.meta-item span { color:var(--text); }
+.session-state { font-size:9px; color:var(--blue); letter-spacing:1.5px; text-align:right; border:1px solid rgba(0,200,255,0.2); padding:3px 8px; border-radius:2px; background:rgba(0,200,255,0.06); white-space:nowrap; }
+.reasoning-text { font-size:10px; color:var(--dim); line-height:1.6; border-top:1px solid var(--border); padding-top:8px; max-height:48px; overflow:hidden; text-overflow:ellipsis; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+
+.position-panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px 12px;
+  height: 80px;
+  flex-shrink: 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+}
+.pos-flat {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 3px;
+}
+.pos-active { display: none; flex-direction: column; gap: 6px; height: 100%; }
+.pos-header { display: flex; align-items: center; justify-content: space-between; }
+.pos-dir { font-family: var(--display); font-size: 22px; letter-spacing: 2px; }
+.pos-dir.long  { color: var(--green); }
+.pos-dir.short { color: var(--red); }
+.pos-entry { font-size: 11px; color: var(--dim); }
+.pos-entry span { color: var(--text); font-weight: 700; }
+.pos-pnl { font-size: 16px; font-weight: 700; font-family: var(--mono); }
+.pos-pnl.pos { color: var(--green); }
+.pos-pnl.neg { color: var(--red); }
+.pos-levels { display: flex; gap: 16px; font-size: 9px; color: var(--dim); letter-spacing: 1px; }
+.pos-levels span { color: var(--text); }
+.pos-bar-wrap { height: 4px; background: var(--border); border-radius: 2px; overflow: hidden; flex-shrink: 0; }
+.pos-bar-fill { height: 100%; border-radius: 2px; transition: width 0.3s ease, background 0.3s ease; width: 0%; }
+
 canvas#chart {
   width: 100%;
   height: calc(100% - 28px);
@@ -234,6 +358,7 @@ canvas#chart {
 </style>
 </head>
 <body>
+<div class="outer">
 <div class="wrap">
 
   <!-- TOP STRIP -->
@@ -270,15 +395,82 @@ canvas#chart {
       <div class="stat-val" id="netliq">——</div>
     </div>
     <div class="stat-box">
-      <div class="stat-label">Decision</div>
-      <div class="stat-val neu" id="decision">——</div>
+      <div class="stat-label">Bias</div>
+      <div class="stat-val neu" id="bias-val">——</div>
+    </div>
+  </div>
+
+  <!-- SIGNAL BADGES -->
+  <div class="signal-row" id="signal-row">
+    <span class="sig" id="sig-fvg">FVG</span>
+    <span class="sig" id="sig-ob">OB</span>
+    <span class="sig" id="sig-choch">CHoCH</span>
+    <span class="sig" id="sig-liq">LIQ</span>
+    <span class="sig" id="sig-tape">TAPE</span>
+    <span class="sig" id="sig-engulf">ENGULF</span>
+    <span class="sig" id="sig-hammer">HAMMER</span>
+    <span class="sig" id="sig-star">STAR</span>
+    <span class="sig" id="sig-inside">INSIDE</span>
+    <span class="sig" id="sig-mtf">MTF</span>
+    <span class="sig" id="sig-zone">ZONE</span>
+    <span class="sig" id="sig-ofi">OFI</span>
+    <span class="sig" id="sig-sweep">SWEEP</span>
+  </div>
+
+  <!-- CLAUDE DECISION PANEL -->
+  <div class="claude-panel" id="claude-panel">
+    <div class="claude-header">
+      <div class="claude-left">
+        <div class="decision-badge" id="decision-badge">HOLD</div>
+        <div class="claude-meta">
+          <span class="meta-item">CONF <span id="conf-val">—</span></span>
+          <span class="meta-item">PROB <span id="prob-val">—</span>%</span>
+          <span class="meta-item">SCORE <span id="score-val">—</span></span>
+          <span class="meta-item" id="strategy-val">—</span>
+        </div>
+      </div>
+      <div class="session-state" id="session-state">—</div>
+    </div>
+    <div class="reasoning-text" id="reasoning-text">Waiting for analysis...</div>
+  </div>
+
+  <!-- POSITION PANEL -->
+  <div class="position-panel" id="position-panel">
+    <div class="pos-flat" id="pos-flat">— FLAT —</div>
+    <div class="pos-active" id="pos-active">
+      <div class="pos-header">
+        <div style="display:flex;align-items:center;gap:12px;">
+          <div class="pos-dir" id="pos-dir">LONG</div>
+          <div class="pos-entry">ENTRY <span id="pos-entry-val">—</span></div>
+        </div>
+        <div class="pos-pnl" id="pos-pnl">+$0.00</div>
+      </div>
+      <div class="pos-levels">
+        STOP <span id="pos-stop-val">—</span>
+        &nbsp;·&nbsp;
+        TARGET <span id="pos-tgt-val">—</span>
+        &nbsp;·&nbsp;
+        TO STOP <span id="pos-ticks-stop">—</span>t
+        &nbsp;·&nbsp;
+        TO TGT <span id="pos-ticks-tgt">—</span>t
+      </div>
+      <div class="pos-bar-wrap">
+        <div class="pos-bar-fill" id="pos-bar-fill"></div>
+      </div>
     </div>
   </div>
 
   <!-- CHART -->
   <div class="chart-wrap">
     <div class="chart-header">
-      <div class="chart-title">1M · LAST 6 CANDLES</div>
+      <div class="tf-row" id="tf-row">
+        <button class="tf-btn active" data-tf="1M">1M</button>
+        <button class="tf-btn" data-tf="5M">5M</button>
+        <button class="tf-btn" data-tf="15M">15M</button>
+        <button class="tf-btn" data-tf="30M">30M</button>
+        <button class="tf-btn" data-tf="1H">1H</button>
+        <button class="tf-btn" data-tf="1D">1D</button>
+      </div>
       <div class="chart-ohlc" id="ohlc-label">O:<span id="co">—</span> H:<span id="ch">—</span> L:<span id="cl">—</span> C:<span id="cc">—</span></div>
     </div>
     <canvas id="chart"></canvas>
@@ -292,15 +484,160 @@ canvas#chart {
   </div>
 
 </div>
+<div class="levels-sidebar" id="levels-sidebar">
+  <div class="levels-title">LEVELS</div>
+  <div class="levels-list" id="levels-list"></div>
+</div>
+</div>
 
 <script>
 // ── State ──────────────────────────────────────────────────
 const GREEN = '#00ff88', RED = '#ff2d55', AMBER = '#ffcc00', DIM = '#1a2a40', TEXT = '#e8f0ff', BLUE = '#00c8ff';
 
 let _lastPrice = 0;
-let _bars      = [];   // completed 1-min bars from dashboard
-let _liveBar   = null; // current building bar {o,h,l,c}
+let _bars      = [];   // active timeframe's completed bars (alias of tfBars[currentTF])
+let _liveBar   = null; // current building 1-min bar {o,h,l,c} — 1M only
 let _lastBid   = 0, _lastAsk = 0;
+let viewBars   = 80;   // candles visible on screen
+let viewOffset = 0;    // bars hidden from right (0 = latest visible)
+let currentTF  = '1M';
+const tfBars   = { '1M': [], '5M': [], '15M': [], '30M': [], '1H': [], '1D': [] };
+const tfDefaults = { '1M': 80, '5M': 60, '15M': 40, '30M': 30, '1H': 24, '1D': 60 };
+const tfMinutes  = { '1M': 1,  '5M': 5,  '15M': 15, '30M': 30, '1H': 60, '1D': 390 };
+
+let _orHigh = 0, _orLow = 0, _vwap = 0, _fvgLevels = [];
+let _entryPrice = 0, _stopPrice = 0, _targetPrice = 0, _posDirection = '';
+let _levels = {};
+
+function updateLevelsSidebar() {
+  const list = document.getElementById('levels-list');
+  if (!list) return;
+
+  const groups = [
+    { label:'PWH',  val:_levels.PWH,  color:'#5a6a8a' },
+    { label:'PWL',  val:_levels.PWL,  color:'#5a6a8a' },
+    { sep: true },
+    { label:'PDH',  val:_levels.PDH,  color:'#7890c0' },
+    { label:'PDL',  val:_levels.PDL,  color:'#7890c0' },
+    { sep: true },
+    { label:'PMH',  val:_levels.PMH,  color:'#00c8ff' },
+    { label:'PML',  val:_levels.PML,  color:'#00c8ff' },
+    { sep: true },
+    { label:'ORH',  val:_levels.ORH,  color:'#ffcc00' },
+    { label:'ORL',  val:_levels.ORL,  color:'#ffcc00' },
+    { sep: true },
+    { label:'SH',   val:_levels.SH,   color:'#e8f0ff' },
+    { label:'VWAP', val:_levels.VWAP, color:'#ffcc00' },
+    { label:'SL',   val:_levels.SL,   color:'#e8f0ff' },
+  ];
+
+  const PROXIMITY = 10;
+
+  list.innerHTML = groups.map(g => {
+    if (g.sep) return '<div class="level-separator"></div>';
+    if (!g.val) return '';
+    const near = _lastPrice > 0 && Math.abs(_lastPrice - g.val) <= PROXIMITY;
+    return '<div class="level-row' + (near ? ' near' : '') + '">' +
+      '<span class="level-label" style="color:' + g.color + '">' + g.label + '</span>' +
+      '<span class="level-val">' + g.val.toFixed(0) + '</span>' +
+      '<span class="level-dot' + (near ? ' active' : '') + '"></span>' +
+      '</div>';
+  }).join('');
+}
+
+function updatePositionPanel() {
+  const flat = document.getElementById('pos-flat');
+  const active = document.getElementById('pos-active');
+  const inTrade = _posDirection === 'LONG' || _posDirection === 'SHORT';
+
+  flat.style.display   = inTrade ? 'none'  : 'flex';
+  active.style.display = inTrade ? 'flex'  : 'none';
+
+  if (!inTrade || !_entryPrice || !_lastPrice) return;
+
+  const isLong = _posDirection === 'LONG';
+  const pnlTicks = isLong
+    ? (_lastPrice - _entryPrice) / 0.25
+    : (_entryPrice - _lastPrice) / 0.25;
+  const pnlDollar = pnlTicks * 0.50;
+
+  document.getElementById('pos-dir').className = 'pos-dir ' + (isLong ? 'long' : 'short');
+  document.getElementById('pos-dir').textContent = _posDirection;
+  document.getElementById('pos-entry-val').textContent = _entryPrice.toFixed(2);
+
+  const pnlEl = document.getElementById('pos-pnl');
+  pnlEl.textContent = (pnlDollar >= 0 ? '+$' : '-$') + Math.abs(pnlDollar).toFixed(2);
+  pnlEl.className = 'pos-pnl ' + (pnlDollar >= 0 ? 'pos' : 'neg');
+
+  if (_stopPrice)   document.getElementById('pos-stop-val').textContent  = _stopPrice.toFixed(2);
+  if (_targetPrice) document.getElementById('pos-tgt-val').textContent   = _targetPrice.toFixed(2);
+
+  const ticksToStop = _stopPrice   ? Math.abs((_lastPrice - _stopPrice)   / 0.25).toFixed(0) : '—';
+  const ticksToTgt  = _targetPrice ? Math.abs((_targetPrice - _lastPrice) / 0.25).toFixed(0) : '—';
+  document.getElementById('pos-ticks-stop').textContent = ticksToStop;
+  document.getElementById('pos-ticks-tgt').textContent  = ticksToTgt;
+
+  if (_stopPrice && _targetPrice) {
+    const progress = Math.abs(_lastPrice - _entryPrice) / Math.abs(_targetPrice - _entryPrice);
+    const pct = Math.min(Math.max(progress * 100, 0), 100).toFixed(1);
+    const bar = document.getElementById('pos-bar-fill');
+    bar.style.width = pct + '%';
+    bar.style.background = pnlDollar >= 0 ? 'var(--green)' : 'var(--red)';
+  }
+}
+
+function updateSignals(d) {
+  const confluence = d.confluence || [];
+  const str = confluence.join(' ').toUpperCase();
+  const mtf = (d.mtf_alignment || '').toUpperCase();
+  const ofi = (d.lastConfluence || '').toUpperCase();
+  const tape = (d.tape_bias || '').toUpperCase();
+
+  function setActive(id, active, color) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.className = 'sig' + (active ? ' active-' + color : '');
+  }
+
+  setActive('sig-fvg',    str.includes('FVG'),           'green');
+  setActive('sig-ob',     str.includes('OB') || str.includes('ORDER'), 'green');
+  setActive('sig-choch',  str.includes('CHOCH') || (d.choch && d.choch.length > 2), 'yellow');
+  setActive('sig-liq',    str.includes('LIQ') || str.includes('LIQUID'), 'yellow');
+  setActive('sig-tape',   tape === 'AGGRESSIVE_BUYING' || tape === 'AGGRESSIVE_SELLING', tape === 'AGGRESSIVE_BUYING' ? 'green' : 'red');
+  setActive('sig-engulf', str.includes('ENGULF'), 'green');
+  setActive('sig-hammer', str.includes('HAMMER'), 'green');
+  setActive('sig-star',   str.includes('STAR'), 'yellow');
+  setActive('sig-inside', str.includes('INSIDE'), 'yellow');
+  setActive('sig-mtf',    mtf === 'BULLISH_ALIGNED' || mtf === 'BEARISH_ALIGNED', mtf === 'BULLISH_ALIGNED' ? 'green' : 'red');
+  setActive('sig-zone',   str.includes('ZONE') || (d.daily_zones && Object.keys(d.daily_zones).length > 0), 'yellow');
+  setActive('sig-ofi',    str.includes('OFI') || str.includes('STRONG'), 'green');
+  setActive('sig-sweep',  str.includes('SWEEP'), 'red');
+}
+
+function aggregateBars(bars, periodMins) {
+  if (!bars || !bars.length || periodMins <= 1) return bars || [];
+  const out = [];
+  let group = null;
+  for (const b of bars) {
+    // Bucket by minute count since epoch
+    let ts = 0;
+    if (b.t) {
+      const m = String(b.t).match(/(\d{2}):(\d{2})/);
+      if (m) ts = parseInt(m[1],10) * 60 + parseInt(m[2],10);
+    }
+    const bucket = Math.floor(ts / periodMins);
+    if (!group || group._bucket !== bucket) {
+      if (group) out.push(group);
+      group = { _bucket: bucket, t: b.t, o: b.o, h: b.h, l: b.l, c: b.c };
+    } else {
+      group.h = Math.max(group.h, b.h);
+      group.l = Math.min(group.l, b.l);
+      group.c = b.c;
+    }
+  }
+  if (group) out.push(group);
+  return out.map(g => ({ t: g.t, o: g.o, h: g.h, l: g.l, c: g.c }));
+}
 
 // ── Clock ──────────────────────────────────────────────────
 function updateClock() {
@@ -360,16 +697,21 @@ async function pollPrice() {
     // Net liq
     if (d.netLiq) document.getElementById('netliq').textContent = '$' + Number(d.netLiq).toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:0});
 
-    // Live bar update — update close of current building bar
+    // Live bar update — update close of current building 1-min bar
     if (_liveBar) {
       _liveBar.c = price;
       _liveBar.h = Math.max(_liveBar.h, price);
       _liveBar.l = Math.min(_liveBar.l, price);
-      updateOhlcLabel(_liveBar);
-      drawChart();
+      if (currentTF === '1M') {
+        updateOhlcLabel(_liveBar);
+        drawChart();
+      }
     }
 
     document.getElementById('last-update').textContent = new Date().toLocaleTimeString('en-US',{hour12:false,timeZone:'America/New_York'});
+
+    updatePositionPanel();
+    updateLevelsSidebar();
   } catch(e) {}
 }
 setInterval(pollPrice, 300);
@@ -387,32 +729,96 @@ async function pollDash() {
     document.getElementById('data-mode').textContent = d.botSleeping ? ('WAKES ' + (d.wakeTime||'')) : state;
     document.getElementById('version').textContent = d.botVersion ? 'v' + d.botVersion : '';
 
-    // Decision
-    const decEl = document.getElementById('decision');
-    const dec = d.lastDecision || 'HOLD';
-    decEl.textContent = dec;
-    decEl.className = 'stat-val ' + (dec==='BUY'?'pos':dec==='SELL'?'neg':'neu');
+    // Claude decision panel
+    const dec = (d.lastDecision || 'HOLD').toUpperCase();
+    const badge = document.getElementById('decision-badge');
+    badge.textContent = dec;
+    badge.className = 'decision-badge ' + (dec==='BUY'?'buy':dec==='SELL'?'sell':'hold');
 
-    // Bars — take last 5 completed bars, build live bar from current price
-    const raw = d.bars1min || [];
-    if (raw.length > 0) {
-      // Last 5 completed bars
-      _bars = raw.slice(-5).map(b => ({
-        t: b.t || b.time || '',
-        o: b.open  || b.o || 0,
-        h: b.high  || b.h || 0,
-        l: b.low   || b.l || 0,
-        c: b.close || b.c || 0,
-      })).filter(b => b.o > 0);
+    const prob = d.thesisProbability || 0;
+    const probEl = document.getElementById('prob-val');
+    probEl.textContent = prob || '—';
+    probEl.style.color = prob >= 75 ? 'var(--green)' : prob >= 60 ? 'var(--amber)' : prob > 0 ? 'var(--red)' : 'var(--dim)';
 
-      // Build live bar from currentBarOpen + live price
+    document.getElementById('conf-val').textContent = d.lastConfidence || '—';
+    document.getElementById('score-val').textContent = d.lastConfluenceScore > 0 ? d.lastConfluenceScore + '/10' : '—';
+    document.getElementById('strategy-val').textContent = d.lastStrategy || '—';
+
+    const reasoning = d.lastReasoning || (d.reasoning && d.reasoning.reasoning) || '';
+    document.getElementById('reasoning-text').textContent = reasoning || 'Waiting for analysis...';
+
+    const sessionState = (d.killzone || d.data_mode || '—').toUpperCase();
+    document.getElementById('session-state').textContent = sessionState;
+
+    // Bias stat-box
+    const biasEl = document.getElementById('bias-val');
+    if (biasEl) {
+      const biasRaw = (d.bias || d.htfBias || '—').toString();
+      const biasShort = biasRaw.split('\n')[0].slice(0, 24).toUpperCase();
+      biasEl.textContent = biasShort || '——';
+      const bu = biasShort.toUpperCase();
+      biasEl.className = 'stat-val ' + (bu.includes('BULL')?'pos':bu.includes('BEAR')?'neg':'neu');
+    }
+
+    // Chart overlays
+    _orHigh    = d.orHigh || 0;
+    _orLow     = d.orLow  || 0;
+    _vwap      = d.vwap   || 0;
+    _fvgLevels = d.fvg_levels || [];
+
+    // Position state
+    _entryPrice   = d.entryPrice  || 0;
+    _stopPrice    = d.stopPrice   || 0;
+    _targetPrice  = d.targetPrice || 0;
+    _posDirection = d.position    || 'FLAT';
+
+    _levels = {
+      PDH:  d.prevDayHigh   || 0,
+      PDL:  d.prevDayLow    || 0,
+      PWH:  d.prevWeekHigh  || 0,
+      PWL:  d.prevWeekLow   || 0,
+      PMH:  d.premktHigh    || 0,
+      PML:  d.premktLow     || 0,
+      ORH:  d.orHigh        || 0,
+      ORL:  d.orLow         || 0,
+      SH:   d.sessionHigh   || 0,
+      SL:   d.sessionLow    || 0,
+      VWAP: d.vwap          || 0,
+    };
+    updateLevelsSidebar();
+
+    updateSignals(d);
+    updatePositionPanel();
+
+    // Bars — normalize 1-min source then aggregate per timeframe
+    const norm = (arr) => (arr || []).map(b => ({
+      t: b.t || b.time || '',
+      o: b.open  || b.o || 0,
+      h: b.high  || b.h || 0,
+      l: b.low   || b.l || 0,
+      c: b.close || b.c || 0,
+    })).filter(b => b.o > 0);
+
+    const one  = norm(d.bars1min);
+    const five = norm(d.bars5min);
+    const day  = norm(d.bars_daily || d.barsDaily);
+
+    if (one.length > 0) {
+      tfBars['1M']  = one.slice(-200);
+      tfBars['5M']  = (five.length ? five : aggregateBars(one, 5)).slice(-200);
+      tfBars['15M'] = aggregateBars(one, 15).slice(-200);
+      tfBars['30M'] = aggregateBars(one, 30).slice(-200);
+      tfBars['1H']  = aggregateBars(one, 60).slice(-200);
+      tfBars['1D']  = (day.length ? day : aggregateBars(one, 390)).slice(-200);
+
+      // Build live 1-min bar from currentBarOpen + live price
       const barOpen = d.currentBarOpen || (_lastPrice || 0);
       if (barOpen > 0 && _lastPrice > 0) {
         if (!_liveBar || Math.abs(_liveBar.o - barOpen) > 1) {
-          // New bar started
           _liveBar = { o: barOpen, h: Math.max(barOpen, _lastPrice), l: Math.min(barOpen, _lastPrice), c: _lastPrice, live: true };
         }
       }
+      _bars = tfBars[currentTF];
       drawChart();
     }
   } catch(e) {}
@@ -446,9 +852,10 @@ function drawChart() {
   ctx.scale(dpr, dpr);
   ctx.clearRect(0, 0, W, H);
 
-  // All bars = last 5 completed + live
-  const allBars = [..._bars];
-  if (_liveBar) allBars.push(_liveBar);
+  // All bars = active TF completed + live (1M only)
+  const activeBars = tfBars[currentTF] || _bars || [];
+  const allBars = [...activeBars];
+  if (currentTF === '1M' && _liveBar) allBars.push(_liveBar);
   if (allBars.length === 0) {
     ctx.fillStyle = DIM;
     ctx.font = '11px JetBrains Mono';
@@ -457,12 +864,18 @@ function drawChart() {
     return;
   }
 
-  // Update OHLC label with live bar or last completed
-  const labelBar = _liveBar || allBars[allBars.length-1];
+  // Slice visible window based on viewBars + viewOffset
+  const endIdx     = allBars.length - viewOffset;
+  const startIdx   = Math.max(0, endIdx - viewBars);
+  const visible    = allBars.slice(startIdx, endIdx);
+  if (visible.length === 0) { ctx.fillStyle = DIM; return; }
+
+  // Update OHLC label with live bar or last visible
+  const labelBar = (_liveBar && viewOffset === 0) ? _liveBar : visible[visible.length-1];
   updateOhlcLabel(labelBar);
 
-  // Price range
-  const prices = allBars.flatMap(b => [b.h, b.l]);
+  // Price range — based on visible bars only
+  const prices = visible.flatMap(b => [b.h, b.l]);
   let hi = Math.max(...prices);
   let lo = Math.min(...prices);
   const range = hi - lo || 10;
@@ -488,13 +901,89 @@ function drawChart() {
     ctx.fillText(v.toFixed(0), 2, y - 2);
   }
 
-  // Candles
-  const n       = allBars.length;
+  // ── Overlays: FVG zones, VWAP, OR lines ──
+  // FVG zones (drawn first so they sit beneath candles)
+  if (_fvgLevels && _fvgLevels.length) {
+    _fvgLevels.forEach(z => {
+      const zHi = z.high ?? z.top    ?? 0;
+      const zLo = z.low  ?? z.bottom ?? 0;
+      if (!zHi || !zLo) return;
+      // Skip if completely outside visible price range
+      if (zLo > hi || zHi < lo) return;
+      const isBull = (z.type || '').toUpperCase() === 'BULL';
+      const fill   = isBull ? 'rgba(0,255,136,0.06)' : 'rgba(255,45,85,0.06)';
+      const edge   = isBull ? 'rgba(0,255,136,0.35)' : 'rgba(255,45,85,0.35)';
+      const yTop = toY(Math.min(Math.max(zHi, lo), hi));
+      const yBot = toY(Math.min(Math.max(zLo, lo), hi));
+      ctx.fillStyle = fill;
+      ctx.fillRect(0, yTop, W, yBot - yTop);
+      ctx.strokeStyle = edge;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0, yTop, W, yBot - yTop);
+    });
+  }
+
+  // VWAP — solid yellow line
+  if (_vwap > 0 && _vwap >= lo && _vwap <= hi) {
+    const y = toY(_vwap);
+    ctx.strokeStyle = '#ffcc00';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(W * 0.92, y);
+    ctx.stroke();
+    ctx.fillStyle = '#ffcc00';
+    ctx.font = '8px JetBrains Mono';
+    ctx.textAlign = 'right';
+    ctx.fillText('VWAP', W - 4, y - 2);
+  }
+
+  // OR High / Low — amber dashed
+  ctx.setLineDash([4, 4]);
+  ctx.strokeStyle = '#ffcc00';
+  ctx.lineWidth = 1;
+  ctx.fillStyle = '#ffcc00';
+  ctx.font = '8px JetBrains Mono';
+  ctx.textAlign = 'right';
+  if (_orHigh > 0 && _orHigh >= lo && _orHigh <= hi) {
+    const y = toY(_orHigh);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W * 0.92, y); ctx.stroke();
+    ctx.fillText('OR H', W - 4, y - 2);
+  }
+  if (_orLow > 0 && _orLow >= lo && _orLow <= hi) {
+    const y = toY(_orLow);
+    ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W * 0.92, y); ctx.stroke();
+    ctx.fillText('OR L', W - 4, y + 9);
+  }
+  ctx.setLineDash([]);
+
+  // Entry / Stop / Target lines (active trade only)
+  if (_entryPrice && (_posDirection === 'LONG' || _posDirection === 'SHORT')) {
+    const drawLine = (price, color, dashed, label, labelOffset) => {
+      if (!price || price < lo || price > hi) return;
+      const y = toY(price);
+      if (dashed) ctx.setLineDash([4, 4]); else ctx.setLineDash([]);
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W * 0.92, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = color;
+      ctx.font = '8px JetBrains Mono';
+      ctx.textAlign = 'right';
+      ctx.fillText(label, W - 4, y + (labelOffset || -2));
+    };
+    drawLine(_entryPrice,  '#00c8ff', false, 'ENTRY',  -2);
+    drawLine(_stopPrice,   '#ff2d55', true,  'STOP',    9);
+    drawLine(_targetPrice, '#00ff88', true,  'TARGET', -2);
+  }
+
+  // Candles — render only visible
+  const n       = visible.length;
   const colW    = (W * 0.85) / n;
-  const bodyW   = Math.max(colW * 0.55, 4);
+  const bodyW   = Math.max(colW * 0.55, 2);
   const startX  = W * 0.05;
 
-  allBars.forEach((b, i) => {
+  visible.forEach((b, i) => {
     const x    = startX + i * colW + colW / 2;
     const isLive = b.live;
     const bull = b.c >= b.o;
@@ -571,7 +1060,52 @@ function drawChart() {
     ctx.textAlign = 'center';
     ctx.fillText(_lastPrice.toFixed(1), W * 0.96, py + 3);
   }
+
+  // View indicator (top-left corner)
+  ctx.fillStyle = 'rgba(58,74,106,0.9)';
+  ctx.font      = '8px JetBrains Mono';
+  ctx.textAlign = 'left';
+  const tag = viewOffset === 0
+    ? `${currentTF} · ${viewBars} bars · LIVE`
+    : `${currentTF} · ${viewBars} bars · +${viewOffset} offset`;
+  ctx.fillText(tag, 4, 10);
 }
+
+// Wheel zoom / scroll
+(function() {
+  const c = document.getElementById('chart');
+  if (!c) return;
+  c.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    if (e.shiftKey) {
+      // Scroll horizontally — adjust viewOffset
+      const step = Math.max(1, Math.floor(viewBars * 0.1));
+      viewOffset += (e.deltaY > 0 ? step : -step);
+      const maxOffset = Math.max(0, (_bars.length + (_liveBar ? 1 : 0)) - viewBars);
+      if (viewOffset < 0) viewOffset = 0;
+      if (viewOffset > maxOffset) viewOffset = maxOffset;
+    } else {
+      // Zoom — adjust viewBars
+      if (e.deltaY < 0) viewBars = Math.max(20,  viewBars - 10);
+      else              viewBars = Math.min(150, viewBars + 10);
+    }
+    drawChart();
+  }, { passive: false });
+})();
+
+// Timeframe button handlers
+document.querySelectorAll('#tf-row .tf-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const tf = btn.getAttribute('data-tf');
+    if (!tf || tf === currentTF) return;
+    currentTF = tf;
+    viewOffset = 0;
+    viewBars = tfDefaults[tf] || 80;
+    _bars = tfBars[tf] || [];
+    document.querySelectorAll('#tf-row .tf-btn').forEach(b => b.classList.toggle('active', b === btn));
+    drawChart();
+  });
+});
 
 window.addEventListener('resize', drawChart);
 </script>

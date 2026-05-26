@@ -11,6 +11,7 @@ Session 2 changes from audit:
 """
 
 import threading
+from concurrent.futures import ThreadPoolExecutor
 import time
 from datetime import datetime, timedelta
 from enum import Enum
@@ -161,6 +162,21 @@ _fast_ticker_running  = False
 _last_snapshot_lock   = threading.Lock()
 _last_snapshot: dict  = {}
 _current_bar: dict    = {"minute": None, "open": 0.0, "high": 0.0, "low": 0.0}
+
+# Claude calls run in a worker thread so the ib_insync asyncio loop keeps pumping
+# IBKR keepalives during the 8–40s Anthropic HTTP wait. Without this, TWS drops
+# the socket as unresponsive and run_cycle ends up in an "Empty snapshot" loop.
+_claude_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="claude")
+
+def _claude_call(feed, fn, *args, **kwargs):
+    """Submit a Claude call to a worker thread; pump the IBKR loop while waiting."""
+    future = _claude_executor.submit(fn, *args, **kwargs)
+    while not future.done():
+        try:
+            feed.ib.sleep(0.5)
+        except Exception:
+            time.sleep(0.5)
+    return future.result()
 
 _session_type_classified = False
 _post_news_analyzed      = False
@@ -397,11 +413,11 @@ def run_premarket(feed: IBKRFeed) -> None:
         # has a game plan to reference (OR not yet set, so watchlist will be
         # NEUTRAL bias until OR forms at 9:30)
         try:
-            update_watchlist(snapshot)
+            _claude_call(feed, update_watchlist, snapshot)
         except Exception as e:
             logger.warning(f"Pre-market watchlist build failed: {e}")
 
-        result = analyze_premarket(snapshot, memory)
+        result = _claude_call(feed, analyze_premarket, snapshot, memory)
         if _notify_available:
             notify_premarket(str(result)[:200])
         update_dashboard(
@@ -489,7 +505,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
     # ── Watchlist refresh (every 5 min) ───────────────────
     if now_ts - last_watchlist_time >= WATCHLIST_REFRESH_SECS:
         try:
-            update_watchlist(snapshot)
+            _claude_call(feed, update_watchlist, snapshot)
             last_watchlist_time = now_ts
         except Exception as e:
             logger.warning(f"Watchlist refresh failed: {e}")
@@ -505,7 +521,9 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
             else:
                 logger.info(f"--- Position check: {now.strftime('%H:%M:%S')} ET ---")
 
-            result   = analyze_position(
+            result   = _claude_call(
+                feed,
+                analyze_position,
                 snapshot     = snapshot,
                 position     = executor.current_position,
                 entry_price  = executor.entry_price,
@@ -613,7 +631,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
 
     global _post_news_analyzed
     if FEATURE_POST_NEWS_REFRESH and snapshot.get("post_news_window") and not _post_news_analyzed:
-        update_watchlist(snapshot)
+        _claude_call(feed, update_watchlist, snapshot)
         _post_news_analyzed = True
         logger.info("POST-NEWS WINDOW — watchlist refreshed")
 
@@ -645,7 +663,7 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
     snapshot["_pre_filter_reason"] = filter_reason
 
     # ── Claude entry decision ─────────────────────────────
-    decision = analyze_market(snapshot)
+    decision = _claude_call(feed, analyze_market, snapshot)
     dec_str  = decision.get("decision", "HOLD")
 
     if dec_str in ("BUY", "SELL"):
@@ -1135,7 +1153,7 @@ def main() -> None:
         try:
             snap = feed.get_snapshot()
             if snap:
-                update_watchlist(snap)
+                _claude_call(feed, update_watchlist, snap)
         except Exception as e:
             logger.warning(f"Initial watchlist failed: {e}")
 

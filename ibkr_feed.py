@@ -55,6 +55,12 @@ from logger import logger
 from news_calendar import get_news_snapshot
 from data_recorder import recorder as _recorder
 
+try:
+    from notifier import notify_ibkr_disconnected, notify_ibkr_reconnected
+except Exception:
+    def notify_ibkr_disconnected(): return False
+    def notify_ibkr_reconnected(): return False
+
 eastern = pytz.timezone("US/Eastern")
 
 
@@ -650,6 +656,43 @@ class IBKRFeed:
 
     # ─── Main snapshot (Improvement 1: fast assembly) ──────
 
+    def _ensure_connected(self) -> bool:
+        """Reconnect to IBKR if the socket dropped. Throttled to 1 attempt per 10s."""
+        try:
+            if self.ib.isConnected():
+                return True
+        except Exception:
+            pass
+        now = time.time()
+        last = getattr(self, "_last_reconnect_attempt", 0.0)
+        if now - last < 10.0:
+            return False
+        self._last_reconnect_attempt = now
+        logger.warning("IBKR disconnected — attempting reconnect")
+        try:
+            try:
+                self.ib.disconnect()
+            except Exception:
+                pass
+            ok = self.connect()
+            if ok:
+                logger.info("IBKR reconnected — re-initializing bar cache")
+                try:
+                    self.initialize_bars()
+                except Exception as e:
+                    logger.error(f"Bar re-init after reconnect failed: {e}")
+                try: notify_ibkr_reconnected()
+                except Exception: pass
+            else:
+                try: notify_ibkr_disconnected()
+                except Exception: pass
+            return ok
+        except Exception as e:
+            logger.error(f"Reconnect failed: {e}")
+            try: notify_ibkr_disconnected()
+            except Exception: pass
+            return False
+
     def get_snapshot(
         self,
         current_position: int   = 0,
@@ -661,6 +704,8 @@ class IBKRFeed:
         Assemble market snapshot from CACHED data — no blocking bar fetches.
         Target: < 1 second assembly time.
         """
+        if not self._ensure_connected():
+            return {}
         try:
             now_et    = datetime.now(eastern)
             time_str  = now_et.strftime("%H:%M:%S")

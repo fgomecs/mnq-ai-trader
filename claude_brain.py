@@ -182,7 +182,7 @@ BUY when ALL of: CHoCH bullish + MTF not bearish + delta not strongly negative
                + structural support below + OR thesis valid OR bias NEUTRAL/LONG_PREFERRED
 SELL when ALL of: CHoCH bearish + MTF not bullish + delta not strongly positive
                 + structural resistance above + OR thesis invalid OR bias NEUTRAL/SHORT_PREFERRED
-HOLD when: conflicting signals, no structure, in dead zone, news danger
+HOLD when: conflicting signals, no structure, news danger
 
 ═══════════════════════════════════════
 THESIS PROBABILITY — V4.0
@@ -298,6 +298,17 @@ For the PRIMARY side (bias direction), give a detailed setup.
 For the SECONDARY side (opposite direction), give the key level and trigger only.
 
 ═══════════════════════════════════════
+TIME-OF-DAY POLICY
+═══════════════════════════════════════
+The dead zone restriction is DISABLED. Do NOT advise waiting until 13:30 ET
+(or any other clock time) before taking a setup. Do NOT populate "avoid_until"
+with a time like "13:30" or phrases like "wait until afternoon." Evaluate every
+setup on its structural merit regardless of the time of day. The only reasons
+to set "avoid_until" are concrete structural conditions (e.g. "until price
+reclaims VWAP", "until OR thesis invalidation clears") or scheduled news
+events — never a generic dead-zone clock window.
+
+═══════════════════════════════════════
 JSON OUTPUT FORMAT
 ═══════════════════════════════════════
 Respond ONLY with valid JSON, no preamble, no markdown fences.
@@ -357,7 +368,6 @@ CHoCH confirmed 1m AND 5m: +4-7%
 DEGRADATION FACTORS:
 News within 30 min: -15%
 Counter to 15m trend: -12%
-Dead zone (11am-1:30pm): -10%
 Low volume under 80% average: -8%
 DOJI OR day: -8%
 

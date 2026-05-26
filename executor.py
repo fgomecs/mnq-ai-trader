@@ -205,6 +205,7 @@ class Executor:
                 contracts   = abs(local_pos)
                 exit_price  = self._infer_recent_exit_fill(was_long, entry_price)
                 if entry_price > 0 and exit_price > 0:
+                    self.ib.sleep(0.3)  # let commissionReport for the exit fill arrive
                     pnl = self._record_pnl(entry_price, exit_price, contracts,
                                            was_long, "Reconciled — bracket filled externally")
                     logger.info(
@@ -816,6 +817,7 @@ class Executor:
                 # Try to capture the broker stop/target fill from execDetails so
                 # we record realistic P&L. If we can't find it, use last_price.
                 exit_price = self._infer_recent_exit_fill(was_long, entry_price)
+                self.ib.sleep(0.3)  # let commissionReport for the exit fill arrive
                 pnl = self._record_pnl(entry_price, exit_price, contracts,
                                        was_long, f"Broker bracket filled: {reason}")
                 logger.info(
@@ -851,6 +853,7 @@ class Executor:
                     "Skipping close order to avoid accidental reverse entry."
                 )
                 exit_price = self._infer_recent_exit_fill(was_long, entry_price)
+                self.ib.sleep(0.3)  # let commissionReport for the exit fill arrive
                 pnl = self._record_pnl(entry_price, exit_price, contracts,
                                        was_long, f"Filled during cancel: {reason}")
                 logger.info(
@@ -876,6 +879,7 @@ class Executor:
                 logger.info(f"Exit fill (cached last_price): {exit_price}")
 
             # 4. Record P&L (with sanity bound — see _record_pnl)
+            self.ib.sleep(0.3)  # let commissionReport for the exit fill arrive
             pnl = self._record_pnl(entry_price, exit_price, contracts, was_long, reason)
             logger.info(
                 f"CLOSED: {contracts} MNQ @ {exit_price} | "
@@ -982,6 +986,7 @@ class Executor:
                 contracts    = abs(prev_position)
                 was_long     = prev_position > 0
 
+                self.ib.sleep(0.3)  # let commissionReport for the exit fill arrive
                 pnl = self._record_pnl(
                     self.entry_price, exit_price, contracts, was_long,
                     "Broker stop/target hit",

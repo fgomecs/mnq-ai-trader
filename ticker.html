@@ -385,6 +385,7 @@ canvas#chart {
     <div class="stat-box">
       <div class="stat-label">Daily P&L</div>
       <div class="stat-val" id="pnl">$0.00</div>
+      <div style="font-size:11px;color:var(--amber);font-family:var(--mono);margin-top:2px" id="comm-display">comm $0.00</div>
     </div>
     <div class="stat-box">
       <div class="stat-label">Position</div>
@@ -688,6 +689,10 @@ async function pollPrice() {
     const pnlEl = document.getElementById('pnl');
     pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
     pnlEl.className = 'stat-val ' + (pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'neu');
+
+    const commissions = parseFloat(d.dailyCommissions) || 0;
+    const commEl = document.getElementById('comm-display');
+    if (commEl) commEl.textContent = 'comm $' + commissions.toFixed(2);
 
     // Position
     const posEl = document.getElementById('position');

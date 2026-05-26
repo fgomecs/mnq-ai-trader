@@ -95,14 +95,44 @@ class Executor:
         # Real broker commissions captured via commissionReportEvent.
         # _pending: accumulated since last _record_pnl (consumed and reset per trade).
         # _session: running total for the day (diagnostic).
-        # _seen_exec_ids: dedupe — ib_insync can fire the event twice for the same fill.
+        # _seen_exec_ids: dedupe — ib_insync can fire the event twice for the
+        #   same fill, AND IBKR replays today's executions on (re)connect,
+        #   which would otherwise pile previously-accounted commissions into
+        #   the next live trade. Primed below from ib.fills() before the
+        #   handler is attached so replays are dropped at the dedupe check.
         self._commission_lock          = threading.Lock()
         self._broker_commission_pending: float = 0.0
         self._broker_commission_session: float = 0.0
         self._seen_exec_ids:            set   = set()
         try:
+            # 1) Let any pending execDetails/commissionReport replay from
+            #    IBKR flush onto the event loop. No handler is attached yet
+            #    so the events are dropped — they only update ib.fills().
+            try:
+                self.ib.sleep(1.0)
+            except Exception:
+                pass
+
+            # 2) Prime _seen_exec_ids with every execId IBKR has already
+            #    reported. Any commissionReport that arrives after this for
+            #    one of those fills will hit the dedupe check and be ignored.
+            primed = 0
+            try:
+                for fill in self.ib.fills():
+                    exec_id = getattr(fill.execution, "execId", "")
+                    if exec_id:
+                        self._seen_exec_ids.add(exec_id)
+                        primed += 1
+            except Exception as e:
+                logger.warning(f"Could not prime _seen_exec_ids from ib.fills(): {e}")
+
+            # 3) Subscribe — only live commissionReports from THIS point on
+            #    will accumulate into _broker_commission_pending.
             self.ib.commissionReportEvent += self._on_commission_report
-            logger.info("commissionReportEvent handler registered")
+            logger.info(
+                f"commissionReportEvent handler registered "
+                f"({primed} prior execIds primed for dedupe)"
+            )
         except Exception as e:
             logger.warning(f"Could not register commissionReportEvent handler: {e}")
 

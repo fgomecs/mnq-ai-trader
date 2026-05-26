@@ -347,21 +347,21 @@ def print_report(results: dict) -> None:
     r = results
     trades = r["trades"]
 
-    print(f"\n{'═'*60}")
-    print(f"  BACKTEST RESULTS — {r['date']}")
-    print(f"{'═'*60}")
+    print(f"\n{'='*60}")
+    print(f"  BACKTEST RESULTS - {r['date']}")
+    print(f"{'='*60}")
     print(f"  Replay time:    {r['elapsed_secs']}s  ({r['snapshots']} snapshots)")
     print(f"  Pre-filter:     {r['pre_filter_passes']}/{r['pre_filter_total']} passed")
     print(f"  Cache:          {r['cache_hits']} hits / {r['api_calls']} new Claude calls")
     if r["api_cost_est"] > 0:
         print(f"  API cost est:   ~${r['api_cost_est']}")
-    print(f"{'─'*60}")
+    print(f"{'-'*60}")
     print(f"  TRADES:         {r['trade_count']}")
     print(f"  Wins / Losses:  {r['wins']}W / {r['losses']}L")
     if r["trade_count"] > 0:
         print(f"  Win rate:       {r['win_rate']}%")
     print(f"  P&L:            ${r['daily_pnl']:+.2f}")
-    print(f"{'─'*60}")
+    print(f"{'-'*60}")
 
     if trades:
         print(f"  Trade log:")
@@ -375,7 +375,7 @@ def print_report(results: dict) -> None:
     else:
         print(f"  No trades.")
 
-    print(f"{'═'*60}\n")
+    print(f"{'='*60}\n")
 
 
 def list_available_dates() -> None:
@@ -392,7 +392,7 @@ def list_available_dates() -> None:
     for f in snap_files:
         date_str = f.stem.replace("snapshots_", "")
         dec_file = DATA_PATH / f"decisions_{date_str}.jsonl"
-        has_dec  = "✓ decisions" if dec_file.exists() else "  no decisions"
+        has_dec  = "[OK] decisions" if dec_file.exists() else "     no decisions"
         size_kb  = f.stat().st_size // 1024
         print(f"  {date_str}  {has_dec}  ({size_kb}KB snapshots)")
     print()

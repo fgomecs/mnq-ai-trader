@@ -72,6 +72,9 @@ def update_price_only(
     stop_price: Optional[float], target_price: Optional[float],
     daily_pnl: float, account: Optional[dict] = None,
     current_bar: Optional[dict] = None,
+    currentBarOpen: Optional[float] = None,
+    session_high: Optional[float] = None,
+    session_low: Optional[float] = None,
 ) -> None:
     """Minimal JSON write — speed is paramount, no merging."""
     try:
@@ -92,6 +95,10 @@ def update_price_only(
             "currentBarOpen": current_bar["open"] if current_bar else None,
             "currentBarHigh": current_bar["high"] if current_bar else None,
             "currentBarLow":  current_bar["low"]  if current_bar else None,
+            "barOpen":  float(currentBarOpen) if currentBarOpen else (float(current_bar["open"]) if current_bar else 0),
+            "barHigh":  float(session_high) if session_high else 0,
+            "barLow":   float(session_low)  if session_low  else 0,
+            "barClose": float(price) if price else 0,
         }
         # Atomic write — a torn write would leave price_data.json invalid
         # and the dashboard's 1Hz reader would error every tick until the

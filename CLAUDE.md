@@ -16,13 +16,14 @@ Read `README.md` for the full strategy / ICT methodology rationale and version h
 # Live bot — boot at 8:20 ET (gives 10 min before 8:30 pre-market analysis)
 py -3.11 main.py
 
-# Backtest a recorded session (under 5s for a full day; uses cached Claude
-# decisions so no API spend unless --no-live-claude is omitted and pre-filter
-# now passes where it didn't before)
+# Backtest a recorded session (under 5s for a full day). Defaults to
+# --no-live-claude — uncached pre-filter passes are skipped (free). Pass
+# --live-claude to call the API for snapshots without a cached decision
+# (~$0.10 per uncached pass — can run into real money on a busy session).
 py -3.11 backtester.py --list
 py -3.11 backtester.py --date 2026-05-27
 py -3.11 backtester.py --date 2026-05-27 --verbose
-py -3.11 backtester.py --date 2026-05-27 --no-live-claude
+py -3.11 backtester.py --date 2026-05-27 --live-claude   # spends API $$
 
 # Sanity-print the current config (no IBKR / Claude calls)
 py -3.11 config.py
@@ -189,7 +190,7 @@ FEATURE_POST_NEWS_REFRESH=false      # Post-news watchlist refresh
 1. Check `pre_filter_signal` first — most changes belong there or in prompts, not `main.run_cycle`
 2. Don't add Claude calls without thinking about the skip-cache and prompt caching breakpoints
 3. Race-condition fixes (cancel-vs-fill, broker reconciliation, P&L sanity bound, `stop_price=0` guard) are layered defensively — fix root causes, don't bypass
-4. For UI-only or prompt-text changes: replay with `backtester.py --date <today> --no-live-claude`
+4. For UI-only or prompt-text changes: replay with `backtester.py --date <today>` (defaults to no live Claude, no API spend)
 5. For pre-filter/scoring/snapshot schema changes: replay several days with Claude OFF first
 
 ## Probability Framework

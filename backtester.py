@@ -466,7 +466,7 @@ Examples:
   py -3.11 backtester.py --list
   py -3.11 backtester.py --date 2026-05-22
   py -3.11 backtester.py --date 2026-05-22 --verbose
-  py -3.11 backtester.py --date 2026-05-22 --no-live-claude
+  py -3.11 backtester.py --date 2026-05-22 --live-claude     # spends API $$
         """,
     )
     parser.add_argument(
@@ -485,8 +485,17 @@ Examples:
     )
     parser.add_argument(
         "--no-live-claude",
+        dest="no_live_claude",
         action="store_true",
-        help="Skip uncached decisions instead of calling Claude (faster, free)",
+        default=True,
+        help="(default) Skip uncached decisions instead of calling Claude — free.",
+    )
+    parser.add_argument(
+        "--live-claude",
+        dest="no_live_claude",
+        action="store_false",
+        help="Call Claude API for any snapshot that lacks a cached decision. "
+             "Costs real money (~$0.10 per uncached pre-filter pass).",
     )
     args = parser.parse_args()
 

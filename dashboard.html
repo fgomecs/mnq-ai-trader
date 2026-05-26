@@ -1325,14 +1325,14 @@ updateClock();
       const mx   = e.clientX - rect.left;
       const frac = (mx - PAD_L) / chartW();
       const oldBars = viewBars;
-      viewBars = Math.max(10, Math.min(195, viewBars + delta * Math.max(1, Math.floor(viewBars * 0.1))));
+      viewBars = Math.max(10, Math.min(300, viewBars + delta * Math.max(1, Math.floor(viewBars * 0.1))));
       const centerIdx = viewStart + Math.round(frac * oldBars);
       viewStart = Math.max(0, Math.round(centerIdx - frac * viewBars));
     } else {
       // Chart area — time zoom (default)
       const frac = 0.5;
       const oldBars = viewBars;
-      viewBars = Math.max(10, Math.min(195, viewBars + delta * Math.max(1, Math.floor(viewBars * 0.1))));
+      viewBars = Math.max(10, Math.min(300, viewBars + delta * Math.max(1, Math.floor(viewBars * 0.1))));
       viewStart = Math.max(0, Math.round((viewStart + oldBars/2) - viewBars/2));
     }
     draw();

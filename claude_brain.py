@@ -1313,7 +1313,7 @@ def _maybe_skip_call(snapshot: dict) -> dict | None:
         # Log every SKIP_LOG_EVERY_N skips so the log doesn't drown in skip lines
         logger.info(
             f"Skip Opus: conditions unchanged "
-            f"(price {prev_price:.2f}→{cur_price:.2f}, age {age:.0f}s, "
+            f"(price {prev_price:.2f}->{cur_price:.2f}, age {age:.0f}s, "
             f"total skips this session: {_cost_tracker['skipped_calls']})"
         )
     # Update session context as if we'd just called — keeps consecutive_holds counting

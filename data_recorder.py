@@ -209,10 +209,18 @@ class DataRecorder:
             self._dec_count += 1
 
     def record_trade(self, action: str, entry_price: float, exit_price: float,
-                     pnl: float, reason: str, mode: str) -> None:
+                     pnl: float, reason: str, mode: str,
+                     commission: float = 0.0,
+                     commission_source: str = "none",
+                     hold_seconds: float = 0.0) -> None:
         """
-        Record a completed trade. Called from executor after close.
-        Separate from decision records — these are actual fills.
+        Record a completed trade. Called from Executor._record_pnl after each
+        close path. Writes a `type="trade"` row to decisions_YYYY-MM-DD.jsonl
+        — separate from `type="decision"` rows (which are Claude calls).
+
+        Field names duplicate entry_price/exit_price as entry/exit so legacy
+        consumers and the journal exporter both work. Includes broker-side
+        commission data captured via commissionReportEvent.
         """
         if not self._enabled:
             return
@@ -221,16 +229,26 @@ class DataRecorder:
             if not self._ensure_files_open():
                 return
 
+            now_utc = datetime.now(timezone.utc)
+            now_et  = now_utc.astimezone(eastern)
             record = {
-                "ts":          datetime.now(timezone.utc).isoformat(),
-                "bot_version": BOT_VERSION,
-                "type":        "trade",
-                "action":      action,
-                "entry":       entry_price,
-                "exit":        exit_price,
-                "pnl":         pnl,
-                "mode":        mode,
-                "reason":      reason[:200],
+                "ts":                now_utc.isoformat(),
+                "ts_et":             now_et.strftime("%H:%M:%S"),
+                "date":              now_et.strftime("%Y-%m-%d"),
+                "bot_version":       BOT_VERSION,
+                "type":              "trade",
+                "action":            action,
+                "entry_price":       entry_price,
+                "exit_price":        exit_price,
+                "entry":             entry_price,
+                "exit":              exit_price,
+                "pnl":               pnl,
+                "mode":              mode,
+                "commission":        round(float(commission or 0.0), 2),
+                "commission_source": commission_source,
+                "hold_seconds":      round(float(hold_seconds or 0.0)),
+                "exit_reason":       (reason or "")[:200],
+                "reason":            (reason or "")[:200],
             }
             self._write_line(self._dec_file, record)
 

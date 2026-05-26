@@ -36,6 +36,11 @@ except Exception:
     _record_trade_stats = None
 
 try:
+    from data_recorder import recorder as _trade_recorder
+except Exception:
+    _trade_recorder = None
+
+try:
     from notifier import (
         notify_trade_entered, notify_trade_exited,
         notify_stop_to_breakeven, notify_loss_warning,
@@ -692,6 +697,25 @@ class Executor:
             "mode":              self.trade_mode,
             "exit_reason":       reason,
         })
+
+        # Persist the trade to decisions JSONL so the journal Trade Log and
+        # the cross-day exporter pick it up. Single source of truth — every
+        # close path lands here after _record_pnl, so we only call once.
+        if _trade_recorder is not None:
+            try:
+                _trade_recorder.record_trade(
+                    action            = "BUY" if was_long else "SELL",  # entry direction
+                    entry_price       = entry_price,
+                    exit_price        = exit_price,
+                    pnl               = round(pnl, 2),
+                    reason            = reason,
+                    mode              = self.trade_mode,
+                    commission        = commission,
+                    commission_source = commission_source,
+                    hold_seconds      = hold_secs,
+                )
+            except Exception as e:
+                logger.warning(f"Trade JSONL record failed: {e}")
 
         if _notify_available:
             notify_trade_exited(

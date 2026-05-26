@@ -77,7 +77,8 @@ ibkr_feed.get_snapshot() → snapshot dict (~60 fields)
       → executor.execute() — places bracket (market + stop + limit)
       ↓
   dashboard_writer.update_dashboard() — merges into dashboard_data.json
-  data_recorder.record_snapshot/decision() — JSONL to data/ for backtesting
+  data_recorder.record_snapshot/decision/trade() — JSONL to data/ for backtesting
+  (executor._record_pnl emits record_trade() after every close, single call site)
 ```
 
 **Session classifier flow:** `main.run_cycle()` fires `classify_session_type()` once when state enters OR_ESTABLISHED. Result stored in `session_classifier._current`. Claude brain reads it on every `analyze_market()` and `update_watchlist()` call. Reset at EOD via `set_session_type(SessionType.UNKNOWN)` (in `end_of_day()`).

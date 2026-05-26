@@ -10,6 +10,11 @@ Output schema:
     "starting_balance": 50000,
     "last_updated":     "...",
     "equity_curve":     [{"date", "equity", "daily_pnl", "trades"}],
+    "trades":           [{"date","time","direction","setup","entry","exit",
+                          "hold_time_min","pre_filter_score","ofi_signal",
+                          "thesis_prob","session_bias","net_pnl","pnl",
+                          "result","entry_time","exit_time",
+                          "commission","commission_source","exit_reason"}],
     "by_strategy":      {"SCALP": {"trades","wins","losses","pnl","win_rate"}},
     "by_hour":          {"9": {"trades","wins","losses","pnl","win_rate"}},
     "daily_pnl":        [{"date","pnl","trades","wins","losses"}],
@@ -154,6 +159,71 @@ def _calc_trade_rr(trade: dict, matched: dict | None) -> float | None:
     return None
 
 
+import re
+
+_SIGNAL_COUNT_RE = re.compile(r"\b(BULL|BEAR)\s+(\d+)\s+signals", re.IGNORECASE)
+
+
+def _normalize_trade(trade: dict, matched: dict | None, date_str: str) -> dict:
+    """
+    Project a raw type='trade' JSONL record (+ optional matched decision)
+    onto the flat shape the journal UI consumes:
+      date, time, direction, setup, entry, exit, hold_time_min,
+      pre_filter_score, ofi_signal, thesis_prob, session_bias,
+      net_pnl, result, entry_time, exit_time, commission, commission_source
+
+    Defaults are filled in when source data is absent so older recordings
+    still render without per-row holes.
+    """
+    def _f(v, d=0.0):
+        try:    return float(v)
+        except (TypeError, ValueError): return d
+
+    pnl    = _f(trade.get("pnl"))
+    entry  = _f(trade.get("entry_price") or trade.get("entry"))
+    exit_p = _f(trade.get("exit_price")  or trade.get("exit"))
+    action = (trade.get("action") or "").upper()
+    direction = "LONG" if action == "BUY" else "SHORT" if action == "SELL" else ""
+    ts_et  = (trade.get("ts_et") or "")[:5]  # HH:MM
+
+    pre_filter_score = 0
+    ofi_signal       = "NEUTRAL"
+    thesis_prob      = 0
+    session_bias     = ""
+    if matched:
+        dec  = matched.get("decision", {}) or {}
+        snap = matched.get("snapshot", {}) or {}
+        reason = matched.get("pre_filter_reason", "") or ""
+        m = _SIGNAL_COUNT_RE.search(reason)
+        if m:
+            pre_filter_score = int(m.group(2))
+        ofi_signal   = (snap.get("ofi", {}) or {}).get("signal", "NEUTRAL")
+        thesis_prob  = dec.get("thesis_probability") or 0
+        session_bias = snap.get("session_type") or snap.get("session_bias") or ""
+
+    return {
+        "date":              date_str,
+        "time":              ts_et,
+        "direction":         direction,
+        "setup":             (trade.get("mode") or "UNKNOWN").upper(),
+        "entry":             round(entry,  2),
+        "exit":              round(exit_p, 2),
+        "hold_time_min":     int(trade.get("hold_seconds", 0) // 60) if trade.get("hold_seconds") else 0,
+        "pre_filter_score":  pre_filter_score,
+        "ofi_signal":        ofi_signal,
+        "thesis_prob":       int(thesis_prob) if isinstance(thesis_prob, (int, float)) else 0,
+        "session_bias":      session_bias,
+        "net_pnl":           round(pnl, 2),
+        "pnl":               round(pnl, 2),
+        "result":            "WIN" if pnl > 0 else "LOSS",
+        "entry_time":        trade.get("ts", ""),
+        "exit_time":         trade.get("ts", ""),
+        "commission":        round(_f(trade.get("commission")), 2),
+        "commission_source": (trade.get("commission_source") or "none").lower(),
+        "exit_reason":       trade.get("exit_reason", ""),
+    }
+
+
 def _profitability_zone(win_rate: float, avg_rr: float) -> str:
     if win_rate >= 60 and avg_rr >= 2.0:
         return "PROFITABLE"
@@ -255,6 +325,9 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
     # Commission-source breakdown: tracks how many trades used real broker
     # commissions vs simulated vs none, plus the dollar total per source.
     comm_by_source: dict[str, dict]   = {}
+    # Per-trade list emitted to journal_data.trades so the UI Trade Log
+    # has rows to render. Each entry is shaped by _normalize_trade().
+    all_trades:    list[dict]         = []
     all_rr_values:  list[float]       = []
     week_data:      dict[str, dict]   = {}   # ISO-week → {rr_values, wins, total}
     day_rr_data:    dict[str, list]   = {}   # date → list of rr values
@@ -318,6 +391,9 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
 
             # ── decision-linked analytics ─────────────────────
             matched = _match_decision(trade, decisions)
+
+            # Emit normalized trade for the UI Trade Log
+            all_trades.append(_normalize_trade(trade, matched, date_str))
 
             rr = _calc_trade_rr(trade, matched)
             if rr is not None and rr >= 0:
@@ -412,6 +488,7 @@ def build_journal(starting_balance: float, account_name: str) -> dict:
         "starting_balance": starting_balance,
         "last_updated":     datetime.now(timezone.utc).isoformat(),
         "equity_curve":     equity_curve,
+        "trades":           all_trades,
         "by_strategy":      {k: _finalize_stats(v) for k, v in by_strategy.items()},
         "by_hour":          {k: _finalize_stats(v) for k, v in sorted(by_hour.items(), key=lambda x: int(x[0]))},
         "daily_pnl":        daily_rows,

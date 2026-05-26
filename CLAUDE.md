@@ -83,7 +83,7 @@ ibkr_feed.get_snapshot() → snapshot dict (~60 fields)
 
 **Session classifier flow:** `main.run_cycle()` fires `classify_session_type()` once when state enters OR_ESTABLISHED. Result stored in `session_classifier._current`. Claude brain reads it on every `analyze_market()` and `update_watchlist()` call. Reset at EOD via `set_session_type(SessionType.UNKNOWN)` (in `end_of_day()`).
 
-**EOD journal flow:** `learning_session.py` calls `journal_exporter.py` after ablation. `journal_exporter.py` reads all `decisions_*.jsonl` files, rebuilds `journal_data.json` from scratch, writes it for `journal.html`. EOD fires at `EOD_SCHEDULE_TIME` (default 16:05 ET).
+**EOD journal flow:** `learning_session.py` calls `journal_exporter.py` after ablation. `journal_exporter.py` reads all `decisions_*.jsonl` files, rebuilds `journal_data.json` from scratch, writes it for `journal.html`. EOD fires at `EOD_SCHEDULE_TIME` (default 15:30 ET — coincides with `SESSION_AFTERNOON_PRIME_END`, so the bot effectively goes idle through the 15:30–16:00 CLOSING window).
 
 ### Snapshot dict — central contract
 
@@ -143,15 +143,23 @@ All knobs in `config.py`, env-overridable via `.env` at `BASE_DIR`. Don't hard-c
 ## Session timing (V4.4)
 
 ```
-SESSION_PRE_MARKET_TIME=830       # Pre-market analysis at 8:30 ET
-SESSION_MARKET_OPEN_TIME=930      # RTH open, OR forming
-SESSION_OR_FORMING_END=945        # OR complete
-SESSION_PRIME_WINDOW_END=1100     # NY AM prime ends
-SESSION_DEAD_ZONE_END=1330        # Dead zone ends
-SESSION_AFTERNOON_PRIME_END=1555  # PM prime ends (updated V4.4)
-SESSION_CLOSING_END=1600          # RTH close
-EOD_SCHEDULE_TIME=16:05           # EOD fires after RTH (updated V4.4)
+SESSION_PRE_MARKET_TIME=830        # 08:30 ET — pre-market analysis fires
+SESSION_MARKET_OPEN_TIME=930       # 09:30 ET — RTH open, OR window opens
+SESSION_OR_FORMING_END=945         # 09:45 ET — 15-min OR window closes
+SESSION_OR_ESTABLISHED_END=1000    # 10:00 ET — OR_ESTABLISHED phase ends
+SESSION_PRIME_WINDOW_END=1100      # 11:00 ET — NY AM Prime ends
+SESSION_DEAD_ZONE_END=1330         # 13:30 ET — Dead Zone ends
+SESSION_AFTERNOON_PRIME_END=1530   # 15:30 ET — PM Prime ends
+SESSION_CLOSING_END=1600           # 16:00 ET — RTH close
+EOD_SCHEDULE_TIME=15:30            # 15:30 ET — EOD job (note: same as AFTERNOON_PRIME_END)
 ```
+
+Entry-allowed states (from `can_enter()` in main.py):
+- **09:45 – 11:00 ET** — `OR_ESTABLISHED` + `PRIME_WINDOW`, freely
+- **11:00 – 13:30 ET** — `DEAD_ZONE`, only with confluence ≥ `DEAD_ZONE_CONFLUENCE_THRESHOLD` (8) or VWAP-magnet override
+- **13:30 – 15:30 ET** — `AFTERNOON_PRIME`, freely
+- **15:30 – 16:00 ET** — `CLOSING`, exit-only (and EOD already fired at 15:30 with default config)
+First possible entry: **09:45 ET**. Last possible entry: **15:30 ET**.
 
 ## Advanced Tuning
 
@@ -209,8 +217,6 @@ Preserve the `PROBABILITY_CONTEXT` injection in `analyze_premarket()` and `analy
 
 ## Known issues (as of V4.4.0)
 
-- **FEATURE_DEAD_ZONE not checked in can_enter()** — If FEATURE_DEAD_ZONE=false, dead zone still gates. Fix: add `if not FEATURE_DEAD_ZONE: return True, ""` at top of DEAD_ZONE branch in can_enter(). Patch pending (V4.4.1).
-- **FEATURE_NEWS_GATE not checked in run_cycle news block** — Hard block at line 590 fires regardless of flag. Fix: wrap with `if FEATURE_NEWS_GATE and ...`. Patch pending (V4.4.1).
 - **Opening drive uses wrong 5-min bar** — `_bars_5min[0]` is oldest cached bar, not the 9:30 bar. Not live (FEATURE_OPENING_DRIVE_FADE=false) but fix before enabling.
 
 ## Disclaimer

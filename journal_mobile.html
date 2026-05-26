@@ -442,6 +442,14 @@ html,body{
       </div>
     </div>
 
+    <!-- Commission Sources -->
+    <div class="card">
+      <div class="card-title">Commission Sources</div>
+      <div id="comm-sources-mobile">
+        <div style="color:var(--text3);font-size:11px;padding:10px 0;">No data yet</div>
+      </div>
+    </div>
+
   </div>
 
   <!-- ══ EDGE ══ -->
@@ -579,6 +587,7 @@ function render(data){
   const{meta:m,summary:s,equity_curve:ec=[],trades=[],
         by_setup:bs={},by_hour:bh={},daily_pnl:dp=[],
         ofi_performance:ofi={},thesis_buckets:tb={},
+        commission_sources:cs={},
         avg_rr=0,overall_win_rate=0,
         profitability_zone='DEVELOPING',
         rr_by_week=[]}=data;
@@ -599,6 +608,7 @@ function render(data){
   renderCalStats(dp);
   renderAnalytics(bs,bh,trades);
   renderOfi(ofi);
+  renderCommSources(cs);
   renderThesis(tb);
   renderMatrix(avg_rr,overall_win_rate);
   renderWeekly(rr_by_week);
@@ -825,6 +835,36 @@ function renderOfi(ofi){
       <span class="ofi-stats">${d.trades}T ${wr}</span>
     </div>`;
   }).join('');
+}
+
+function renderCommSources(cs){
+  const el=$('comm-sources-mobile');
+  if(!el)return;
+  const keys=Object.keys(cs||{});
+  if(!keys.length){el.innerHTML='<div style="color:var(--text3);font-size:11px;padding:8px 0;">No data yet</div>';return;}
+  const order=['broker','simulated','none'];
+  const sorted=keys.sort((a,b)=>(order.indexOf(a)+99)-(order.indexOf(b)+99));
+  const rows=sorted.map(k=>{
+    const v=cs[k]||{};
+    const wr=(v.win_rate??0).toFixed(0);
+    const pnl=v.pnl??0;
+    const comm=v.commission_total??0;
+    const pnlClr=pnl>0?GREEN:pnl<0?RED:'var(--text2)';
+    return`<div style="display:flex;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;">
+      <span style="flex:0 0 70px;text-transform:uppercase;color:var(--text);font-weight:600;letter-spacing:0.5px;">${k}</span>
+      <span style="flex:0 0 48px;text-align:right;color:var(--text2);">${v.trades||0}T</span>
+      <span style="flex:0 0 48px;text-align:right;color:var(--text2);">${wr}%</span>
+      <span style="flex:1;text-align:right;color:${pnlClr};font-weight:600;">${fmtDollar(pnl)}</span>
+      <span style="flex:0 0 70px;text-align:right;color:var(--text3);">${fmtDollar(comm,false)}</span>
+    </div>`;
+  }).join('');
+  el.innerHTML=`<div style="display:flex;color:var(--text3);font-size:10px;letter-spacing:0.5px;padding-bottom:4px;text-transform:uppercase;">
+    <span style="flex:0 0 70px;">Source</span>
+    <span style="flex:0 0 48px;text-align:right;">Trd</span>
+    <span style="flex:0 0 48px;text-align:right;">Win%</span>
+    <span style="flex:1;text-align:right;">P&amp;L</span>
+    <span style="flex:0 0 70px;text-align:right;">Comm</span>
+  </div>${rows}`;
 }
 
 // ── Edge page ──────────────────────────────────────────────

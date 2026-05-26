@@ -267,6 +267,13 @@ tr:hover td { background:rgba(255,255,255,0.015); }
         </div>
       </div>
     </div>
+
+    <div class="chart-section">
+      <div class="chart-title">Commission Sources</div>
+      <div id="commission-sources-body" style="font-family:monospace; font-size:13px;">
+        <div style="color:#888">No commission data yet.</div>
+      </div>
+    </div>
   </div>
 
   <!-- ══ TRADE LOG ══ -->
@@ -615,6 +622,7 @@ function _normalizeJournalData(data) {
 // ─────────────────────────────────────────────
 function render(data) {
   const { meta:m, summary:s, equity_curve:ec, trades, by_setup:bs, by_hour:bh, daily_pnl:dp, ofi_performance:ofi, thesis_buckets:tb,
+          commission_sources:cs={},
           avg_rr=0, overall_win_rate=0, profitability_zone='DEVELOPING', rr_by_week=[], zone_history=[] } = data;
 
   // Sidebar
@@ -634,6 +642,7 @@ function render(data) {
   renderEquity(ec);
   renderSetupPnl(bs);
   renderHourPnl(bh);
+  renderCommissionSources(cs);
   renderTrades(trades);
   renderCalendar(dp);
   renderDailyBars(dp);
@@ -722,6 +731,42 @@ function renderSetupPnl(bs) {
     data:{ labels:keys, datasets:[{ data:vals, backgroundColor:pnlColors(vals), borderRadius:4 }] },
     options:{ ...baseOpts(), plugins:{ legend:{display:false} } }
   });
+}
+
+function renderCommissionSources(cs) {
+  const body = $('commission-sources-body');
+  if (!body) return;
+  const keys = Object.keys(cs || {});
+  if (!keys.length) {
+    body.innerHTML = '<div style="color:#888">No commission data yet.</div>';
+    return;
+  }
+  const order  = ['broker', 'simulated', 'none'];
+  const sorted = keys.sort((a,b) => (order.indexOf(a)+99) - (order.indexOf(b)+99));
+  const rows   = sorted.map(k => {
+    const v = cs[k] || {};
+    const trades = v.trades || 0;
+    const wr     = (v.win_rate ?? 0).toFixed(1);
+    const pnl    = (v.pnl ?? 0);
+    const comm   = (v.commission_total ?? 0);
+    const pnlClr = pnl > 0 ? 'color:'+GREEN : pnl < 0 ? 'color:'+RED : '';
+    return `<tr>
+      <td style="padding:4px 12px 4px 0; text-transform:uppercase;">${k}</td>
+      <td style="padding:4px 12px; text-align:right;">${trades}</td>
+      <td style="padding:4px 12px; text-align:right;">${wr}%</td>
+      <td style="padding:4px 12px; text-align:right; ${pnlClr}">${fmtDollar(pnl)}</td>
+      <td style="padding:4px 0    4px 12px; text-align:right; color:#bbb;">${fmtDollar(comm)}</td>
+    </tr>`;
+  }).join('');
+  body.innerHTML = `<table style="width:100%; border-collapse:collapse;">
+    <thead><tr style="color:#888; font-size:11px; text-transform:uppercase; letter-spacing:1px;">
+      <th style="text-align:left; padding-bottom:6px;">Source</th>
+      <th style="text-align:right; padding-bottom:6px;">Trades</th>
+      <th style="text-align:right; padding-bottom:6px;">Win&nbsp;%</th>
+      <th style="text-align:right; padding-bottom:6px;">P&amp;L</th>
+      <th style="text-align:right; padding-bottom:6px;">Commission</th>
+    </tr></thead>
+    <tbody>${rows}</tbody></table>`;
 }
 
 function renderHourPnl(bh) {

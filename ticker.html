@@ -690,10 +690,6 @@ async function pollPrice() {
     pnlEl.textContent = (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2);
     pnlEl.className = 'stat-val ' + (pnl > 0 ? 'pos' : pnl < 0 ? 'neg' : 'neu');
 
-    const commissions = parseFloat(d.dailyCommissions) || 0;
-    const commEl = document.getElementById('comm-display');
-    if (commEl) commEl.textContent = 'comm $' + commissions.toFixed(2);
-
     // Position
     const posEl = document.getElementById('position');
     const pos = d.position || 'FLAT';
@@ -734,6 +730,12 @@ async function pollDash() {
     document.getElementById('session-badge').textContent = d.botSleeping ? 'SLEEPING' : (d.killzone||state||'LIVE');
     document.getElementById('data-mode').textContent = d.botSleeping ? ('WAKES ' + (d.wakeTime||'')) : state;
     document.getElementById('version').textContent = d.botVersion ? 'v' + d.botVersion : '';
+
+    // Daily commissions — sourced from dashboard_data.json (price_data.json
+    // doesn't carry it). Cumulative, only changes on trade close, so 2s is fine.
+    const commissions = parseFloat(d.dailyCommissions) || 0;
+    const commEl = document.getElementById('comm-display');
+    if (commEl) commEl.textContent = 'comm $' + commissions.toFixed(2);
 
     // Claude decision panel
     const dec = (d.lastDecision || 'HOLD').toUpperCase();

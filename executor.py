@@ -263,13 +263,14 @@ class Executor:
             stop_ticks = int(decision.get("stop_ticks", SCALP_STOP_TICKS))
             target_ticks = decision.get("target_ticks", SCALP_TARGET_TICKS)
             reasoning  = decision.get("reasoning", "")
+            entry_price = float(decision.get("entry_price", 0) or 0)
 
             if not self._safety_checks(action, confidence):
                 return False
 
             if action in ("BUY", "SELL") and self.current_position == 0:
                 return self._enter_trade(action, contracts, stop_ticks,
-                                         target_ticks, mode, reasoning)
+                                         target_ticks, mode, reasoning, entry_price)
             if action == "CLOSE" and self.current_position != 0:
                 price = self._get_market_price()
                 return self._close_position(price, reasoning)
@@ -366,7 +367,7 @@ class Executor:
 
     def _enter_trade(
         self, direction: str, contracts: int, stop_ticks: int,
-        target_ticks, mode: str, reasoning: str,
+        target_ticks, mode: str, reasoning: str, entry_price: float = 0.0,
     ) -> bool:
         try:
             tick         = TICK_SIZE
@@ -378,7 +379,7 @@ class Executor:
             # more than LIMIT_ORDER_MAX_SLIPPAGE ticks away, or if the limit
             # doesn't fill within LIMIT_ORDER_TIMEOUT_SECS, we cancel and
             # submit a market order so we never miss the trade.
-            limit_price = decision.get("entry_price", 0) or 0
+            limit_price = entry_price
             use_limit   = (
                 ENTRY_MODE == "LIMIT"
                 and limit_price > 0

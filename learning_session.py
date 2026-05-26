@@ -109,6 +109,44 @@ def _analyze_commission_drag(trades: list) -> dict:
     }
 
 
+def _analyze_truncation(date_str: str) -> dict:
+    """
+    Scan today's entry decisions for max_tokens truncation. A truncated
+    response has no parseable `DECISION: BUY|SELL|HOLD` line; parse_decision
+    silently returns a default HOLD and the Opus spend is wasted.
+    """
+    import re
+    path = DATA_DIR / f"decisions_{date_str}.jsonl"
+    out = {"total": 0, "truncated": 0, "rate_pct": 0.0,
+           "total_cost": 0.0, "wasted_cost": 0.0, "wasted_pct": 0.0}
+    if not path.exists():
+        return out
+    pat = re.compile(r"(?m)^\s*\**\s*DECISION\s*:\s*(BUY|SELL|HOLD)")
+    for line in path.read_text(encoding="utf-8").splitlines():
+        if not line.strip():
+            continue
+        try:
+            d = json.loads(line)
+        except Exception:
+            continue
+        if d.get("type") != "decision":
+            continue
+        raw  = d.get("raw_response") or ""
+        cost = d.get("cost_usd", 0.0) or 0.0
+        out["total"]      += 1
+        out["total_cost"] += cost
+        if not pat.search(raw):
+            out["truncated"]   += 1
+            out["wasted_cost"] += cost
+    if out["total"]:
+        out["rate_pct"] = round(100 * out["truncated"] / out["total"], 1)
+    if out["total_cost"]:
+        out["wasted_pct"] = round(100 * out["wasted_cost"] / out["total_cost"], 1)
+    out["total_cost"]  = round(out["total_cost"],  2)
+    out["wasted_cost"] = round(out["wasted_cost"], 2)
+    return out
+
+
 def _load_recent_learnings(n: int = 5) -> str:
     """Load last N learning reports for trend context."""
     reports = sorted(MEMORY_DIR.glob("learning_*.md"), reverse=True)[:n]
@@ -255,6 +293,12 @@ def run_learning_session(
 
     # ── 4. Commission drag analysis ───────────────────────────
     commission_analysis = _analyze_commission_drag(trades or [])
+
+    # ── 4b. Truncation analysis (max_tokens detection) ────────
+    truncation = _analyze_truncation(date_str)
+    if truncation["truncated"]:
+        print(f"[learning] ⚠ Truncated entry calls: {truncation['truncated']}/{truncation['total']} "
+              f"({truncation['rate_pct']}%) — ${truncation['wasted_cost']} wasted")
     if commission_analysis["flags"]:
         print(f"[learning] ⚠ Sizing flags: {commission_analysis['summary']}")
     elif commission_analysis["commission_total"] > 0:
@@ -305,6 +349,22 @@ def run_learning_session(
         ]
         for flag in ca["flags"]:
             report_lines.append(f"- ⚠ {flag}")
+        report_lines.append("")
+
+    # Truncation section — only appears when any entry call truncated
+    if truncation["total"]:
+        report_lines += [
+            "## Opus Truncation Analysis",
+            f"- Entry calls: {truncation['total']} | "
+            f"Truncated: {truncation['truncated']} ({truncation['rate_pct']}%)",
+            f"- Opus spend: ${truncation['total_cost']} | "
+            f"Wasted on truncated calls: ${truncation['wasted_cost']} ({truncation['wasted_pct']}%)",
+        ]
+        if truncation["rate_pct"] >= 5.0:
+            report_lines.append(
+                f"- ⚠ Truncation rate ≥5% — raise max_tokens in analyze_market "
+                "or shorten the response format."
+            )
         report_lines.append("")
 
     report_lines += [

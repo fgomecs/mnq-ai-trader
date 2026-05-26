@@ -106,21 +106,21 @@ def save_daily_summary(trades: list, daily_pnl: float, analysis_log: list) -> st
     json_path = _lesson_path(today)
 
     total   = len(trades)
-    wins    = [t for t in trades if t.get("pnl", 0) > 0]
-    losses  = [t for t in trades if t.get("pnl", 0) < 0]
-    be      = [t for t in trades if t.get("pnl", 0) == 0]
+    wins    = [t for t in trades if (t.get("pnl") or 0) > 0]
+    losses  = [t for t in trades if (t.get("pnl") or 0) < 0]
+    be      = [t for t in trades if (t.get("pnl") or 0) == 0]
     win_rate  = (len(wins) / total * 100) if total else 0.0
-    avg_win   = sum(t["pnl"] for t in wins)   / len(wins)   if wins   else 0.0
-    avg_loss  = sum(t["pnl"] for t in losses) / len(losses) if losses else 0.0
-    best      = max(trades, key=lambda t: t.get("pnl", 0)) if trades else None
-    worst     = min(trades, key=lambda t: t.get("pnl", 0)) if trades else None
+    avg_win   = sum((t.get("pnl") or 0) for t in wins)   / len(wins)   if wins   else 0.0
+    avg_loss  = sum((t.get("pnl") or 0) for t in losses) / len(losses) if losses else 0.0
+    best      = max(trades, key=lambda t: (t.get("pnl") or 0)) if trades else None
+    worst     = min(trades, key=lambda t: (t.get("pnl") or 0)) if trades else None
 
     # P2.7 — precompute the numbers; the previous f-string used
     # `{best['pnl']:.2f if best else 0:.2f}` which is not valid Python
     # (conditional expression can't be in format-spec position) and
     # crashed when best/worst was None.
-    best_pnl  = best.get("pnl",  0.0) if best  else 0.0
-    worst_pnl = worst.get("pnl", 0.0) if worst else 0.0
+    best_pnl  = (best.get("pnl")  or 0.0) if best  else 0.0
+    worst_pnl = (worst.get("pnl") or 0.0) if worst else 0.0
 
     trade_detail_lines = []
     for i, t in enumerate(trades, 1):

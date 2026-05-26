@@ -47,6 +47,7 @@ import pytz
 sys.path.insert(0, str(Path(__file__).parent))
 
 from config import DATA_DIR, TICK_SIZE, TICK_VALUE
+import claude_brain
 from claude_brain import pre_filter_signal, analyze_market, parse_decision
 
 eastern = pytz.timezone("US/Eastern")
@@ -105,6 +106,51 @@ def load_decisions(date_str: str) -> dict:
                 continue
     print(f"Loaded {len(decisions)} cached decisions from {path.name}")
     return decisions
+
+
+def infer_session_bias(decisions: dict) -> str:
+    """
+    Recover the live session's watchlist bias from recorded decisions.
+
+    Why this matters: pre_filter_signal reads claude_brain._session_watchlist,
+    which is module-global state set by update_watchlist() during the live
+    run. The backtester never replays watchlist updates, so without seeding,
+    bias is None and the function falls through to "no qualifying setup" for
+    every snapshot — silently hiding the true signal counts.
+
+    The live pre_filter_reason string encodes which bias branch it took:
+      - "(NEUTRAL bias)"                       → NEUTRAL
+      - "(counter-trend vs LONG_PREFERRED)"    → LONG_PREFERRED
+      - "(counter-trend vs SHORT_PREFERRED)"   → SHORT_PREFERRED
+      - "(DOJI+MTF override)"                  → NEUTRAL (closest behavior)
+      - plain "BULL N signals [...]"           → LONG_PREFERRED (implicit)
+      - plain "BEAR N signals [...]"           → SHORT_PREFERRED (implicit)
+
+    Picks the majority vote across the day; defaults to NEUTRAL when the
+    decisions file is empty or the reasons are unparseable.
+    """
+    from collections import Counter
+    votes = Counter()
+    for rec in decisions.values():
+        reason = rec.get("pre_filter_reason", "") or ""
+        if not reason:
+            continue
+        if "(NEUTRAL bias)" in reason or "NEUTRAL" in reason:
+            votes["NEUTRAL"] += 1
+        elif "counter-trend vs LONG_PREFERRED" in reason or "LONG_PREFERRED" in reason:
+            votes["LONG_PREFERRED"] += 1
+        elif "counter-trend vs SHORT_PREFERRED" in reason or "SHORT_PREFERRED" in reason:
+            votes["SHORT_PREFERRED"] += 1
+        elif "DOJI" in reason:
+            votes["NEUTRAL"] += 1
+        elif reason.startswith("BULL "):
+            votes["LONG_PREFERRED"] += 1
+        elif reason.startswith("BEAR "):
+            votes["SHORT_PREFERRED"] += 1
+
+    if not votes:
+        return "NEUTRAL"
+    return votes.most_common(1)[0][0]
 
 
 # ── Simulated executor ─────────────────────────────────────
@@ -227,6 +273,17 @@ def run_backtest(date_str: str, verbose: bool = False,
 
     snapshots = load_snapshots(date_str)
     decisions = load_decisions(date_str)
+
+    # Seed claude_brain._session_watchlist with the inferred live bias so
+    # pre_filter_signal takes the same branch it did during the live run.
+    # Without this every snapshot returns "no qualifying setup" — see
+    # infer_session_bias() for the parsing rules.
+    inferred_bias = infer_session_bias(decisions)
+    claude_brain._session_watchlist = {
+        "bias":              inferred_bias,
+        "bias_invalidated":  False,
+    }
+    print(f"Seeded watchlist bias from recorded decisions: {inferred_bias}")
 
     executor    = SimExecutor()
     api_calls   = 0

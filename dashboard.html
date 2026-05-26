@@ -1351,25 +1351,50 @@ updateClock();
   };
   window._chartRedraw = draw;
 
+  // Per-timeframe state cache — preserves view/zoom across tab switches
+  const _tfCache = { '1m': null, '5m': null };
+  function _saveTfState() {
+    _tfCache[tf] = {
+      viewStart, viewBars, priceMin, priceMax,
+      manualPrice, priceRangeExtra, autoFollow
+    };
+  }
+  function _restoreTfState() {
+    const s = _tfCache[tf];
+    if (!s) return false;
+    viewStart       = s.viewStart;
+    viewBars        = s.viewBars;
+    priceMin        = s.priceMin;
+    priceMax        = s.priceMax;
+    manualPrice     = s.manualPrice;
+    priceRangeExtra = s.priceRangeExtra;
+    autoFollow      = s.autoFollow;
+    return true;
+  }
+
   window.chartUpdate = function(data) {
     snapData = data;
     const newBars = tf === '1m' ? (data.bars1min || []) : (data.bars5min || []);
     if (!newBars.length) { draw(); return; }
     bars = newBars;
     window._lastBars = bars;
-    if (autoFollow) {
-      viewStart = Math.max(0, bars.length - (viewBars - RIGHT_PAD));
-    }
+    // Always scroll to the latest bars — chart pins to the right edge
+    viewStart = Math.max(0, bars.length - (viewBars - RIGHT_PAD));
     if (!manualPrice) recalcPriceRange();
     draw();
   };
 
   window.setChartTF = function(newTf) {
+    if (newTf === tf) return;
+    _saveTfState();
     tf = newTf;
     document.getElementById('chart-1m').className = 'chart-btn' + (tf==='1m'?' active':'');
     document.getElementById('chart-5m').className = 'chart-btn' + (tf==='5m'?' active':'');
-    bars = []; viewStart = 0; viewBars = 80;
-    priceRangeExtra = 0.08; manualPrice = false;
+    const restored = _restoreTfState();
+    if (!restored) {
+      bars = []; viewStart = 0; viewBars = 80;
+      priceRangeExtra = 0.08; manualPrice = false;
+    }
     if (snapData) window.chartUpdate(snapData);
   };
 

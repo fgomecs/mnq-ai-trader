@@ -90,3 +90,61 @@ def test_forming_bar_status_id_present():
     """In-page diagnostic surface must show the forming bar so we
     can verify live updates without DevTools."""
     assert 'id="s-forming"' in HTML
+
+
+# ── BUG-1: forming-bar time alignment with historical bars ──
+def test_bug1_uses_et_minute_via_intl_for_forming_bar_time():
+    """The forming bar's time must come from current ET wall-clock
+    fed through the SAME parseEtAsUtcSec used for historical bars,
+    so both land on the same x-axis convention. The old
+    currentMinuteEpochSec used Date.now() directly → 4-5h gap."""
+    assert "currentEtMinuteAsUtcSec" in HTML, \
+        "must define currentEtMinuteAsUtcSec helper"
+    assert "'America/New_York'" in HTML, \
+        "must resolve ET wall-clock via Intl with America/New_York timezone"
+    # currentEtMinuteAsUtcSec must route through parseEtAsUtcSec — that
+    # is what guarantees same-axis convention with historical bars
+    assert "parseEtAsUtcSec(m[1] + ' ' + m[2])" in HTML, \
+        "currentEtMinuteAsUtcSec must invoke parseEtAsUtcSec for consistency"
+
+
+def test_bug1_legacy_helper_removed():
+    """currentMinuteEpochSec used Date.now() and caused the 4-5h gap.
+    Must be deleted, not just unused."""
+    assert "currentMinuteEpochSec" not in HTML, \
+        "currentMinuteEpochSec must be removed entirely; was the source of BUG-1"
+
+
+def test_bug1_pollLive_uses_new_helper():
+    """pollLive must call the new ET-aware helper for forming-bar time."""
+    assert "currentEtMinuteAsUtcSec()" in HTML, \
+        "pollLive must call currentEtMinuteAsUtcSec()"
+
+
+# ── BUG-2: forming bar fallback when currentBarHigh/Low are null ──
+def test_bug2_tracks_last_historical_high_and_low():
+    """The forming-bar fallback when currentBarHigh/Low are null
+    must use the most recent completed bar's range as a seed so the
+    candle isn't a flat dot."""
+    assert "lastHistoricalHigh" in HTML, "must track lastHistoricalHigh"
+    assert "lastHistoricalLow"  in HTML, "must track lastHistoricalLow"
+    # Captured from the last item of `mapped` in pollHistorical
+    assert "lastHistoricalHigh = last.high" in HTML
+    assert "lastHistoricalLow  = last.low" in HTML
+
+
+def test_bug2_pollLive_fallback_uses_historical_then_price():
+    """High fallback: max(lastHistoricalHigh, price). Same shape for low."""
+    # Match exactly the fallback expressions
+    assert "Math.max(lastHistoricalHigh, price)" in HTML, \
+        "high fallback must be Math.max(lastHistoricalHigh, price)"
+    assert "Math.min(lastHistoricalLow,  price)" in HTML, \
+        "low fallback must be Math.min(lastHistoricalLow, price)"
+
+
+def test_bug2_resets_history_seeds_on_empty_dashboard():
+    """If dashboard write is empty (sleep, race), historical seeds
+    must reset to 0 so we fall through to the price-only path,
+    not carry stale yesterday-night values."""
+    assert "lastHistoricalHigh = 0" in HTML
+    assert "lastHistoricalLow  = 0" in HTML

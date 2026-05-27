@@ -131,6 +131,8 @@ function mapBars(bars) {
 // bars1min only gains a new entry on each minute close — between
 // closes, this poll is mostly a no-op.
 let lastHistoricalTime = 0;   // epoch sec of the most recent dashboard bar
+let lastHistoricalHigh = 0;   // BUG-2 fallback: last completed bar's high
+let lastHistoricalLow  = 0;   // BUG-2 fallback: last completed bar's low
 
 async function pollHistorical() {
   try {
@@ -150,7 +152,16 @@ async function pollHistorical() {
 
     try {
       candleSeries.setData(mapped);
-      lastHistoricalTime = mapped.length ? mapped[mapped.length - 1].time : 0;
+      if (mapped.length) {
+        const last = mapped[mapped.length - 1];
+        lastHistoricalTime = last.time;
+        lastHistoricalHigh = last.high;
+        lastHistoricalLow  = last.low;
+      } else {
+        lastHistoricalTime = 0;
+        lastHistoricalHigh = 0;
+        lastHistoricalLow  = 0;
+      }
       $('s-set').innerHTML = `<span class="ok">setData OK (${mapped.length} bars)</span>`;
       $('s-err').textContent = '';
     } catch (e) {
@@ -170,14 +181,20 @@ async function pollHistorical() {
 // and call candleSeries.update() — that updates the last bar in
 // place if time matches the last setData entry, or appends a new bar
 // if a new minute has started.
-function currentMinuteEpochSec() {
-  // Anchor the forming bar to the bucket boundary aligned with how
-  // the dashboard timestamps its bars. dashboard bars are 'YYYY-MM-DD
-  // HH:MM' parsed naively as UTC; same convention used here so the
-  // forming bar lines up with the last historical bar.
-  const d = new Date();
-  d.setUTCSeconds(0, 0);
-  return Math.floor(d.getTime() / 1000);
+// BUG-1: align the forming bar's time axis with the historical bars.
+// parseEtAsUtcSec treats dashboard timestamps as if they were UTC
+// (ignoring the EDT/EST offset on purpose — see comment on
+// parseEtAsUtcSec). The previous time helper used real browser
+// UTC via Date.now(), producing a 4–5 hour gap between the last
+// historical bar and the forming bar. The fix: get current ET
+// wall-clock via Intl, format it as "YYYY-MM-DD HH:MM", and run
+// it through the SAME parseEtAsUtcSec used for historical — so
+// both bars land on the same x-axis convention.
+function currentEtMinuteAsUtcSec() {
+  const etStr = new Date().toLocaleString('sv', { timeZone: 'America/New_York' });
+  const m = etStr.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/);
+  if (!m) return Math.floor(Date.now() / 1000);
+  return parseEtAsUtcSec(m[1] + ' ' + m[2]);
 }
 
 async function pollLive() {
@@ -193,12 +210,25 @@ async function pollLive() {
     const high  = Number(p.currentBarHigh);
     const low   = Number(p.currentBarLow);
 
-    const t = currentMinuteEpochSec();
-    // Guard against a stale/zero forming bucket: derive OHLC from
-    // price alone if the currentBar fields aren't populated yet.
-    const o = Number.isFinite(open) && open > 0 ? open : price;
-    const h = Number.isFinite(high) && high > 0 ? Math.max(high, price) : price;
-    const l = Number.isFinite(low)  && low  > 0 ? Math.min(low,  price) : price;
+    const t = currentEtMinuteAsUtcSec();
+
+    // BUG-2: currentBarOpen/High/Low are frequently null at minute
+    // boundary (resets when the minute rolls). When null we used to
+    // collapse to price → forming candle was a flat dot.
+    // Fallback chain:
+    //   open : currentBarOpen → last historical close → price
+    //   high : currentBarHigh → max(last historical high, price)
+    //   low  : currentBarLow  → min(last historical low,  price)
+    //   close: always price
+    const validOpen = Number.isFinite(open) && open > 0;
+    const validHigh = Number.isFinite(high) && high > 0;
+    const validLow  = Number.isFinite(low)  && low  > 0;
+
+    const o = validOpen ? open : price;
+    const h = validHigh ? Math.max(high, price)
+            : (lastHistoricalHigh > 0 ? Math.max(lastHistoricalHigh, price) : price);
+    const l = validLow  ? Math.min(low,  price)
+            : (lastHistoricalLow  > 0 ? Math.min(lastHistoricalLow,  price) : price);
 
     const forming = { time: t, open: o, high: h, low: l, close: price };
 

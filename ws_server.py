@@ -143,7 +143,10 @@ def broadcast_tick(price: float, bid: float = 0.0, ask: float = 0.0,
                    stop: float = 0.0,
                    target: float = 0.0,
                    position: int = 0,
-                   trade_event: Optional[dict] = None) -> None:
+                   trade_event: Optional[dict] = None,
+                   bar_open: float = 0.0,
+                   bar_high: float = 0.0,
+                   bar_low: float = 0.0) -> None:
     """Thread-safe broadcast to all connected clients. No-op if server
     not running or no clients.
 
@@ -172,6 +175,9 @@ def broadcast_tick(price: float, bid: float = 0.0, ask: float = 0.0,
         "target":   float(target)   if target   else 0.0,
         "position": int(position),
         "trade_event": trade_event,
+        "bar_open":  float(bar_open)  if bar_open  else 0.0,
+        "bar_high":  float(bar_high)  if bar_high  else 0.0,
+        "bar_low":   float(bar_low)   if bar_low   else 0.0,
     }
     if vwap is not None and vwap > 0:
         payload["vwap"] = float(vwap)

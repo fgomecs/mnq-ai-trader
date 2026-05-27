@@ -275,11 +275,14 @@ async function pollDashboard() {
 // Forming bar state — built tick-by-tick from WS
 let _formingBar = null;
 
-function onTick(price, ts) {
+function onTick(price, ts, barOpen, barHigh, barLow) {
   if (!price || price <= 0) return;
   const t = currentEtMinuteAsUtcSec();
   if (lastHistoricalTime && t <= lastHistoricalTime) return;
-  if (!_formingBar || _formingBar.time !== t) {
+  if (barOpen > 0) {
+    // Use server-side forming bar OHLC; price is the latest close
+    _formingBar = { time: t, open: barOpen, high: barHigh, low: barLow, close: price };
+  } else if (!_formingBar || _formingBar.time !== t) {
     _formingBar = { time: t, open: price, high: price, low: price, close: price };
   } else {
     if (price > _formingBar.high) _formingBar.high = price;
@@ -314,7 +317,7 @@ function wsConnect() {
       $('s-price').textContent = price.toFixed(2);
       $('s-bid').textContent   = bid.toFixed(2);
       $('s-ask').textContent   = ask.toFixed(2);
-      onTick(price, ts);
+      onTick(price, ts, Number(msg.bar_open) || 0, Number(msg.bar_high) || 0, Number(msg.bar_low) || 0);
     }
     // Live levels from WS tick
     if (msg.or_high || msg.or_low || msg.stop || msg.target || msg.entry) {

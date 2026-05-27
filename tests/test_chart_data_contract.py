@@ -54,6 +54,26 @@ def test_chart_polls_price_at_500ms_cadence():
         "pollPrice not on 500ms interval"
 
 
+def test_chart_ingest_uses_number_not_num_helper_for_ohlc():
+    """The num() helper rejects 0 as invalid (was designed for entry/stop
+    sentinels). Using it on OHLC silently drops bars that legitimately
+    contain a 0 value. ingestList must use Number() + Number.isFinite()
+    so zero is accepted."""
+    assert "const open  = Number(b.o)" in CHART, \
+        "ingestList should coerce open via Number(b.o), not num()"
+    assert "const close = Number(b.c)" in CHART, \
+        "ingestList should coerce close via Number(b.c), not num()"
+    assert "Number.isFinite(open)" in CHART and "Number.isFinite(close)" in CHART, \
+        "ingestList must validate via Number.isFinite (zero is valid; NaN is not)"
+
+
+def test_chart_ingest_logs_diagnostic_first_bar():
+    """A console.log after the first ingest is the only way to verify the
+    mapping shape from DevTools without rerunning the bot. Don't lose it."""
+    assert "[chart] ingestList(" in CHART, \
+        "ingestList must emit a [chart] DevTools log of the first mapped bar"
+
+
 def test_dashboard_writer_emits_bars_keys(tmp_path, monkeypatch):
     """Schema match: dashboard JSON must include bars1min/bars5min as
     lists (possibly empty) so the chart can rely on the field names."""

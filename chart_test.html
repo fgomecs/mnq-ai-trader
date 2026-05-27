@@ -201,22 +201,53 @@ function ingestList(bars, tf) {
   volumeStore[tf].clear();
   if (vwapStore[tf]) vwapStore[tf].clear();
 
+  // Per TradingView Lightweight Charts v4 spec:
+  //   { time: <UTCTimestamp seconds | 'YYYY-MM-DD' string>,
+  //     open: number, high: number, low: number, close: number }
+  // Our bars carry "YYYY-MM-DD HH:MM" in ET → convert to UTC epoch seconds
+  // via etStringToUtcSec. OHLC fields must be plain numbers (zero IS valid;
+  // do not use the num() helper here, which rejects 0).
+  let firstMapped = null;
   for (const b of bars) {
     const t = etStringToUtcSec(b.t);
     if (t === null) continue;
-    const open  = num(b.o);
-    const high  = num(b.h);
-    const low   = num(b.l);
-    const close = num(b.c);
-    if (open === null || close === null) continue;
 
-    candleStore[tf].set(t, {
-      time: t, open: open, high: high ?? close, low: low ?? close, close: close,
-    });
-    volumeStore[tf].set(t, num(b.v) || 0);
+    const open  = Number(b.o);
+    const high  = Number(b.h);
+    const low   = Number(b.l);
+    const close = Number(b.c);
+    if (!Number.isFinite(open) || !Number.isFinite(close)) continue;
+
+    const mapped = {
+      time:  t,
+      open:  open,
+      high:  Number.isFinite(high) ? high : close,
+      low:   Number.isFinite(low)  ? low  : close,
+      close: close,
+    };
+    candleStore[tf].set(t, mapped);
+
+    const vol = Number(b.v);
+    volumeStore[tf].set(t, Number.isFinite(vol) ? vol : 0);
+
     if (vwapStore[tf] && b.vwap != null) {
-      vwapStore[tf].set(t, num(b.vwap));
+      const w = Number(b.vwap);
+      if (Number.isFinite(w)) vwapStore[tf].set(t, w);
     }
+
+    if (firstMapped === null) firstMapped = { src: b, mapped: mapped };
+  }
+
+  // Diagnostic — visible in browser DevTools. Logged once per ingest so
+  // you can verify the field shapes match the v4 spec without spamming.
+  if (firstMapped) {
+    console.log(
+      `[chart] ingestList(${tf}): mapped ${candleStore[tf].size}/${bars.length} bars`,
+      '\n  raw:    ', firstMapped.src,
+      '\n  mapped: ', firstMapped.mapped,
+    );
+  } else {
+    console.warn(`[chart] ingestList(${tf}): 0 bars after mapping (input length ${bars ? bars.length : 0})`);
   }
 }
 

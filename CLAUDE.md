@@ -169,6 +169,22 @@ First possible entry: **09:45 ET**. Last possible entry: **15:30 ET** (when dead
 - `CLAUDE_ENTRY_MODEL=claude-sonnet-4-6`, `CLAUDE_POSITION_MODEL=claude-sonnet-4-6` (both Sonnet, cost-optimized)
 - `MAX_CONTRACTS=4`, `MIN_THESIS_PROBABILITY=55`, `FEATURE_DEAD_ZONE=false`
 
+## NIGHT_OWL mode
+
+When `NIGHT_OWL=true` in `.env`:
+- `_wait_for_market_hours()` returns immediately (no overnight sleep,
+  no weekend/holiday gating). Bot stays connected 24/7.
+- `get_session_state()` forces `PRIME_WINDOW` outside the 08:30–09:30 ET
+  window. The 08:30–09:30 slot still returns `PRE_MARKET` so the
+  pre-market analysis routine continues to fire once per day at 08:30.
+- DEAD_ZONE, CLOSING, AFTER_HOURS, OR_FORMING gates are all bypassed —
+  `can_enter` reads `PRIME_WINDOW` and returns `True`.
+- EOD job remains scheduled via `schedule.every().day.at(EOD_SCHEDULE_TIME)`
+  — independent of state machine.
+- Dashboard JSON gains a `nightOwl: true` field; mobile + ticker show a
+  🦉 NIGHT OWL amber badge.
+- Risk caps (`MAX_DAILY_LOSS_USD`, R-budget, `MAX_CONTRACTS`) unchanged.
+
 ## Advanced Tuning
 
 See README.md for full annotated list. Key V4.4 additions:

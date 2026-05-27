@@ -49,7 +49,7 @@ except Exception:
 try:
     from config import (
         DASHBOARD_FILE, PRICE_FILE, LIVE_DATA_ACTIVE, VERSION,
-        MAX_DAILY_LOSS_USD,
+        MAX_DAILY_LOSS_USD, NIGHT_OWL,
     )
 except ImportError:
     _base = os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader")
@@ -58,6 +58,7 @@ except ImportError:
     LIVE_DATA_ACTIVE   = False
     VERSION            = "?"
     MAX_DAILY_LOSS_USD = 10_000.0
+    NIGHT_OWL          = False
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -252,6 +253,7 @@ def update_dashboard(
             "thesisProbability":   kwargs.get("thesis_probability", 0),
             "lastThesisStatus":    kwargs.get("last_thesis_status", ""),
             "botVersion":          VERSION,
+            "nightOwl":            bool(NIGHT_OWL),
             "reasoning":           reasoning_block,
 
             "bias":         detected_bias,

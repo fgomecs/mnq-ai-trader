@@ -605,8 +605,14 @@ CLAUDE_USE_CACHING=true
 MIN_THESIS_PROBABILITY=70   # Block entries below this confidence
 
 # V4.1
-BOT_VERSION=4.4.1           # Auto-managed by version_manager.py
+BOT_VERSION=4.5.0           # Auto-managed by version_manager.py
 RECORDING_ENABLED=true
+
+# V4.5.0 — Night Owl (24/7 scanning)
+NIGHT_OWL=false             # true = skip session gates & overnight sleep
+                            #        pre-market still fires at 08:30 ET
+                            #        EOD still fires at EOD_SCHEDULE_TIME
+                            #        Risk caps unchanged
 ```
 
 ### Advanced Tuning

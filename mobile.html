@@ -160,6 +160,7 @@
   <div id="topright">
     <div id="clock">—</div>
     <div id="data-mode">LIVE L2</div>
+    <div id="night-owl-badge" style="display:none;font-size:10px;font-weight:700;color:var(--bg);background:var(--yellow);border-radius:3px;padding:2px 6px;margin-top:2px;letter-spacing:0.5px">🦉 NIGHT OWL</div>
   </div>
 </div>
 
@@ -409,6 +410,8 @@ async function poll() {
       : 'var(--yellow)';
 
     if (d.botVersion) el('version').textContent = `v${d.botVersion}`;
+    const owlBadge = el('night-owl-badge');
+    if (owlBadge) owlBadge.style.display = d.nightOwl ? 'inline-block' : 'none';
 
     const price = d.currentPrice || 0;
     el('price-main').textContent   = price ? price.toFixed(2) : '—';

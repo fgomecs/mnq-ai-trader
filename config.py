@@ -62,6 +62,14 @@ PRICE_FILE     = f"{BASE_DIR}\\price_data.json"
 # ─── RECORDING ─────────────────────────────────────────────
 RECORDING_ENABLED = _env_bool("RECORDING_ENABLED", True)
 
+# ─── NIGHT OWL — 24/7 unrestricted scanning ────────────────
+# When True: main._wait_for_market_hours is a no-op (no overnight sleep),
+# get_session_state forces PRIME_WINDOW outside the 08:30-09:30 ET window
+# (so the pre-market routine still fires at 08:30), and entry-allowed
+# states are no longer gated by clock or DEAD_ZONE. EOD schedule unchanged.
+# Risk caps and loss limits are still enforced.
+NIGHT_OWL = _env_bool("NIGHT_OWL", False)
+
 # ─── ACCOUNT ───────────────────────────────────────────────
 ACCOUNT_SIZE       = _env_int("ACCOUNT_SIZE", 50_000)
 MAX_DAILY_LOSS_PCT = _env_float("MAX_DAILY_LOSS_PCT", 0.20)

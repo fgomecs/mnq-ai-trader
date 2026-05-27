@@ -44,6 +44,7 @@ from config import (
     DASHBOARD_ACCOUNT_REFRESH_SECS, DASHBOARD_LIVE_PATCH_SECS,
     PRE_FILTER_LOG_INTERVAL_SECS,
     FEATURE_SESSION_CLASSIFIER, FEATURE_POST_NEWS_REFRESH,
+    NIGHT_OWL,
 )
 from session_classifier import (
     classify_session_type, get_session_type_context, SessionType,
@@ -107,6 +108,16 @@ class SessionState(Enum):
 
 def get_session_state(now_et: datetime) -> SessionState:
     t = now_et.hour * 100 + now_et.minute
+
+    # NIGHT_OWL: 24/7 scanning. Force PRIME_WINDOW everywhere EXCEPT the
+    # 08:30–09:30 ET window — there we still want PRE_MARKET so the
+    # pre-market analysis routine fires once per day at 08:30. EOD remains
+    # scheduled via the separate `schedule` library, not state-driven.
+    if NIGHT_OWL:
+        if SESSION_PRE_MARKET_TIME <= t < SESSION_MARKET_OPEN_TIME:
+            return SessionState.PRE_MARKET
+        return SessionState.PRIME_WINDOW
+
     if t < SESSION_PRE_MARKET_TIME:    return SessionState.PRE_SESSION
     if t < SESSION_MARKET_OPEN_TIME:   return SessionState.PRE_MARKET
     if t < SESSION_OR_FORMING_END:     return SessionState.OR_FORMING
@@ -1023,7 +1034,15 @@ def _wait_for_market_hours() -> None:
     SESSION_PRE_MARKET_TIME (08:20 ET by default).
     Loops in 30-min ticks during weekends/holidays, 60s ticks on
     trading-day mornings. IBKR is never contacted before this returns.
+
+    NIGHT_OWL short-circuits this entirely — the bot stays connected
+    and scanning 24/7. Weekends and holidays still mostly have no
+    market data, but the connection is preserved.
     """
+    if NIGHT_OWL:
+        logger.info("NIGHT_OWL mode active — skipping market-hours wait")
+        return
+
     _LEAD_MINS  = 10
     _SLEEP_SECS = 30 * 60           # 30-minute ticks during off-hours sleep
 

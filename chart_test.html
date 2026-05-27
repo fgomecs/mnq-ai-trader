@@ -1,0 +1,379 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DoBot — Chart Test</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  :root {
+    --bg:     #0a0e1a;
+    --panel:  #0f1528;
+    --border: #1a2744;
+    --text:   #dce6ff;
+    --dim:    #7890c0;
+    --green:  #00e676;
+    --red:    #ff3b6b;
+    --yellow: #ffc107;
+    --blue:   #00d4ff;
+    --orange: #ffb74d;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: var(--bg); color: var(--text);
+               font-family: -apple-system, 'Segoe UI', Roboto, sans-serif; }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  #header {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 8px 14px; display: flex; align-items: center; gap: 14px;
+    font-size: 13px;
+  }
+  #header .title { font-weight: 700; letter-spacing: 1px; color: var(--blue); }
+  #header .last  { color: var(--text); font-family: 'JetBrains Mono', monospace; }
+  #header .age   { color: var(--dim); font-size: 11px; }
+  #header .err   { color: var(--red); font-size: 11px; margin-left: auto; }
+
+  #toolbar {
+    background: var(--panel); border-bottom: 1px solid var(--border);
+    padding: 6px 14px; display: flex; gap: 6px; align-items: center;
+  }
+  .tf-btn {
+    background: var(--bg); color: var(--dim); border: 1px solid var(--border);
+    padding: 4px 12px; font-size: 11px; font-weight: 600; letter-spacing: 1px;
+    border-radius: 3px; cursor: pointer; font-family: inherit;
+  }
+  .tf-btn:hover { color: var(--text); }
+  .tf-btn.active { background: var(--blue); color: #000; border-color: var(--blue); }
+  #fit-btn   { margin-left: auto; }
+
+  #chart { flex: 1; position: relative; min-height: 0; }
+
+  #status {
+    background: var(--panel); border-top: 1px solid var(--border);
+    padding: 4px 14px; font-size: 11px; color: var(--dim);
+    font-family: 'JetBrains Mono', monospace;
+    display: flex; gap: 18px;
+  }
+  #status .label { color: var(--dim); }
+  #status .val   { color: var(--text); }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="header">
+    <div class="title">DoBot · MNQ Chart</div>
+    <div class="last"   id="last-price">—</div>
+    <div class="age"    id="age">—</div>
+    <div class="err"    id="err"></div>
+  </div>
+
+  <div id="toolbar">
+    <button class="tf-btn active" data-tf="1M">1M</button>
+    <button class="tf-btn"        data-tf="5M">5M</button>
+    <button class="tf-btn"        data-tf="15M">15M</button>
+    <button class="tf-btn" id="fit-btn">FIT</button>
+  </div>
+
+  <div id="chart"></div>
+
+  <div id="status">
+    <span><span class="label">VWAP:</span> <span class="val" id="s-vwap">—</span></span>
+    <span><span class="label">OR-H:</span> <span class="val" id="s-orh">—</span></span>
+    <span><span class="label">OR-L:</span> <span class="val" id="s-orl">—</span></span>
+    <span><span class="label">Pos:</span>  <span class="val" id="s-pos">FLAT</span></span>
+    <span><span class="label">Entry:</span><span class="val" id="s-entry">—</span></span>
+    <span><span class="label">Stop:</span> <span class="val" id="s-stop">—</span></span>
+    <span><span class="label">Tgt:</span>  <span class="val" id="s-tgt">—</span></span>
+  </div>
+
+</div>
+
+<script>
+// ─── State ────────────────────────────────────────────────
+const TF_MINUTES   = { '1M': 1, '5M': 5, '15M': 15 };
+let   currentTF    = '1M';
+const candleStore  = { '1M': new Map(), '5M': new Map(), '15M': new Map() };
+const volumeStore  = { '1M': new Map(), '5M': new Map(), '15M': new Map() };
+let   lastTickTime = 0;
+
+let chart, candleSeries, volumeSeries, vwapSeries, orHighLine, orLowLine,
+    stopLine, targetLine, entryMarker;
+
+// ─── Chart bootstrap ──────────────────────────────────────
+function buildChart() {
+  const el = document.getElementById('chart');
+  chart = LightweightCharts.createChart(el, {
+    layout: {
+      background: { type: 'solid', color: '#0a0e1a' },
+      textColor:  '#dce6ff',
+      fontFamily: 'JetBrains Mono, monospace',
+    },
+    grid: {
+      vertLines: { color: '#1a2744' },
+      horzLines: { color: '#1a2744' },
+    },
+    crosshair: {
+      mode: LightweightCharts.CrosshairMode.Normal,
+      vertLine: { color: '#7890c0', width: 1, style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#0f1528' },
+      horzLine: { color: '#7890c0', width: 1, style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#0f1528' },
+    },
+    rightPriceScale: {
+      borderColor: '#1a2744',
+      scaleMargins: { top: 0.1, bottom: 0.25 },
+      mode: LightweightCharts.PriceScaleMode.Normal,
+    },
+    timeScale: {
+      borderColor: '#1a2744',
+      timeVisible: true,
+      secondsVisible: false,
+      rightOffset: 5,
+    },
+    handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
+    handleScale:  { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
+    autoSize: true,
+  });
+
+  candleSeries = chart.addCandlestickSeries({
+    upColor:   '#00e676',
+    downColor: '#ff3b6b',
+    borderUpColor:   '#00e676',
+    borderDownColor: '#ff3b6b',
+    wickUpColor:     '#00e676',
+    wickDownColor:   '#ff3b6b',
+  });
+  candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
+
+  volumeSeries = chart.addHistogramSeries({
+    color: '#7890c0',
+    priceFormat: { type: 'volume' },
+    priceScaleId: 'volume',
+  });
+  chart.priceScale('volume').applyOptions({
+    scaleMargins: { top: 0.8, bottom: 0 },
+  });
+
+  vwapSeries = chart.addLineSeries({
+    color: '#ffc107', lineWidth: 1, priceLineVisible: false,
+    crosshairMarkerVisible: false, title: 'VWAP',
+  });
+}
+
+// ─── Candle aggregation ───────────────────────────────────
+function bucketTime(epochSec, tf) {
+  const m = TF_MINUTES[tf];
+  return Math.floor(epochSec / (m * 60)) * (m * 60);
+}
+
+function ingestTick(price, volumeDelta, tEpochSec) {
+  for (const tf of Object.keys(TF_MINUTES)) {
+    const bucket = bucketTime(tEpochSec, tf);
+    const cMap = candleStore[tf];
+    const vMap = volumeStore[tf];
+    const existing = cMap.get(bucket);
+    if (existing) {
+      existing.high  = Math.max(existing.high, price);
+      existing.low   = Math.min(existing.low,  price);
+      existing.close = price;
+    } else {
+      cMap.set(bucket, { time: bucket, open: price, high: price, low: price, close: price });
+    }
+    vMap.set(bucket, (vMap.get(bucket) || 0) + Math.max(0, volumeDelta));
+  }
+}
+
+function pushUpdate() {
+  const cMap = candleStore[currentTF];
+  const vMap = volumeStore[currentTF];
+  if (!cMap.size) return;
+
+  const candles = [...cMap.values()].sort((a, b) => a.time - b.time);
+  const last    = candles[candles.length - 1];
+
+  candleSeries.update(last);
+
+  const vol = vMap.get(last.time) || 0;
+  volumeSeries.update({
+    time:  last.time,
+    value: vol,
+    color: last.close >= last.open ? 'rgba(0,230,118,0.4)' : 'rgba(255,59,107,0.4)',
+  });
+}
+
+function rebindSeries() {
+  const cMap = candleStore[currentTF];
+  const vMap = volumeStore[currentTF];
+  const candles = [...cMap.values()].sort((a, b) => a.time - b.time);
+  candleSeries.setData(candles);
+  volumeSeries.setData(candles.map(c => ({
+    time:  c.time,
+    value: vMap.get(c.time) || 0,
+    color: c.close >= c.open ? 'rgba(0,230,118,0.4)' : 'rgba(255,59,107,0.4)',
+  })));
+  chart.timeScale().scrollToRealTime();
+}
+
+// ─── Overlays ─────────────────────────────────────────────
+let prevVwap = null, prevOrH = null, prevOrL = null;
+let prevStop = null, prevTgt = null, prevPos = '';
+
+function applyOverlays(d) {
+  // VWAP — incremental line series
+  if (typeof d.vwap === 'number' && d.vwap > 0 && d.t) {
+    const candles = [...candleStore[currentTF].values()].sort((a, b) => a.time - b.time);
+    if (candles.length) {
+      vwapSeries.update({ time: candles[candles.length - 1].time, value: d.vwap });
+    }
+    document.getElementById('s-vwap').textContent = d.vwap.toFixed(2);
+  }
+
+  // OR high/low — dashed horizontal lines on the candle series via priceLines
+  const orH = num(d.barHigh) || num(d.orHigh) || num(d.or_high);
+  const orL = num(d.barLow)  || num(d.orLow)  || num(d.or_low);
+  if (orH && orH !== prevOrH) {
+    if (orHighLine) candleSeries.removePriceLine(orHighLine);
+    orHighLine = candleSeries.createPriceLine({
+      price: orH, color: '#ffb74d', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true,
+      title: 'OR-H',
+    });
+    prevOrH = orH;
+    document.getElementById('s-orh').textContent = orH.toFixed(2);
+  }
+  if (orL && orL !== prevOrL) {
+    if (orLowLine) candleSeries.removePriceLine(orLowLine);
+    orLowLine = candleSeries.createPriceLine({
+      price: orL, color: '#ffb74d', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true,
+      title: 'OR-L',
+    });
+    prevOrL = orL;
+    document.getElementById('s-orl').textContent = orL.toFixed(2);
+  }
+
+  // Stop / target lines only when in trade
+  const inTrade = (d.position && d.position !== 'FLAT');
+  const stop    = num(d.stop);
+  const tgt     = num(d.target);
+  const entry   = num(d.entry);
+
+  if (inTrade && stop && stop !== prevStop) {
+    if (stopLine) candleSeries.removePriceLine(stopLine);
+    stopLine = candleSeries.createPriceLine({
+      price: stop, color: '#ff3b6b', lineWidth: 2,
+      lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true,
+      title: 'STOP',
+    });
+    prevStop = stop;
+  } else if (!inTrade && stopLine) {
+    candleSeries.removePriceLine(stopLine); stopLine = null; prevStop = null;
+  }
+
+  if (inTrade && tgt && tgt !== prevTgt) {
+    if (targetLine) candleSeries.removePriceLine(targetLine);
+    targetLine = candleSeries.createPriceLine({
+      price: tgt, color: '#00e676', lineWidth: 2,
+      lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true,
+      title: 'TGT',
+    });
+    prevTgt = tgt;
+  } else if (!inTrade && targetLine) {
+    candleSeries.removePriceLine(targetLine); targetLine = null; prevTgt = null;
+  }
+
+  // Entry marker — keep simple: a markedSeries point on the most recent bar
+  if (inTrade && entry) {
+    const candles = [...candleStore[currentTF].values()].sort((a, b) => a.time - b.time);
+    if (candles.length && d.position !== prevPos) {
+      candleSeries.setMarkers([{
+        time:     candles[candles.length - 1].time,
+        position: d.position === 'LONG' ? 'belowBar' : 'aboveBar',
+        color:    d.position === 'LONG' ? '#00e676'  : '#ff3b6b',
+        shape:    d.position === 'LONG' ? 'arrowUp'  : 'arrowDown',
+        text:     `${d.position} @ ${entry.toFixed(2)}`,
+      }]);
+      prevPos = d.position;
+    }
+  } else if (!inTrade && prevPos) {
+    candleSeries.setMarkers([]);
+    prevPos = '';
+  }
+
+  // Status bar values
+  document.getElementById('s-pos').textContent   = d.position || 'FLAT';
+  document.getElementById('s-entry').textContent = entry ? entry.toFixed(2) : '—';
+  document.getElementById('s-stop').textContent  = stop  ? stop.toFixed(2)  : '—';
+  document.getElementById('s-tgt').textContent   = tgt   ? tgt.toFixed(2)   : '—';
+}
+
+function num(v) {
+  const n = parseFloat(v);
+  return Number.isFinite(n) && n !== 0 ? n : null;
+}
+
+// ─── Polling ──────────────────────────────────────────────
+let lastVolume = 0;
+let lastUpdate = 0;
+let consecutiveErrors = 0;
+
+async function poll() {
+  try {
+    const r = await fetch('price_data.json?t=' + Date.now());
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+
+    const price = parseFloat(d.price);
+    const vol   = parseFloat(d.volume) || 0;
+    if (Number.isFinite(price) && price > 0) {
+      const tSec = Math.floor(Date.now() / 1000);
+      const vDelta = Math.max(0, vol - lastVolume);
+      ingestTick(price, vDelta, tSec);
+      lastVolume = vol;
+      pushUpdate();
+      applyOverlays(d);
+      document.getElementById('last-price').textContent = price.toFixed(2);
+      lastUpdate = Date.now();
+    }
+    consecutiveErrors = 0;
+    document.getElementById('err').textContent = '';
+  } catch (e) {
+    consecutiveErrors++;
+    if (consecutiveErrors >= 3) {
+      document.getElementById('err').textContent = 'feed: ' + e.message;
+    }
+  }
+
+  // Age indicator
+  if (lastUpdate) {
+    const ageMs = Date.now() - lastUpdate;
+    document.getElementById('age').textContent = ageMs < 1000 ? 'live'
+      : (ageMs / 1000).toFixed(0) + 's ago';
+  }
+}
+
+// ─── UI wiring ────────────────────────────────────────────
+function setTimeframe(tf) {
+  if (!TF_MINUTES[tf] || tf === currentTF) return;
+  currentTF = tf;
+  document.querySelectorAll('.tf-btn[data-tf]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tf === tf);
+  });
+  rebindSeries();
+}
+
+document.querySelectorAll('.tf-btn[data-tf]').forEach(btn => {
+  btn.addEventListener('click', () => setTimeframe(btn.dataset.tf));
+});
+document.getElementById('fit-btn').addEventListener('click', () => {
+  chart.timeScale().fitContent();
+});
+
+// ─── Boot ─────────────────────────────────────────────────
+window.addEventListener('load', () => {
+  buildChart();
+  poll();
+  setInterval(poll, 500);
+});
+</script>
+</body>
+</html>

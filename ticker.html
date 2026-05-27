@@ -480,6 +480,7 @@ canvas#chart {
   <!-- BOTTOM BAR -->
   <div class="bottom-bar">
     <div><span class="pulse"></span><span id="data-mode">CONNECTING</span></div>
+    <div id="night-owl-badge" style="display:none;font-size:10px;font-weight:700;color:#000;background:var(--amber);border-radius:3px;padding:2px 8px;letter-spacing:0.5px">🦉 NIGHT OWL</div>
     <div id="last-update">——</div>
     <div id="version">v——</div>
   </div>
@@ -734,6 +735,8 @@ async function pollDash() {
     document.getElementById('session-badge').textContent = d.botSleeping ? 'SLEEPING' : (d.killzone||state||'LIVE');
     document.getElementById('data-mode').textContent = d.botSleeping ? ('WAKES ' + (d.wakeTime||'')) : state;
     document.getElementById('version').textContent = d.botVersion ? 'v' + d.botVersion : '';
+    const owlBadge = document.getElementById('night-owl-badge');
+    if (owlBadge) owlBadge.style.display = d.nightOwl ? 'inline-block' : 'none';
 
     // Daily commissions — sourced from dashboard_data.json (price_data.json
     // doesn't carry it). Cumulative, only changes on trade close, so 2s is fine.

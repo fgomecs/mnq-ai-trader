@@ -60,3 +60,33 @@ def test_handles_undefined_lightweight_charts():
     """Surface 'CDN failed to load' clearly in-page if the script doesn't load."""
     assert "typeof LightweightCharts === 'undefined'" in HTML
     assert "CDN failed to load" in HTML
+
+
+def test_polls_price_data_for_live_forming_bar():
+    """The dashboard bars only roll on minute close — between closes
+    the chart must update the in-progress bar from price_data.json so
+    we see live ticks, not a stale chart."""
+    assert "fetch('price_data.json" in HTML, \
+        "chart_test2 must also poll price_data.json for the live tick"
+    assert "candleSeries.update(" in HTML, \
+        "live forming bar must update via candleSeries.update(), not setData"
+
+
+def test_live_poll_runs_at_500ms_cadence():
+    """Live tick poll matches the bot's fast-ticker cadence."""
+    import re
+    assert re.search(r"setInterval\(\s*pollLive\s*,\s*500\s*\)", HTML), \
+        "pollLive must run on 500ms interval"
+
+
+def test_historical_poll_runs_at_2000ms_cadence():
+    """Historical (closed-bar) poll stays on the slower 2s cadence."""
+    import re
+    assert re.search(r"setInterval\(\s*pollHistorical\s*,\s*2000\s*\)", HTML), \
+        "pollHistorical must run on 2000ms interval"
+
+
+def test_forming_bar_status_id_present():
+    """In-page diagnostic surface must show the forming bar so we
+    can verify live updates without DevTools."""
+    assert 'id="s-forming"' in HTML

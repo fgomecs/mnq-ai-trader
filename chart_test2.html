@@ -34,6 +34,7 @@
     <span class="k">first mapped bar:</span>     <span class="v" id="s-first">—</span>
     <span class="k">last mapped bar:</span>      <span class="v" id="s-last">—</span>
     <span class="k">setData status:</span>       <span class="v" id="s-set">—</span>
+    <span class="k">forming bar (live tick):</span><span class="v" id="s-forming">—</span>
     <span class="k">errors:</span>               <span class="v err" id="s-err"></span>
   </div>
 
@@ -126,8 +127,12 @@ function mapBars(bars) {
   return out;
 }
 
-// ─── Poll & render ────────────────────────────────────────
-async function poll() {
+// ─── Poll dashboard for HISTORICAL bars (slow) ────────────
+// bars1min only gains a new entry on each minute close — between
+// closes, this poll is mostly a no-op.
+let lastHistoricalTime = 0;   // epoch sec of the most recent dashboard bar
+
+async function pollHistorical() {
   try {
     const r = await fetch('dashboard_data.json?t=' + Date.now());
     $('s-http').innerHTML = `<span class="${r.ok ? 'ok' : 'err'}">${r.status} ${r.statusText}</span>`;
@@ -140,33 +145,80 @@ async function poll() {
 
     const mapped = mapBars(bars);
     $('s-mapped').textContent = String(mapped.length);
-    $('s-first').textContent  = mapped[0]              ? JSON.stringify(mapped[0])               : '(empty)';
+    $('s-first').textContent  = mapped[0]               ? JSON.stringify(mapped[0])               : '(empty)';
     $('s-last').textContent   = mapped[mapped.length-1] ? JSON.stringify(mapped[mapped.length-1]) : '(empty)';
 
     try {
       candleSeries.setData(mapped);
-      chart.timeScale().fitContent();
+      lastHistoricalTime = mapped.length ? mapped[mapped.length - 1].time : 0;
       $('s-set').innerHTML = `<span class="ok">setData OK (${mapped.length} bars)</span>`;
       $('s-err').textContent = '';
     } catch (e) {
       $('s-set').innerHTML = `<span class="err">setData threw: ${e.message}</span>`;
       throw e;
     }
-
-    // Console log too, in case the in-page status gets clipped
-    console.log('[chart_test2] bars input:', bars.length,
-                'mapped:', mapped.length,
-                'first:', mapped[0],
-                'last:',  mapped[mapped.length - 1]);
   } catch (e) {
     $('s-err').textContent = e.message || String(e);
-    console.error('[chart_test2]', e);
+    console.error('[chart_test2:historical]', e);
+  }
+}
+
+// ─── Poll price_data.json for LIVE forming bar (fast) ─────
+// price_data.json carries the in-progress current bar via the
+// currentBarOpen / currentBarHigh / currentBarLow fields plus the
+// latest tick `price`. We synthesise an OHLC for the current minute
+// and call candleSeries.update() — that updates the last bar in
+// place if time matches the last setData entry, or appends a new bar
+// if a new minute has started.
+function currentMinuteEpochSec() {
+  // Anchor the forming bar to the bucket boundary aligned with how
+  // the dashboard timestamps its bars. dashboard bars are 'YYYY-MM-DD
+  // HH:MM' parsed naively as UTC; same convention used here so the
+  // forming bar lines up with the last historical bar.
+  const d = new Date();
+  d.setUTCSeconds(0, 0);
+  return Math.floor(d.getTime() / 1000);
+}
+
+async function pollLive() {
+  try {
+    const r = await fetch('price_data.json?t=' + Date.now());
+    if (!r.ok) return;
+    const p = await r.json();
+
+    const price = Number(p.price);
+    if (!Number.isFinite(price) || price <= 0) return;
+
+    const open  = Number(p.currentBarOpen);
+    const high  = Number(p.currentBarHigh);
+    const low   = Number(p.currentBarLow);
+
+    const t = currentMinuteEpochSec();
+    // Guard against a stale/zero forming bucket: derive OHLC from
+    // price alone if the currentBar fields aren't populated yet.
+    const o = Number.isFinite(open) && open > 0 ? open : price;
+    const h = Number.isFinite(high) && high > 0 ? Math.max(high, price) : price;
+    const l = Number.isFinite(low)  && low  > 0 ? Math.min(low,  price) : price;
+
+    const forming = { time: t, open: o, high: h, low: l, close: price };
+
+    // Skip if the forming bar would land BEFORE the last historical
+    // bar (clock drift / weekend snapshot). update() requires
+    // monotonic time on the candle series.
+    if (lastHistoricalTime && t < lastHistoricalTime) return;
+
+    candleSeries.update(forming);
+    $('s-forming').textContent = JSON.stringify(forming);
+  } catch (e) {
+    console.error('[chart_test2:live]', e);
   }
 }
 
 window.addEventListener('load', () => {
-  poll();
-  setInterval(poll, 2000);
+  pollHistorical();
+  pollLive();
+  setInterval(pollHistorical, 2000);   // gap-fill new minute closes
+  setInterval(pollLive,        500);    // live tick into the forming bar
 });
 </script>
 </body>

@@ -66,6 +66,12 @@ def test_dashboard_writer_imports():
     assert hasattr(mod, "update_price_only")
 
 
+def test_learning_session_imports():
+    """Imported here so coverage tooling stops warning about module-not-imported."""
+    mod = importlib.import_module("learning_session")
+    assert mod is not None
+
+
 def test_journal_exporter_builds_empty_journal():
     from journal_exporter import build_journal
     j = build_journal(starting_balance=50_000.0, account_name="TEST")

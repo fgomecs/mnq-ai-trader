@@ -1,17 +1,21 @@
 # MNQ AI Trader — Complete Project Summary
-*For AI reading this cold. Dense, accurate, no padding. Last verified: 2026-05-25 (V4.4.1).*
+*For AI reading this cold. Dense, accurate, no padding. Last verified: 2026-05-27 (V4.5.0).*
 
-**Companion docs:** `CLAUDE.md` (AI-assistant guidance + audit-tag reference), `README.md` (user-facing intro, install, run), `KNOWLEDGE_BASE.md` (academic win-rate / probability calibration research consumed by `claude_brain.py` prompts), `BOT_EVALUATION.md` (performance evaluation framework), `ROADMAP.md` (completed V4.4 + Phase 2-3 planned features).
+**Companion docs:** `CHANGELOG.md` (versioned changelog), `CLAUDE.md` (AI-assistant guidance + audit-tag reference), `README.md` (user-facing intro, install, run), `TEST_PLAN.md` (test roadmap, Phase 1-3 complete), `KNOWLEDGE_BASE.md` (academic research consumed by `claude_brain.py` prompts), `ROADMAP.md` (completed + deferred features).
 
 ---
 
 ## What This Is
 
-Paper-trading bot for **MNQ (Micro E-mini Nasdaq-100)** futures. Pulls live L1+L2 data from IBKR (TWS/Gateway), scores market structure with pure Python signal pre-filters, sends snapshots to Claude (Opus 4.7 for entries, Sonnet 4.6 for position management) for decisions, and executes bracket orders. Hard constraints: $50K simulated account, 1 contract max, configurable daily loss cap (MAX_DAILY_LOSS_PCT × ACCOUNT_SIZE, default $10,000). **Not live money.**
+Paper-trading bot for **MNQ (Micro E-mini Nasdaq-100)** futures. Pulls live L1+L2 data from IBKR (TWS/Gateway) via `ib_async`, scores market structure with pure Python signal pre-filters, sends snapshots to Claude for entry + position decisions, and executes bracket orders. Hard constraints: $50K simulated account, `MAX_CONTRACTS` env-driven (default 1, user runs 4), daily loss cap (MAX_DAILY_LOSS_PCT × ACCOUNT_SIZE, default $10,000). **Not live money.**
 
 **Strategy:** ICT (Inner Circle Trader) methodology. Opening Range Breakout with pullback entry. CHoCH (Change of Character) confirmation. Dual-sided bias — OR direction is a starting preference, not a law. Kill zones (NY AM 8:30–11, NY PM 1:30–4 ET). Session type classifier (TREND/RANGE/NEWS/HOLIDAY/UNKNOWN) routes strategy and thresholds.
 
-**Version as of this document:** 4.4.1 (patch auto-bumped at EOD by `learning_session.py`). V4.4 added `session_classifier.py`, gap classification, pivot points, first candle levels, VWAP extension, 10 new Phase 2-3 feature flags (gated), watchdog, and updated session timing (AFTERNOON_PRIME_END=1555, EOD=16:05).
+**Current operational config** (per `.env`): `CLAUDE_ENTRY_MODEL=claude-sonnet-4-6`, `CLAUDE_POSITION_MODEL=claude-sonnet-4-6` (cost-optimized), `MAX_CONTRACTS=4`, `MIN_THESIS_PROBABILITY=55`, `FEATURE_DEAD_ZONE=false`.
+
+**Performance reference** — 2026-05-26 session (OB_BOUNCE strategy, end-to-end broker-commission capture): 8 trades, 4W / 4L, **+$55.36 net P&L** (after $9.30 broker commission), 50% win rate.
+
+**Version as of this document:** 4.5.0. Added: real broker `commissionReportEvent` capture (dedupe + reconnect-safe), trade JSONL persistence end-to-end, dashboard + journal commission breakdown, **139-test pytest suite** (29% line coverage), migration `ib_insync → ib_async`, DOM to 40 levels, 1-second real-time bars, backtester bias seeding + safe `--no-live-claude` default, pre-market dashboard reset, `EOD_SCHEDULE_TIME` → 15:55, `load_dotenv` absolute-path fix. Risk caps unchanged. Full diff in `CHANGELOG.md`.
 
 ---
 

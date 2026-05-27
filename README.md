@@ -3,15 +3,18 @@
 An institutional-grade AI-driven futures trading bot for **MNQ (Micro E-Mini Nasdaq-100)** using **ICT (Inner Circle Trader) methodology**, **Opening Range Breakout (ORB)** strategy, and **Claude AI** for entry decisions and position management.
 
 > **Status:** Paper trading — production-ready architecture, not yet live money.  
-> **Account:** $50,000 simulated | **Max daily loss:** configurable via `MAX_DAILY_LOSS_PCT` in `.env` (default 20% = $10,000) | **Max size:** 1 contract  
-> **Version:** 4.4.x (auto-managed by `version_manager.py`)
+> **Account:** $50,000 simulated | **Max daily loss:** configurable via `MAX_DAILY_LOSS_PCT` in `.env` (default 20% = $10,000) | **Max size:** `MAX_CONTRACTS` env (default 1, up to 4 supported)  
+> **Version:** 4.5.0 (auto-managed by `version_manager.py`)
+
+**Highlights in 4.5.0** — real broker commission capture via `commissionReportEvent` (dedupe + reconnect-safe), trade JSONL persistence end-to-end, dashboard + journal commission-source breakdown, **139-test pytest suite** (`make test`/`smoke`/`regression`/`coverage`), migration from `ib_insync` to `ib_async`, DOM raised to 40 levels, 1-second real-time bars, backtester bias seeding + safe `--no-live-claude` default, dashboard reset at pre-market, EOD time shifted to 15:55. Full diff in `CHANGELOG.md`.
 
 **Deeper docs:**
+- `CHANGELOG.md` — versioned changelog (4.5.0 entry)
 - `CLAUDE.md` — AI-assistant guidance, architecture truth, audit-tag reference
 - `PROJECT_SUMMARY.md` — dense technical map (modules, snapshot schema, JSON schemas, invariants)
 - `KNOWLEDGE_BASE.md` — academic research on strategy win rates and probability calibration
-- `BOT_EVALUATION.md` — performance evaluation framework and rolling stats
-- `ROADMAP.md` — completed work (V4.4 shipped) and Phase 2-3 planned features
+- `TEST_PLAN.md` — quality roadmap + per-phase punch list (Phase 1-4 complete)
+- `ROADMAP.md` — completed work and deferred features
 
 ---
 
@@ -762,8 +765,11 @@ pip install -r requirements.txt
 Or manually:
 
 ```bash
-pip install ib_insync anthropic pandas pytz python-dotenv schedule exchange-calendars
+pip install ib_async anthropic pandas pytz python-dotenv schedule exchange-calendars
+pip install pytest pytest-cov   # required for the test suite (see Testing below)
 ```
+
+> v4.5.0 migrated from `ib_insync` (unmaintained) to `ib_async` (community fork, drop-in API). If you have an old environment with `ib_insync` installed, remove it: `pip uninstall ib_insync`.
 
 `exchange-calendars` (XNYS calendar) enables CME holiday and early-close detection (Memorial Day, July 4th, Thanksgiving, Christmas Eve). Without it the bot falls back to weekend-only gating and logs a warning.
 
@@ -797,17 +803,56 @@ Or use `start_trading.bat` to launch both with one double-click.
 ### Daily Workflow
 
 ```
+Pre-session checklist (run before booting):
+  make smoke                          # 10 tests, ~2s — must be green
+  Verify .env: model, MAX_CONTRACTS, MIN_THESIS_PROBABILITY, FEATURE_DEAD_ZONE
+
 8:20 ET  → py -3.11 main.py  (bot boots, connects IBKR, caches bars)
-8:30 ET  → Pre-market analysis (Opus) — injects last 3 learning reports
+8:30 ET  → Pre-market analysis — injects last 3 learning reports
+           (dashboard_data.json cleared once-per-day at this boundary)
 9:30 ET  → OR begins forming, scanning paused
-9:45 ET  → OR complete → session classifier fires (TREND/RANGE/NEWS/HOLIDAY/UNKNOWN)
+9:45 ET  → OR complete → session classifier fires + entries unlock
 10:00 ET → PRIME_WINDOW begins — full scanning active
-11:00 ET → DEAD_ZONE — entries require 8+ confluence signals (when FEATURE_DEAD_ZONE=true)
+11:00 ET → DEAD_ZONE — entries require 8+ confluence (when FEATURE_DEAD_ZONE=true)
+                                    OR pass through (when FEATURE_DEAD_ZONE=false)
 13:30 ET → NY PM PRIME window — full scanning resumes
-15:55 ET → CLOSING — exit only, no new entries
-16:05 ET → EOD fires: close positions, save memory, run learning session
+15:30 ET → CLOSING — exit only, no new entries
+15:55 ET → EOD fires: close positions, save memory, run learning session
            (ablation → Claude synthesis → version bump → journal export)
 ```
+
+---
+
+## Testing
+
+v4.5.0 ships with a **139-test pytest suite** across 14 files. The Makefile
+exposes four targets:
+
+```
+make test          # full suite — 139 tests, ~3 min
+make smoke         # 10 tests, ~2s — import / config / dashboard
+make regression    # 14 tests, ~25s — one per fixed bug (BUG-001 to BUG-010)
+make coverage      # full suite + line coverage report (terminal + htmlcov/)
+```
+
+Coverage as of v4.5.0: **29% overall**, 5420 statements across 15 modules.
+Highlights:
+
+| Module | Coverage | Notes |
+|---|---|---|
+| `config.py` | **93%** | env-read paths tested |
+| `journal_exporter.py` | **83%** | full trade emission + commission sources |
+| `notifier.py` / `dashboard_writer.py` | 65 / 58% | mid-range |
+| `data_recorder.py` / `backtester.py` | 56 / 52% | mid-range |
+| `claude_brain.py` | 39% | large module, parse + pre_filter covered |
+| `executor.py` | 26% | IBKR-coupled; mock harness pending |
+| `ibkr_feed.py` | 5% | almost all live-IBKR-coupled |
+
+The 70% long-term target requires an IBKR mock harness for the executor
+and feed paths — flagged in TEST_PLAN.md Phase 4.
+
+**Discipline:** CLAUDE.md `## Development Discipline` enforces test-before-fix,
+and `## Pre-Commit Checklist` requires green tests before push.
 
 ---
 

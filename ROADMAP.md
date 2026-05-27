@@ -1,6 +1,73 @@
 # MNQ AI Trader — Roadmap
 
-## Completed
+## ✅ Completed in v4.5.0 (2026-05-26 → 2026-05-27)
+
+**Commission tracking (end-to-end)**
+- Real broker `commissionReportEvent` capture, dedupe by execId
+- Reconnect-safe priming + outage-window preservation via `mark_disconnect`
+- Hardened timestamp coercion (`_coerce_utc`)
+- 0.3s sleep before every `_record_pnl` call site
+- `commission_source` tagging on every trade row
+
+**Trade persistence**
+- `data_recorder.record_trade()` extended with commission + hold_seconds + ts_et
+- Wired into `Executor._record_pnl` — single call site covers all 5 close paths
+- `journal_exporter` emits `trades[]` array + `commission_sources` breakdown
+- Dashboard `dailyPnl` / `dailyCommissions` / `dailyNetPnl`
+- Mobile, ticker, journal HTML + journal_mobile all show commission breakdown
+
+**Test infrastructure (139 tests, 14 files, 29% coverage)**
+- conftest.py with shared fixtures
+- Phase 1 regression (BUG-001 through BUG-010)
+- Phase 2 core logic (parse, pre_filter, executor, risk)
+- Phase 3 integration (session, dashboard, backtester, commission)
+- Phase 4 advanced (market_data, api_resilience, eod, stress)
+- Makefile targets: test / smoke / regression / coverage
+- CLAUDE.md `## Development Discipline` policy
+
+**Library migration**
+- `ib_insync` → `ib_async` across executor, feed, main, requirements
+- DOM 20 → 40 levels
+- Real-time bars 5s → 1s (TWS may reject — see CHANGELOG)
+
+**Operational fixes**
+- Backtester seeds `_session_watchlist` (was reporting 0/N passes silently)
+- Backtester default flipped to `--no-live-claude` (no accidental API spend)
+- `EOD_SCHEDULE_TIME` default 15:30 → 15:55 (frees CLOSING window)
+- `run_premarket()` clears stale dashboard JSON once per trading day
+- `load_dotenv()` reads from config.py's directory, not cwd
+- `_extract_int` fix: `"65 (was 70)"` now parses as 65 (was 100 — silent gate bypass)
+- `parse_decision(None)` defensive guard
+- `pre_filter_signal` defensive `or {}` / `or ""` / `or 0` on None-fields
+
+## 🗓 This Week
+
+- IB mock harness for `executor.py` / `ibkr_feed.py` to lift coverage 26% → ~60%
+- Hard-block-news regression test once first real news session is recorded
+- Reconcile `learning_session.py` coverage (now imports via smoke test)
+
+## 📅 Next Week
+
+- 70% overall line coverage target (`TEST_PLAN.md` long-term)
+- First multi-day equity-curve performance review
+- Watchdog `make smoke` on cron / scheduled task before each boot
+
+## 🔮 Deferred / Not Yet Built
+
+Features discussed and explicitly deferred — these are NOT in the code:
+
+- **OCA bracket orders** replacing the current `placeOrder(stop) + placeOrder(target)` shape. Would obsolete the protection loop. Significant refactor (~200 lines, every close path). Deferred until protection-loop assumptions are deliberately retired.
+- **Benzinga news subscription** — requires paid IBKR market-data add-on. Current `reqMktData(QQQ, "292")` hack produces Error 10089; honest fix is either to subscribe Benzinga or rely on `news_calendar.py` + RSS path.
+- **Scale-in / pyramiding** to multiple contracts on momentum confirmation. Significant strategy change (per-trade max R goes from 1R to 4R); CLAUDE.md mandates explicit user confirmation.
+- **Adaptive order routing** — `algoStrategy="Adaptive"` on entry / close MarketOrders. Additive, low-risk; deferred only because it wasn't requested in scope.
+- **`reqPnL` streaming** — replace calculated `daily_pnl` with broker-reported realized PnL. Requires account ID resolution.
+- **Real-time margin gate** — `reqAccountSummary` `BuyingPower` field consulted in `can_enter`. Additive new gate, tightens rather than loosens.
+- **Options IV fetch + `iv_percentile` / `expected_daily_range` snapshot fields** — requires options market-data subscription, ATM strike resolution, expiry handling.
+- **QQQ / ES correlation scanner** — `reqScannerSubscription` for unusual volume and gap direction pre-market. Requires scanner subscription permissions.
+
+---
+
+## Completed (pre-v4.5.0)
 
 ### V1.0 — Foundation
 - IBKR TWS connection via ib_insync

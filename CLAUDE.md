@@ -156,11 +156,17 @@ EOD_SCHEDULE_TIME=15:55            # 15:55 ET — EOD job (5 min before RTH clos
 
 Entry-allowed states (from `can_enter()` in main.py):
 - **09:45 – 11:00 ET** — `OR_ESTABLISHED` + `PRIME_WINDOW`, freely
-- **11:00 – 13:30 ET** — `DEAD_ZONE`, only with confluence ≥ `DEAD_ZONE_CONFLUENCE_THRESHOLD` (8) or VWAP-magnet override
+- **11:00 – 13:30 ET** — `DEAD_ZONE`:
+  - With `FEATURE_DEAD_ZONE=true` (default): confluence ≥ `DEAD_ZONE_CONFLUENCE_THRESHOLD` (8) or VWAP-magnet override
+  - With `FEATURE_DEAD_ZONE=false` (current user config): passes through, entries allowed
 - **13:30 – 15:30 ET** — `AFTERNOON_PRIME`, freely
 - **15:30 – 15:55 ET** — `CLOSING`, exit-only (EOD fires at 15:55)
 - **15:55 – 16:00 ET** — bot idle, position closed by EOD
-First possible entry: **09:45 ET**. Last possible entry: **15:30 ET**.
+First possible entry: **09:45 ET**. Last possible entry: **15:30 ET** (when dead zone is gating) or **15:30 ET** end of AFTERNOON_PRIME.
+
+**Current operational config** (per `.env`):
+- `CLAUDE_ENTRY_MODEL=claude-sonnet-4-6`, `CLAUDE_POSITION_MODEL=claude-sonnet-4-6` (both Sonnet, cost-optimized)
+- `MAX_CONTRACTS=4`, `MIN_THESIS_PROBABILITY=55`, `FEATURE_DEAD_ZONE=false`
 
 ## Advanced Tuning
 
@@ -202,6 +208,62 @@ FEATURE_POST_NEWS_REFRESH=false      # Post-news watchlist refresh
 3. Race-condition fixes (cancel-vs-fill, broker reconciliation, P&L sanity bound, `stop_price=0` guard) are layered defensively — fix root causes, don't bypass
 4. For UI-only or prompt-text changes: replay with `backtester.py --date <today>` (defaults to no live Claude, no API spend)
 5. For pre-filter/scoring/snapshot schema changes: replay several days with Claude OFF first
+
+## Commission tracking (v4.5.0)
+
+End-to-end real broker commission capture, replacing the old
+`SIMULATE_COMMISSIONS` synthetic deduction:
+
+- **Capture** — `Executor.__init__` subscribes `commissionReportEvent` after
+  priming `_seen_exec_ids` from `ib.fills()` so IBKR's boot-time replay is
+  dropped at the dedupe.
+- **Attribution** — `_record_pnl` drains `_broker_commission_pending` into
+  the trade row (tagged `commission_source="broker"`), 0.3s `ib.sleep` before
+  each call site lets the exit-side commission arrive in time.
+- **Reconnect safety** — `mark_disconnect()` stamps a UTC cutoff;
+  `reprime_seen_exec_ids()` only primes fills older than the cutoff, so
+  outage-window fills' commissions land correctly. Timestamp comparison is
+  hardened via `_coerce_utc` (handles naive, ISO, epoch, garbage).
+- **Persistence** — `data_recorder.record_trade()` writes `type="trade"`
+  rows with `commission`, `commission_source`, `hold_seconds`, `ts_et`.
+  Called once at the bottom of `_record_pnl` — single call site covers all
+  5 close paths.
+- **Surface** — `dashboard_data.json.dailyCommissions` / `dailyNetPnl`,
+  per-trade `commission` + `commission_source` in `trades[]`; mobile +
+  ticker show the breakdown; journal HTML + mobile show a Commission
+  Sources card; `journal_data.commission_sources` aggregates per source.
+
+## Test suite (v4.5.0)
+
+**139 tests, 14 files, 29% line coverage.** Run via Makefile:
+
+```
+make test        # full suite (~3 min)
+make smoke       # 10 tests, ~2s — imports / config / dashboard
+make regression  # 14 tests — BUG-001 through BUG-010
+make coverage    # full + term + htmlcov/ HTML report
+```
+
+Test files (all under `tests/`): `conftest.py` (4 fixtures),
+`test_smoke.py`, `test_regression.py`, `test_parse_decision.py`,
+`test_pre_filter.py`, `test_executor.py`, `test_risk.py`, `test_session.py`,
+`test_dashboard.py`, `test_backtester.py`, `test_commission.py`,
+`test_market_data.py`, `test_api_resilience.py`, `test_eod.py`,
+`test_stress.py`.
+
+`pytest` + `pytest-cov` are required: `pip install pytest pytest-cov`.
+
+## ib_async migration (v4.5.0)
+
+**ib_insync** → **ib_async** across `executor.py`, `ibkr_feed.py`,
+`main.py`, `requirements.txt`. ib_async is the community-maintained fork
+with the same public API surface. Drop-in.
+
+Also bumped at the same time:
+- DOM `numRows=20 → 40` (`reqMktDepth`)
+- Real-time bars `barSize=5 → 1` (`reqRealTimeBars`). NOTE: IBKR API
+  officially supports only 5-second bars — if TWS rejects, revert to 5
+  or aggregate 1-sec OHLC from the existing `reqTickByTickData("AllLast")`.
 
 ## Development Discipline
 

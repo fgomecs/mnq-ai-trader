@@ -25,8 +25,12 @@
 - Makefile targets: test / smoke / regression / coverage
 - CLAUDE.md `## Development Discipline` policy
 
-**Library migration**
+**Library migration — ✅ fully complete**
 - `ib_insync` → `ib_async` across executor, feed, main, requirements
+- 0 `ib_insync` references remain in any `.py` file
+- `ib-insync 0.9.86` uninstalled from the env; `ib-async 2.1.0` is the
+  sole IBKR library now
+- 140-test suite green against `ib_async` only
 - DOM 20 → 40 levels
 - Real-time bars 5s → 1s (TWS may reject — see CHANGELOG)
 
@@ -70,7 +74,7 @@ Features discussed and explicitly deferred — these are NOT in the code:
 ## Completed (pre-v4.5.0)
 
 ### V1.0 — Foundation
-- IBKR TWS connection via ib_insync
+- IBKR TWS connection via ib_insync *(migrated to ib_async in v4.5.0)*
 - Live MNQ L1 data (bid/ask/last/volume)
 - Claude Opus decision loop (entry) + Sonnet (position management)
 - Bracket order execution (market entry + stop + limit target)

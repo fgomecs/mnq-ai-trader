@@ -535,7 +535,7 @@ __pycache__/, *.pyc
 ## Dependencies
 
 ```
-ib_insync          pip install ib_insync          # IBKR connection, orders
+ib_async           pip install ib_async            # IBKR connection, orders (v4.5.0+; replaces ib_insync)
 anthropic          pip install anthropic           # Claude API
 pandas             pip install pandas             # bar data
 pytz               pip install pytz               # timezone handling

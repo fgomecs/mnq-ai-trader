@@ -39,7 +39,8 @@ pip install -r requirements.txt
 
 Or manually:
 ```bash
-pip install ib_insync anthropic pandas pytz python-dotenv schedule exchange-calendars
+pip install ib_async anthropic pandas pytz python-dotenv schedule exchange-calendars
+pip install pytest pytest-cov     # for the test suite (see ## Test suite section)
 ```
 
 `exchange-calendars` enables CME holiday detection (Memorial Day, July 4th, etc.) and early-close days. The bot uses the `XNYS` calendar. Without the package the bot falls back to weekend-only gating and logs a warning.

@@ -1138,12 +1138,14 @@ def main() -> None:
     executor = Executor(feed.ib, feed.contract, paper=True)
     logger.info("PAPER TRADING MODE — no real money at risk")
 
-    # On every IBKR reconnect, re-prime the commission dedupe set so the
-    # post-reconnect execution replay doesn't double-count earlier fills'
-    # commissions into the next live trade. connectedEvent only fires on
-    # future re-connects (the initial connect already happened above).
+    # Track disconnects so reprime can distinguish "already-accounted historical
+    # fills" (drop their replayed commissionReports) from "fills that happened
+    # during the outage" (let their commissionReports through). Disconnect
+    # marker MUST be wired before the connectedEvent reprime so the timestamp
+    # exists when reprime runs.
     try:
-        feed.ib.connectedEvent += lambda: executor.reprime_seen_exec_ids()
+        feed.ib.disconnectedEvent += lambda: executor.mark_disconnect()
+        feed.ib.connectedEvent    += lambda: executor.reprime_seen_exec_ids()
     except Exception as e:
         logger.warning(f"Could not wire reconnect re-prime: {e}")
 

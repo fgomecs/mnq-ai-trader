@@ -104,6 +104,12 @@ class Executor:
         self._broker_commission_pending: float = 0.0
         self._broker_commission_session: float = 0.0
         self._seen_exec_ids:            set   = set()
+        # Timestamp (UTC) of the last detected IBKR disconnect. Used by
+        # reprime_seen_exec_ids() to distinguish replayed historical fills
+        # (prime, drop their commissionReports) from fills that happened
+        # while the connection was down (DO NOT prime — let their
+        # commissionReports flow through normally so we book the commission).
+        self._last_disconnect_ts: Optional[datetime.datetime] = None
         try:
             # 1) Let any pending execDetails/commissionReport replay from
             #    IBKR flush onto the event loop. No handler is attached yet
@@ -762,35 +768,58 @@ class Executor:
 
         return pnl
 
+    def mark_disconnect(self) -> None:
+        """
+        Record the UTC time of an IBKR disconnect. reprime_seen_exec_ids()
+        will then refuse to prime any execId whose execution.time is at or
+        after this timestamp — those fills happened during the outage and
+        their commissionReports must flow through the handler normally so
+        the commission gets booked.
+        """
+        self._last_disconnect_ts = datetime.datetime.now(datetime.timezone.utc)
+        logger.info(f"IBKR disconnect marked at {self._last_disconnect_ts.isoformat()}")
+
     def reprime_seen_exec_ids(self) -> None:
         """
-        Refresh _seen_exec_ids from ib.fills(). Call this on every IBKR
-        reconnect: when Gateway drops and ib_insync reopens the session,
-        IBKR replays today's execDetails + commissionReport events. Without
-        re-priming, fills that we've already accounted for would resurrect
-        into _broker_commission_pending and get attributed to the next live
-        trade.
+        Refresh _seen_exec_ids from ib.fills(). Call on every IBKR reconnect.
 
-        Safe to call repeatedly — adds to the existing set, never clears it.
-        The handler stays attached throughout; we just widen its dedupe net.
+        Behavior depends on whether mark_disconnect() was called:
+          - With a disconnect timestamp: only prime fills whose execution.time
+            is older than the disconnect. Fills that occurred during the outage
+            keep their fresh execIds out of the dedupe set so the replayed
+            commissionReports book into _broker_commission_pending.
+          - Without a disconnect timestamp (defensive / unexpected fire):
+            prime everything, identical to the boot path.
+        After the walk, the timestamp is cleared.
+
+        Safe to call repeatedly. Adds to the existing set; never clears it.
         """
         try:
-            # Let the post-reconnect execution replay flush onto the loop
-            # before we snapshot ib.fills().
             try:
                 self.ib.sleep(1.0)
             except Exception:
                 pass
 
-            added = 0
+            cutoff  = self._last_disconnect_ts
+            added   = 0
+            skipped = 0
             for fill in self.ib.fills():
                 exec_id = getattr(fill.execution, "execId", "")
-                if exec_id and exec_id not in self._seen_exec_ids:
-                    self._seen_exec_ids.add(exec_id)
-                    added += 1
+                if not exec_id or exec_id in self._seen_exec_ids:
+                    continue
+                fill_ts = getattr(fill.execution, "time", None)
+                if cutoff is not None and fill_ts is not None and fill_ts >= cutoff:
+                    skipped += 1   # outage-window fill — let its commission book
+                    continue
+                self._seen_exec_ids.add(exec_id)
+                added += 1
+
+            self._last_disconnect_ts = None  # consumed; next reprime starts fresh
+
+            tail = "" if cutoff is None else f", {skipped} outage-window fill(s) preserved"
             logger.info(
                 f"Re-primed _seen_exec_ids after IBKR reconnect "
-                f"(+{added} execIds, total={len(self._seen_exec_ids)})"
+                f"(+{added} execIds, total={len(self._seen_exec_ids)}{tail})"
             )
         except Exception as e:
             logger.warning(f"reprime_seen_exec_ids failed: {e}")

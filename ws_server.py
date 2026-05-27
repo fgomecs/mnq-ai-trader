@@ -71,6 +71,8 @@ def _build_history_message(feed) -> Optional[str]:
     if not bars_raw:
         return None
 
+    logger.info(f"[WS] Raw t fields sample: {[b['t'] if isinstance(b, dict) else str(getattr(b, 'date', '?'))[:16] for b in list(bars_raw)[-3:]]}")
+
     ET = ZoneInfo("America/New_York")
     bars = []
     for b in list(bars_raw)[-1000:]:
@@ -90,6 +92,7 @@ def _build_history_message(feed) -> Optional[str]:
 
     if not bars:
         return None
+    logger.info(f"[WS] History ts sample: {bars[-3:]}")
     return json.dumps({"type": "history", "bars": bars})
 
 

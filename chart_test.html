@@ -319,7 +319,15 @@ function wsConnect() {
   _ws.onmessage = (ev) => {
     let msg;
     try { msg = JSON.parse(ev.data); } catch(e) { return; }
-    if (msg.type === 'history') return; // pollDashboard handles bars
+    if (msg.type === 'history') {
+      const last3 = msg.bars.slice(-3);
+      last3.forEach(b => console.log(
+        'bar ts:', b.time,
+        'ET:', new Date(b.time*1000).toLocaleString('en-US',{timeZone:'America/New_York'}),
+        'o:', b.open, 'h:', b.high, 'l:', b.low, 'c:', b.close
+      ));
+      return; // pollDashboard handles bars
+    }
 
     const price = Number(msg.price);
     const bid   = Number(msg.bid  || 0);

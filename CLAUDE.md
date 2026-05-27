@@ -287,7 +287,11 @@ Also bumped at the same time:
 Mandatory rules for every code change. No exceptions.
 
 1. **Every code change must include pytest tests in `tests/`.** No PRs / commits "to add tests later."
-2. **After writing tests, always run `py -3.11 -m pytest tests/ -v`.** Capture the output.
+2. **After writing tests, only run tests directly related to files changed.**
+   - Changed `ws_server.py` → `py -3.11 -m pytest tests/test_ws_server.py -v`
+   - Changed `executor.py` → `py -3.11 -m pytest tests/test_executor.py -v`
+   - Never run the full test suite automatically.
+   - Full suite only when user explicitly says "run all tests".
 3. **If tests fail, fix the code until they pass — do not commit failing tests.**
 4. **Only commit when all tests are green.** Red tests never reach `main`.
 5. **Commit message must include how many tests were added/modified.** Example: `Added 4 tests, modified 1.`

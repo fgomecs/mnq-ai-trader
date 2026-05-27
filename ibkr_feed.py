@@ -1308,8 +1308,11 @@ class IBKRFeed:
                     rth_bars.append(bar)
             if not rth_bars:
                 return 0.0
-            cum_pv  = sum(((b.high + b.low + b.close) / 3) * b.volume for b in rth_bars)
-            cum_vol = sum(b.volume for b in rth_bars)
+            # In delayed-data mode IBKR returns volume=0; fall back to weight=1
+            # per bar so the result is a simple average of typical price rather
+            # than a near-zero denominator producing garbage.
+            cum_pv  = sum(((b.high + b.low + b.close) / 3) * (b.volume or 1) for b in rth_bars)
+            cum_vol = sum((b.volume or 1) for b in rth_bars)
             return cum_pv / cum_vol if cum_vol else 0.0
         except Exception:
             return 0.0

@@ -272,24 +272,65 @@ async function pollDashboard() {
   }
 }
 
-async function pollLive() {
-  try {
-    const r = await fetch('price_data.json?t=' + Date.now());
-    if (!r.ok) return;
-    const p = await r.json();
-    const price = Number(p.price);
-    if (!Number.isFinite(price) || price <= 0) return;
-    $('s-price').textContent = price.toFixed(2);
-    $('s-bid').textContent   = (Number(p.bid)  || 0).toFixed(2);
-    $('s-ask').textContent   = (Number(p.ask)  || 0).toFixed(2);
-    const t = currentEtMinuteAsUtcSec();
-    if (lastHistoricalTime && t < lastHistoricalTime) return;
-    const open = Number(p.currentBarOpen), high = Number(p.currentBarHigh), low = Number(p.currentBarLow);
-    const o = (Number.isFinite(open) && open > 0) ? open : price;
-    const h = (Number.isFinite(high) && high > 0) ? Math.max(high, price) : price;
-    const l = (Number.isFinite(low)  && low  > 0) ? Math.min(low,  price) : price;
-    try { candleSeries.update({ time: t, open: o, high: h, low: l, close: price }); } catch(e) {}
-  } catch (e) {}
+// Forming bar state — built tick-by-tick from WS
+let _formingBar = null;
+
+function onTick(price, ts) {
+  if (!price || price <= 0) return;
+  const t = currentEtMinuteAsUtcSec();
+  if (lastHistoricalTime && t < lastHistoricalTime) return;
+  if (!_formingBar || _formingBar.time !== t) {
+    _formingBar = { time: t, open: price, high: price, low: price, close: price };
+  } else {
+    if (price > _formingBar.high) _formingBar.high = price;
+    if (price < _formingBar.low)  _formingBar.low  = price;
+    _formingBar.close = price;
+  }
+  try { candleSeries.update(_formingBar); } catch(e) {}
+}
+
+// WebSocket — replaces pollLive
+const WS_URL = 'ws://localhost:8765';
+let _ws = null, _wsReconnect = null;
+
+function wsConnect() {
+  if (_wsReconnect) { clearTimeout(_wsReconnect); _wsReconnect = null; }
+  _ws = new WebSocket(WS_URL);
+
+  _ws.onopen = () => {
+    $('s-fetch').innerHTML = '<span class="ok">ws ok</span>';
+  };
+
+  _ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); } catch(e) { return; }
+    if (msg.type === 'history') return; // pollDashboard handles bars
+
+    const price = Number(msg.price);
+    const bid   = Number(msg.bid  || 0);
+    const ask   = Number(msg.ask  || 0);
+    const ts    = Number(msg.ts);
+    if (price > 0) {
+      $('s-price').textContent = price.toFixed(2);
+      $('s-bid').textContent   = bid.toFixed(2);
+      $('s-ask').textContent   = ask.toFixed(2);
+      onTick(price, ts);
+    }
+    // Live levels from WS tick
+    if (msg.or_high || msg.or_low || msg.stop || msg.target || msg.entry) {
+      updateLevels(
+        Number(msg.or_high) || 0, Number(msg.or_low) || 0,
+        Number(msg.stop)    || 0, Number(msg.target)  || 0,
+        Number(msg.entry)   || 0, msg.position
+      );
+    }
+  };
+
+  _ws.onclose = () => {
+    $('s-fetch').innerHTML = '<span class="err">ws disconnected</span>';
+    _wsReconnect = setTimeout(wsConnect, 3000);
+  };
+  _ws.onerror = () => {};
 }
 
 document.querySelectorAll('.tf').forEach(btn => {
@@ -305,9 +346,8 @@ document.querySelectorAll('.tf').forEach(btn => {
 $('btn-fit').addEventListener('click', () => chart.timeScale().fitContent());
 
 pollDashboard();
-pollLive();
+wsConnect();
 setInterval(pollDashboard, 2000);
-setInterval(pollLive, 200);
 </script>
 </body>
 </html>

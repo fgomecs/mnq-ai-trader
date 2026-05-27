@@ -397,7 +397,7 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                     logger.debug(f"Dashboard live patch error: {e}")
         except Exception as e:
             logger.debug(f"Ticker error: {e}")
-        time.sleep(0.2)
+        time.sleep(1)
 
 
 # ─── Helpers ───────────────────────────────────────────────

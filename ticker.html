@@ -488,6 +488,10 @@ canvas#chart {
 <div class="levels-sidebar" id="levels-sidebar">
   <div class="levels-title">LEVELS</div>
   <div class="levels-list" id="levels-list"></div>
+  <div style="margin-top:14px;font-size:10px;color:var(--dim);letter-spacing:1px;font-family:var(--mono)">NEWS &amp; CALENDAR</div>
+  <div id="news-strip" style="margin-top:6px;font-family:var(--mono);font-size:10px;color:var(--text);max-height:240px;overflow-y:auto">
+    <div style="color:var(--dim)">No events.</div>
+  </div>
 </div>
 </div>
 
@@ -736,6 +740,29 @@ async function pollDash() {
     const commissions = parseFloat(d.dailyCommissions) || 0;
     const commEl = document.getElementById('comm-display');
     if (commEl) commEl.textContent = 'comm $' + commissions.toFixed(2);
+
+    // News & Calendar — ForexFactory events with color-coded impact.
+    const newsStrip = document.getElementById('news-strip');
+    if (newsStrip) {
+      const events = Array.isArray(d.newsEvents) ? d.newsEvents : [];
+      if (!events.length) {
+        newsStrip.innerHTML = '<div style="color:var(--dim)">No events.</div>';
+      } else {
+        const pill = (imp) => imp === 'HIGH'   ? RED
+                            : imp === 'MEDIUM' ? AMBER
+                            : GREEN;
+        newsStrip.innerHTML = events.slice(0, 10).map(ev => {
+          const t   = (ev.time_et || '').slice(0, 5);
+          const ttl = (ev.title || '').slice(0, 28);
+          const imp = (ev.impact || 'LOW').toUpperCase();
+          return `<div style="display:flex;align-items:center;padding:3px 0;border-bottom:1px solid var(--border)">
+            <span style="flex:0 0 38px;color:var(--text)">${t}</span>
+            <span style="flex:1;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${ttl}</span>
+            <span style="display:inline-block;width:32px;text-align:center;font-size:8px;font-weight:700;color:#000;background:${pill(imp)};border-radius:2px;padding:1px 0">${imp}</span>
+          </div>`;
+        }).join('');
+      }
+    }
 
     // Claude decision panel
     const dec = (d.lastDecision || 'HOLD').toUpperCase();

@@ -47,13 +47,17 @@ except Exception:
     _logger = None
 
 try:
-    from config import DASHBOARD_FILE, PRICE_FILE, LIVE_DATA_ACTIVE, VERSION
+    from config import (
+        DASHBOARD_FILE, PRICE_FILE, LIVE_DATA_ACTIVE, VERSION,
+        MAX_DAILY_LOSS_USD,
+    )
 except ImportError:
     _base = os.getenv("BASE_DIR", r"C:\trading\mnq-ai-trader")
-    DASHBOARD_FILE   = os.path.join(_base, "dashboard_data.json")
-    PRICE_FILE       = os.path.join(_base, "price_data.json")
-    LIVE_DATA_ACTIVE = False
-    VERSION          = "?"
+    DASHBOARD_FILE     = os.path.join(_base, "dashboard_data.json")
+    PRICE_FILE         = os.path.join(_base, "price_data.json")
+    LIVE_DATA_ACTIVE   = False
+    VERSION            = "?"
+    MAX_DAILY_LOSS_USD = 10_000.0
 
 eastern = pytz.timezone("US/Eastern")
 
@@ -146,7 +150,7 @@ def update_dashboard(
     target_price: Optional[float] = None,
     current_price: Optional[float] = None,
     daily_pnl: float = 0.0,
-    max_loss: float = 500.0,
+    max_loss: float = MAX_DAILY_LOSS_USD,
     trades: Optional[list] = None,
     last_decision: Optional[str] = None,
     last_reasoning: Optional[str] = None,

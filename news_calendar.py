@@ -305,20 +305,65 @@ def _build_hardcoded_events(today: date) -> list:
 
 # ── ForexFactory scraper (free, no API key needed) ────────
 
-def _fetch_forexfactory_today() -> list:
+def _parse_ff_event(item: dict, raw_date: "date", eastern_tz) -> dict | None:
     """
-    Fetch today's USD economic events from ForexFactory JSON feed.
-    Free, no API key required, always current.
-    Falls back silently on any error.
+    Project one ForexFactory JSON row onto our internal event shape.
+    Includes HIGH / MEDIUM / LOW impact (caller can filter further).
+    Returns None for non-USD rows or unparseable impacts.
+    """
+    import re as _re
+    from datetime import datetime as _dt
+
+    if item.get("country") != "USD":
+        return None
+    impact_raw = (item.get("impact") or "").lower()
+    if impact_raw == "high":
+        impact = "HIGH"
+    elif impact_raw == "medium":
+        impact = "MEDIUM"
+    elif impact_raw == "low":
+        impact = "LOW"
+    else:
+        return None
+
+    title    = item.get("title", "Unknown event")
+    time_str = (item.get("time") or "").strip()
+
+    try:
+        if time_str and time_str.lower() not in ("all day", "tentative", ""):
+            t_clean = time_str.lower().replace(" ", "")
+            fmt     = "%I:%M%p" if ":" in t_clean else "%I%p"
+            t_naive = _dt.strptime(t_clean, fmt).replace(
+                year=raw_date.year, month=raw_date.month, day=raw_date.day
+            )
+            t_et = eastern_tz.localize(t_naive)
+        else:
+            t_et = eastern_tz.localize(_dt.combine(raw_date, _dt.min.time()))
+    except Exception:
+        t_et = eastern_tz.localize(_dt.combine(raw_date, _dt.min.time()))
+
+    return {
+        "title":    title,
+        "impact":   impact,
+        "time_et":  t_et.strftime("%H:%M"),
+        "time_obj": t_et,
+        "date":     raw_date.isoformat(),
+        "source":   "ForexFactory",
+    }
+
+
+def _fetch_forexfactory(target_dates: list) -> list:
+    """
+    Fetch USD economic events for every date in target_dates from the
+    ForexFactory free JSON feed. Includes HIGH / MEDIUM / LOW impact.
+    Returns [] on any network/parse failure.
     """
     try:
         import urllib.request as _urllib
-        from datetime import datetime as _dt, date as _date
         import pytz as _pytz, json as _json
 
         _eastern = _pytz.timezone("US/Eastern")
-        today    = _date.today()
-        today_str = today.strftime("%m-%d-%Y")   # FF format: MM-DD-YYYY
+        target_strs = {d.strftime("%m-%d-%Y"): d for d in target_dates}
 
         url     = "https://nfs.faireconomy.media/ff_calendar_thisweek.json"
         headers = {
@@ -332,49 +377,34 @@ def _fetch_forexfactory_today() -> list:
 
         events = []
         for item in raw:
-            if item.get("country") != "USD":
+            ff_date = item.get("date", "")
+            if ff_date not in target_strs:
                 continue
-            if item.get("date", "") != today_str:
-                continue
-
-            impact_raw = (item.get("impact") or "").lower()
-            if impact_raw == "high":
-                impact = "HIGH"
-            elif impact_raw == "medium":
-                impact = "MEDIUM"
-            else:
-                continue   # skip low-impact
-
-            title    = item.get("title", "Unknown event")
-            time_str = (item.get("time") or "").strip()
-
-            try:
-                if time_str and time_str.lower() not in ("all day", "tentative", ""):
-                    import re as _re
-                    t_clean = time_str.lower().replace(" ", "")
-                    fmt     = "%I:%M%p" if ":" in t_clean else "%I%p"
-                    t_naive = _dt.strptime(t_clean, fmt).replace(
-                        year=today.year, month=today.month, day=today.day
-                    )
-                    t_et = _eastern.localize(t_naive)
-                else:
-                    t_et = _eastern.localize(_dt.combine(today, _dt.min.time()))
-            except Exception:
-                t_et = _eastern.localize(_dt.combine(today, _dt.min.time()))
-
-            events.append({
-                "title":    title,
-                "impact":   impact,
-                "time_et":  t_et.strftime("%H:%M"),
-                "time_obj": t_et,
-                "source":   "ForexFactory",
-            })
+            parsed = _parse_ff_event(item, target_strs[ff_date], _eastern)
+            if parsed:
+                events.append(parsed)
 
         return sorted(events, key=lambda e: e["time_obj"])
 
     except Exception as ex:
         logger.debug(f"ForexFactory fetch failed: {ex}")
         return []
+
+
+def _fetch_forexfactory_today() -> list:
+    """Backwards-compatible: today only, HIGH/MEDIUM filtered for the gate."""
+    from datetime import date as _date
+    raw = _fetch_forexfactory([_date.today()])
+    return [e for e in raw if e["impact"] in ("HIGH", "MEDIUM")]
+
+
+def fetch_forexfactory_today_and_tomorrow() -> list:
+    """Public helper: returns ALL impacts (HIGH/MEDIUM/LOW) for today and
+    tomorrow, sorted chronologically. Empty list on any failure (caller
+    should fall back to the hardcoded recurring schedule)."""
+    from datetime import date as _date, timedelta as _td
+    today = _date.today()
+    return _fetch_forexfactory([today, today + _td(days=1)])
 
 
 

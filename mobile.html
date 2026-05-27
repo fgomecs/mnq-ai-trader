@@ -246,7 +246,7 @@
   <div class="card-body">
     <div class="risk-grid">
       <div class="risk-item"><div class="risk-num green" id="risk-pnl">+$0</div><div class="risk-lbl">Daily P&amp;L</div></div>
-      <div class="risk-item"><div class="risk-num" id="risk-loss">$500</div><div class="risk-lbl">Loss Remaining</div></div>
+      <div class="risk-item"><div class="risk-num" id="risk-loss">$—</div><div class="risk-lbl">Loss Remaining</div></div>
     </div>
   </div>
 </div>
@@ -273,8 +273,11 @@
 <div class="card" id="news-card">
   <div class="card-header">News &amp; Calendar</div>
   <div class="card-body">
-    <span class="news-dot green" id="news-dot"></span>
-    <span id="news-text">Loading…</span>
+    <div style="margin-bottom:8px">
+      <span class="news-dot green" id="news-dot"></span>
+      <span id="news-text">Loading…</span>
+    </div>
+    <div id="news-events"></div>
   </div>
 </div>
 
@@ -504,7 +507,9 @@ async function poll() {
       fb.innerHTML = html;
     }
 
-    const maxLoss = parseFloat(d.maxLoss) || 500;
+    // Default to 10000 (ACCOUNT_SIZE 50k × MAX_DAILY_LOSS_PCT 0.20) so the
+    // ticker shows the right floor if the dashboard JSON hasn't loaded yet.
+    const maxLoss = parseFloat(d.maxLoss) || 10000;
     el('risk-pnl').textContent  = fmtPnl(pnl);
     el('risk-pnl').style.color  = pnl >= 0 ? 'var(--green)' : 'var(--red)';
     el('risk-loss').textContent = '$' + Math.max(0, maxLoss + Math.min(0, pnl)).toFixed(0);
@@ -618,6 +623,30 @@ async function poll() {
       .filter(l => !l.includes('FRED') && l.trim()).join(' ').substring(0, 120);
     el('news-text').textContent  = rawNews || 'No major events — clean window';
     el('news-dot').className     = 'news-dot ' + (d.newsDangerZone ? 'red' : 'green');
+
+    // Color-coded events list (HIGH=red, MEDIUM=yellow, LOW=green).
+    // Reads newsEvents from dashboard_data.json — ForexFactory feed.
+    const eventsEl = el('news-events');
+    if (eventsEl) {
+      const events = Array.isArray(d.newsEvents) ? d.newsEvents : [];
+      if (!events.length) {
+        eventsEl.innerHTML = '';
+      } else {
+        const pillColor = (imp) => imp === 'HIGH'   ? 'var(--red)'
+                                  : imp === 'MEDIUM' ? 'var(--yellow)'
+                                  : 'var(--green)';
+        eventsEl.innerHTML = events.slice(0, 8).map(ev => {
+          const t   = (ev.time_et || '').slice(0, 5);
+          const ttl = (ev.title || '').slice(0, 40);
+          const imp = (ev.impact || 'LOW').toUpperCase();
+          return `<div style="display:flex;align-items:center;padding:3px 0;font-size:12px;border-bottom:1px solid rgba(255,255,255,0.04)">
+            <span style="flex:0 0 50px;font-family:var(--font-mono);color:var(--text2)">${t}</span>
+            <span style="flex:1;color:var(--text)">${ttl}</span>
+            <span style="display:inline-block;width:48px;text-align:center;font-size:9px;font-weight:700;letter-spacing:0.5px;color:#000;background:${pillColor(imp)};border-radius:3px;padding:2px 6px">${imp}</span>
+          </div>`;
+        }).join('');
+      }
+    }
 
   } catch(e) {}
 }

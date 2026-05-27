@@ -278,7 +278,7 @@ let _formingBar = null;
 function onTick(price, ts) {
   if (!price || price <= 0) return;
   const t = currentEtMinuteAsUtcSec();
-  if (lastHistoricalTime && t < lastHistoricalTime) return;
+  if (lastHistoricalTime && t <= lastHistoricalTime) return;
   if (!_formingBar || _formingBar.time !== t) {
     _formingBar = { time: t, open: price, high: price, low: price, close: price };
   } else {

@@ -164,6 +164,15 @@ DOM_BUY_PRESSURE_BULL_THRESHOLD  = _env_float("DOM_BUY_PRESSURE_BULL_THRESHOLD",
 DOM_SELL_PRESSURE_BEAR_THRESHOLD = _env_float("DOM_SELL_PRESSURE_BEAR_THRESHOLD", 0.35)
 DOM_CLUSTER_TOLERANCE_POINTS     = _env_float("DOM_CLUSTER_TOLERANCE_POINTS",    1.25)
 DOM_VACUUM_THRESHOLD_SIZE        = _env_int("DOM_VACUUM_THRESHOLD_SIZE",          5)
+
+# ── DOM rate limiting (v4.5.x Gateway EWriter overflow mitigation) ──
+# Minimum interval between DOM signal/text recomputations. Caches the
+# processed DOM features for this window so the per-snapshot work stays
+# bounded under high-frequency DOM updates. 0.0 disables the cache.
+DOM_THROTTLE_SECS                = _env_float("DOM_THROTTLE_SECS",               0.1)
+# If sustained DOM updateEvent rate exceeds this many Hz we log a one-shot
+# warning that the subscription firehose may be unsustainable.
+DOM_UPDATE_RATE_WARN_HZ          = _env_int("DOM_UPDATE_RATE_WARN_HZ",           200)
 DOM_ICEBERG_SHRINK_PCT           = _env_float("DOM_ICEBERG_SHRINK_PCT",           0.6)
 DOM_ICEBERG_RECOVERY_PCT         = _env_float("DOM_ICEBERG_RECOVERY_PCT",         0.7)
 DOM_SWEEP_LEVEL_THRESHOLD        = _env_int("DOM_SWEEP_LEVEL_THRESHOLD",          3)

@@ -44,6 +44,7 @@ from config import (
     DOM_SIGNIFICANT_SIZE, DOM_LARGE_SIZE, DOM_WHALE_SIZE,
     DOM_BUY_PRESSURE_BULL_THRESHOLD, DOM_SELL_PRESSURE_BEAR_THRESHOLD,
     DOM_CLUSTER_TOLERANCE_POINTS, DOM_VACUUM_THRESHOLD_SIZE,
+    DOM_THROTTLE_SECS, DOM_UPDATE_RATE_WARN_HZ,
     DOM_ICEBERG_SHRINK_PCT, DOM_ICEBERG_RECOVERY_PCT,
     DOM_SWEEP_LEVEL_THRESHOLD, LARGE_PRINT_THRESHOLD,
     VOLUME_PROFILE_TARGET_PCT, POC_PROXIMITY_POINTS,
@@ -137,6 +138,29 @@ class IBKRFeed:
         # Keyed by time.time() — last 10 snapshots (~50s at 5s cadence)
         self._dom_history: list[dict] = []   # [{ts, asks:{p:s}, bids:{p:s}}]
         self._dom_history_max = DOM_HISTORY_MAX_SNAPSHOTS
+
+        # ── DOM rate limiting (v4.5.x — Gateway EWriter overflow fix) ──
+        # The combination of reqMktDepth(40 levels) + reqTickByTickData on
+        # a busy MNQ session overwhelmed the Gateway-side EWriter buffer
+        # on 2026-05-27 09:14 (~5MB, socket killed). Client-side throttle
+        # caches the *processed* DOM features so the per-snapshot cost
+        # stays bounded even if updates arrive in bursts. NOTE: this does
+        # NOT reduce wire traffic — that requires lowering numRows or
+        # dropping tick-by-tick. See _check_dom_update_rate for the
+        # wire-volume monitor.
+        self._dom_signals_cache:     dict | None = None
+        self._dom_signals_cache_ts:  float       = 0.0
+        self._dom_text_cache:        str | None  = None
+        self._dom_text_cache_ts:     float       = 0.0
+        # Configurable; default 100ms = 10 Hz max DOM re-computation
+        from config import DOM_THROTTLE_SECS as _DOM_THROTTLE_SECS
+        self._dom_throttle_secs:     float       = _DOM_THROTTLE_SECS
+
+        # Wire-volume monitor: count DOM updateEvent fires; log warning
+        # when sustained rate exceeds DOM_UPDATE_RATE_WARN_HZ.
+        self._dom_update_count:      int   = 0
+        self._dom_update_rate_ts:    float = time.time()
+        self._dom_update_warned:     bool  = False
 
         # ── News cache (10-min TTL) ────────────────────────
         self._news_cache:      dict  = {}
@@ -655,7 +679,17 @@ class IBKRFeed:
             )
             self.ib.sleep(1)
             self.dom_subscription_active = True
-            logger.info("DOM stream started (40 levels)")
+
+            # Hook the update counter for the wire-rate monitor. Cheap
+            # callback (just increments a counter) — does NOT slow the
+            # event loop. Only fires the warning log once per session
+            # via DOM_UPDATE_RATE_WARN_HZ check.
+            try:
+                self.dom_ticker.updateEvent += self._on_dom_update
+            except Exception as _e:
+                logger.debug(f"Could not hook DOM update counter: {_e}")
+
+            logger.info("DOM stream started (40 levels) — rate monitor active")
         except Exception as e:
             logger.warning(f"DOM stream unavailable: {e}")
             self.dom_subscription_active = False
@@ -2086,7 +2120,51 @@ class IBKRFeed:
 
     # ─── DOM ───────────────────────────────────────────────
 
+    def _check_dom_update_rate(self) -> None:
+        """One-shot warning when sustained DOM updateEvent rate is high
+        enough that the IBKR Gateway EWriter buffer is likely to fill.
+        Called from _compute_dom_signals on cache-miss (so it fires at
+        most once per throttle window even under burst conditions)."""
+        now = time.time()
+        elapsed = now - self._dom_update_rate_ts
+        if elapsed >= 1.0 and not self._dom_update_warned:
+            rate = self._dom_update_count / elapsed
+            if rate >= DOM_UPDATE_RATE_WARN_HZ:
+                logger.warning(
+                    f"DOM update rate {rate:.0f} Hz exceeds "
+                    f"{DOM_UPDATE_RATE_WARN_HZ} Hz threshold — Gateway "
+                    f"EWriter buffer at risk. Consider lowering numRows "
+                    f"in reqMktDepth (currently 40) or disabling "
+                    f"reqTickByTickData."
+                )
+                self._dom_update_warned = True   # avoid log spam
+            # Reset window
+            self._dom_update_count   = 0
+            self._dom_update_rate_ts = now
+
+    def _on_dom_update(self, *_args, **_kwargs) -> None:
+        """Cheap counter for the DOM update wire-volume monitor.
+        Hooked into self.dom_ticker.updateEvent in _start_dom_stream."""
+        self._dom_update_count += 1
+
     def _compute_dom_signals(self) -> dict:
+        """Throttled wrapper around _compute_dom_signals_impl. See impl
+        docstring for behavior; this layer enforces the v4.5.x DOM_THROTTLE_SECS
+        cache and emits the wire-rate warning on cache-miss.
+        """
+        now = time.time()
+        if (self._dom_signals_cache is not None
+                and self._dom_throttle_secs > 0
+                and (now - self._dom_signals_cache_ts) < self._dom_throttle_secs):
+            return self._dom_signals_cache
+
+        self._check_dom_update_rate()
+        result = self._compute_dom_signals_impl()
+        self._dom_signals_cache    = result
+        self._dom_signals_cache_ts = now
+        return result
+
+    def _compute_dom_signals_impl(self) -> dict:
         """
         Extract actionable signals from DOM — computed in Python, not by Claude.
 
@@ -2304,6 +2382,18 @@ class IBKRFeed:
 
 
     def _get_live_dom(self) -> str:
+        """Throttled wrapper. See _get_live_dom_impl for behavior."""
+        now = time.time()
+        if (self._dom_text_cache is not None
+                and self._dom_throttle_secs > 0
+                and (now - self._dom_text_cache_ts) < self._dom_throttle_secs):
+            return self._dom_text_cache
+        result = self._get_live_dom_impl()
+        self._dom_text_cache    = result
+        self._dom_text_cache_ts = now
+        return result
+
+    def _get_live_dom_impl(self) -> str:
         """Compact DOM text for snapshot — uses full 20 levels."""
         try:
             if not self.dom_ticker or not self.dom_subscription_active:

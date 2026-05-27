@@ -659,6 +659,11 @@ class Executor:
                     stop=self.stop_price,
                     target=self.target_price or 0.0,
                 )
+            try:
+                from ws_server import broadcast_trade_event
+                broadcast_trade_event("entry", actual_fill, direction=direction)
+            except Exception:
+                pass
             return True
 
         except Exception as e:
@@ -773,6 +778,12 @@ class Executor:
                 )
             except Exception as e:
                 logger.warning(f"Trade JSONL record failed: {e}")
+
+        try:
+            from ws_server import broadcast_trade_event
+            broadcast_trade_event("exit", exit_price, pnl=round(pnl, 2))
+        except Exception:
+            pass
 
         if _notify_available:
             notify_trade_exited(

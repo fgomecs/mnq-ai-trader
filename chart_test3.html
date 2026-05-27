@@ -12,8 +12,8 @@
   #app { display: flex; flex-direction: column; height: 100vh; }
   #status {
     background: #0f1528; border-bottom: 1px solid #1a2744;
-    padding: 10px 14px; font-size: 13px;
-    display: flex; gap: 24px; flex-wrap: wrap; align-items: center;
+    padding: 8px 14px; font-size: 13px;
+    display: flex; gap: 20px; flex-wrap: wrap; align-items: center;
   }
   #status .item { display: flex; gap: 6px; }
   #status .k { color: #7890c0; }
@@ -21,6 +21,25 @@
   #status .ok  { color: #00e676; }
   #status .err { color: #ff3b6b; }
   #status .warn{ color: #ffb300; }
+  #status .long { color: #00e676; }
+  #status .short{ color: #ff3b6b; }
+  #status .flat { color: #7890c0; }
+  .dot { display:inline-block; width:10px; height:10px; border-radius:50%;
+         background:#7890c0; margin-right:4px; vertical-align:middle; }
+  .dot.ok  { background:#00e676; box-shadow:0 0 6px #00e676; }
+  .dot.err { background:#ff3b6b; box-shadow:0 0 6px #ff3b6b; }
+  #toolbar {
+    background: #0f1528; border-bottom: 1px solid #1a2744;
+    padding: 6px 14px; display: flex; gap: 8px; align-items: center;
+  }
+  #toolbar .label { color:#7890c0; font-size:12px; margin-right:6px; }
+  #toolbar button {
+    background: #1a2744; color: #dce6ff; border: 1px solid #2a3a64;
+    padding: 5px 14px; font-family: inherit; font-size: 12px;
+    cursor: pointer; border-radius: 3px;
+  }
+  #toolbar button:hover { background: #243358; }
+  #toolbar button.active { background: #2f4ea0; border-color: #4a6fd0; color: #fff; }
   #chart { flex: 1; min-height: 0; }
 </style>
 </head>
@@ -28,13 +47,22 @@
 <div id="app">
 
   <div id="status">
-    <div class="item"><span class="k">price:</span> <span class="v" id="s-price">—</span></div>
-    <div class="item"><span class="k">bid:</span>   <span class="v" id="s-bid">—</span></div>
-    <div class="item"><span class="k">ask:</span>   <span class="v" id="s-ask">—</span></div>
-    <div class="item"><span class="k">mid:</span>   <span class="v" id="s-mid">—</span></div>
-    <div class="item"><span class="k">ws:</span>    <span class="v warn" id="s-ws">connecting…</span></div>
-    <div class="item"><span class="k">bars:</span>  <span class="v" id="s-bars">0</span></div>
+    <div class="item"><span class="k">price:</span><span class="v" id="s-price">—</span></div>
+    <div class="item"><span class="k">bid:</span>  <span class="v" id="s-bid">—</span></div>
+    <div class="item"><span class="k">ask:</span>  <span class="v" id="s-ask">—</span></div>
+    <div class="item"><span class="k">mid:</span>  <span class="v" id="s-mid">—</span></div>
+    <div class="item"><span class="k">vwap:</span> <span class="v" id="s-vwap">—</span></div>
+    <div class="item"><span class="k">pos:</span>  <span class="v flat" id="s-pos">FLAT</span></div>
+    <div class="item"><span class="dot" id="s-dot"></span><span class="v warn" id="s-ws">connecting…</span></div>
+    <div class="item"><span class="k">bars:</span> <span class="v" id="s-bars">0</span></div>
     <div class="item"><span class="k">last tick:</span><span class="v" id="s-tick">—</span></div>
+  </div>
+
+  <div id="toolbar">
+    <span class="label">TF</span>
+    <button data-tf="1"  class="tf-btn active">1M</button>
+    <button data-tf="5"  class="tf-btn">5M</button>
+    <button data-tf="15" class="tf-btn">15M</button>
   </div>
 
   <div id="chart"></div>
@@ -65,7 +93,7 @@ const chart = LightweightCharts.createChart($('chart'), {
     secondsVisible: false,
     borderColor: '#1a2744',
   },
-  rightPriceScale: { borderColor: '#1a2744' },
+  rightPriceScale: { borderColor: '#1a2744', scaleMargins: { top: 0.05, bottom: 0.25 } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
 });
 
@@ -75,50 +103,232 @@ const candleSeries = chart.addCandlestickSeries({
   wickUpColor: '#00e676', wickDownColor: '#ff3b6b',
 });
 
+// VWAP overlay
+const vwapSeries = chart.addLineSeries({
+  color: '#3a8dff', lineWidth: 2, priceLineVisible: false,
+  lastValueVisible: false, crosshairMarkerVisible: false,
+});
+
+// Volume — overlay histogram on its own price scale (v4 supports
+// scaleMargins to push it to the bottom of the same pane).
+const volumeSeries = chart.addHistogramSeries({
+  color: 'rgba(120,144,192,0.5)',
+  priceFormat: { type: 'volume' },
+  priceScaleId: 'vol',
+});
+chart.priceScale('vol').applyOptions({
+  scaleMargins: { top: 0.82, bottom: 0 },
+});
+
 window.addEventListener('resize', () => {
   chart.applyOptions({ width: $('chart').clientWidth, height: $('chart').clientHeight });
 });
 
-// ─── 1-minute bar aggregation ─────────────────────────────
-// We build bars entirely client-side from incoming ticks.
-// Each bar's `time` is the floor of its minute in epoch seconds.
-
+// ─── State ────────────────────────────────────────────────
+// Master 1-min bar store, built from ticks. 5M/15M are derived on-the-fly.
+const bars1m = [];        // [{time, open, high, low, close, volume}]
 let currentBar = null;
-let barCount = 0;
+let activeTf = 1;         // 1 | 5 | 15
+let markers = [];         // chart markers (entries/exits)
+const vwapByMinute = {};  // ts(sec) -> vwap snapshot
 
-function floorMinute(tsSec) {
-  return Math.floor(tsSec / 60) * 60;
+// Price-line overlays (recreated on resize/state change)
+let orHighLine = null, orLowLine = null;
+let entryLine = null, stopLine = null, targetLine = null;
+let lastOrHigh = null, lastOrLow = null;
+let lastPosition = 0;
+let lastEntry = 0, lastStop = 0, lastTarget = 0;
+
+// ─── Bar aggregation helpers ──────────────────────────────
+function floorBucket(tsSec, tfMin) {
+  const sec = tfMin * 60;
+  return Math.floor(tsSec / sec) * sec;
 }
 
+function aggregate(barsSrc, tfMin) {
+  // Resample 1-min bars into tfMin buckets.
+  if (tfMin === 1) return barsSrc.slice();
+  const out = [];
+  let cur = null;
+  for (const b of barsSrc) {
+    const bucket = floorBucket(b.time, tfMin);
+    if (!cur || cur.time !== bucket) {
+      if (cur) out.push(cur);
+      cur = { time: bucket, open: b.open, high: b.high, low: b.low, close: b.close,
+              volume: b.volume || 0 };
+    } else {
+      if (b.high > cur.high) cur.high = b.high;
+      if (b.low  < cur.low)  cur.low  = b.low;
+      cur.close = b.close;
+      cur.volume += (b.volume || 0);
+    }
+  }
+  if (cur) out.push(cur);
+  return out;
+}
+
+function rebuildChart() {
+  // Called on TF switch — full reset of chart-side data.
+  const aggBars = aggregate(bars1m, activeTf);
+  candleSeries.setData(aggBars);
+
+  // Volume bars colored by candle direction
+  const volBars = aggBars.map(b => ({
+    time: b.time,
+    value: b.volume || 0,
+    color: b.close >= b.open ? 'rgba(0,230,118,0.4)' : 'rgba(255,59,107,0.4)',
+  }));
+  volumeSeries.setData(volBars);
+
+  // VWAP — bucket by active TF, take last vwap inside the bucket
+  const vwapData = [];
+  let curBucket = null, curVal = null;
+  for (const b of aggBars) {
+    // find the closest vwap snapshot at or before bucket end
+    const bucketEnd = b.time + activeTf * 60 - 1;
+    let best = null;
+    for (const k of Object.keys(vwapByMinute)) {
+      const ks = Number(k);
+      if (ks <= bucketEnd && ks >= b.time) {
+        if (best === null || ks > best) best = ks;
+      }
+    }
+    if (best !== null) vwapData.push({ time: b.time, value: vwapByMinute[best] });
+  }
+  vwapSeries.setData(vwapData);
+
+  candleSeries.setMarkers(markers);
+  chart.timeScale().scrollToRealTime();
+}
+
+function refreshOverlayLines() {
+  // OR lines
+  if (lastOrHigh && (!orHighLine || orHighLine._price !== lastOrHigh)) {
+    if (orHighLine) candleSeries.removePriceLine(orHighLine);
+    orHighLine = candleSeries.createPriceLine({
+      price: lastOrHigh, color: '#ffb300', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'OR-H',
+    });
+    orHighLine._price = lastOrHigh;
+  }
+  if (lastOrLow && (!orLowLine || orLowLine._price !== lastOrLow)) {
+    if (orLowLine) candleSeries.removePriceLine(orLowLine);
+    orLowLine = candleSeries.createPriceLine({
+      price: lastOrLow, color: '#ffb300', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'OR-L',
+    });
+    orLowLine._price = lastOrLow;
+  }
+
+  // Entry / Stop / Target — only when in position
+  const inPos = lastPosition !== 0;
+  if (!inPos) {
+    if (entryLine)  { candleSeries.removePriceLine(entryLine);  entryLine  = null; }
+    if (stopLine)   { candleSeries.removePriceLine(stopLine);   stopLine   = null; }
+    if (targetLine) { candleSeries.removePriceLine(targetLine); targetLine = null; }
+    return;
+  }
+  if (lastEntry > 0 && (!entryLine || entryLine._price !== lastEntry)) {
+    if (entryLine) candleSeries.removePriceLine(entryLine);
+    entryLine = candleSeries.createPriceLine({
+      price: lastEntry, color: '#ffffff', lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true, title: 'ENTRY',
+    });
+    entryLine._price = lastEntry;
+  }
+  if (lastStop > 0 && (!stopLine || stopLine._price !== lastStop)) {
+    if (stopLine) candleSeries.removePriceLine(stopLine);
+    stopLine = candleSeries.createPriceLine({
+      price: lastStop, color: '#ff3b6b', lineWidth: 2,
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true, title: 'STOP',
+    });
+    stopLine._price = lastStop;
+  }
+  if (lastTarget > 0 && (!targetLine || targetLine._price !== lastTarget)) {
+    if (targetLine) candleSeries.removePriceLine(targetLine);
+    targetLine = candleSeries.createPriceLine({
+      price: lastTarget, color: '#00e676', lineWidth: 2,
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true, title: 'TGT',
+    });
+    targetLine._price = lastTarget;
+  }
+}
+
+// ─── Tick → bar ───────────────────────────────────────────
 function onTick(price, ts) {
   if (!price || price <= 0) return;
-  const minute = floorMinute(ts);
+  const minute = floorBucket(ts, 1);
 
   if (currentBar === null || currentBar.time !== minute) {
-    // Close the prior bar (already pushed via update()) and start a new one.
-    currentBar = {
-      time:  minute,
-      open:  price,
-      high:  price,
-      low:   price,
-      close: price,
-    };
-    barCount += 1;
-    $('s-bars').textContent = barCount;
+    if (currentBar) {
+      // Finalize prior bar in the master 1m store
+      const last = bars1m[bars1m.length - 1];
+      if (!last || last.time !== currentBar.time) bars1m.push({...currentBar});
+      else bars1m[bars1m.length - 1] = {...currentBar};
+    }
+    currentBar = { time: minute, open: price, high: price, low: price,
+                   close: price, volume: 1 };
+    bars1m.push({...currentBar});
+    $('s-bars').textContent = bars1m.length;
   } else {
     if (price > currentBar.high) currentBar.high = price;
     if (price < currentBar.low)  currentBar.low  = price;
     currentBar.close = price;
+    currentBar.volume = (currentBar.volume || 0) + 1;
+    bars1m[bars1m.length - 1] = {...currentBar};
   }
 
-  try {
-    candleSeries.update(currentBar);
-  } catch (e) {
-    // Lightweight Charts rejects out-of-order timestamps. If the server
-    // clock skipped backward (rare), just drop this tick.
-    console.warn('candleSeries.update rejected:', e.message);
+  // Push to chart depending on TF
+  if (activeTf === 1) {
+    try {
+      candleSeries.update(currentBar);
+      volumeSeries.update({
+        time: currentBar.time, value: currentBar.volume,
+        color: currentBar.close >= currentBar.open
+               ? 'rgba(0,230,118,0.4)' : 'rgba(255,59,107,0.4)',
+      });
+    } catch (e) { /* out-of-order ts */ }
+  } else {
+    // Aggregated current bucket
+    const bucket = floorBucket(ts, activeTf);
+    const slice = bars1m.filter(b => b.time >= bucket && b.time < bucket + activeTf*60);
+    if (slice.length) {
+      const agg = {
+        time: bucket,
+        open: slice[0].open,
+        high: Math.max(...slice.map(b=>b.high)),
+        low:  Math.min(...slice.map(b=>b.low)),
+        close: slice[slice.length-1].close,
+        volume: slice.reduce((s,b)=>s+(b.volume||0), 0),
+      };
+      try {
+        candleSeries.update(agg);
+        volumeSeries.update({
+          time: agg.time, value: agg.volume,
+          color: agg.close >= agg.open
+                 ? 'rgba(0,230,118,0.4)' : 'rgba(255,59,107,0.4)',
+        });
+      } catch (e) {}
+    }
   }
+
+  chart.timeScale().scrollToRealTime();
 }
+
+// ─── TF buttons ───────────────────────────────────────────
+document.querySelectorAll('.tf-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTf = Number(btn.dataset.tf);
+    rebuildChart();
+  });
+});
 
 // ─── WebSocket connection w/ auto-reconnect ───────────────
 const WS_URL = 'ws://localhost:8765';
@@ -126,9 +336,16 @@ let ws = null;
 let reconnectTimer = null;
 
 function setWsStatus(text, cls) {
-  const el = $('s-ws');
-  el.textContent = text;
-  el.className = 'v ' + cls;
+  $('s-ws').textContent = text;
+  $('s-ws').className = 'v ' + cls;
+  $('s-dot').className = 'dot ' + (cls === 'ok' ? 'ok' : cls === 'err' ? 'err' : '');
+}
+
+function setPos(pos) {
+  const el = $('s-pos');
+  if (pos > 0)      { el.textContent = 'LONG';  el.className = 'v long'; }
+  else if (pos < 0) { el.textContent = 'SHORT'; el.className = 'v short'; }
+  else              { el.textContent = 'FLAT';  el.className = 'v flat'; }
 }
 
 function connect() {
@@ -141,9 +358,7 @@ function connect() {
     return;
   }
 
-  ws.onopen = () => {
-    setWsStatus('connected', 'ok');
-  };
+  ws.onopen = () => setWsStatus('connected', 'ok');
 
   ws.onmessage = (ev) => {
     let msg;
@@ -162,6 +377,54 @@ function connect() {
     $('s-mid').textContent   = mid.toFixed(2);
     $('s-tick').textContent  = new Date(ts * 1000).toLocaleTimeString();
 
+    if (msg.vwap !== undefined && msg.vwap > 0) {
+      $('s-vwap').textContent = Number(msg.vwap).toFixed(2);
+      const bucket = floorBucket(ts, activeTf);
+      vwapByMinute[ts] = Number(msg.vwap);
+      try { vwapSeries.update({ time: bucket, value: Number(msg.vwap) }); }
+      catch (e) {}
+    }
+
+    // OR levels (price-line overlays)
+    if (msg.or_high && msg.or_high > 0) lastOrHigh = Number(msg.or_high);
+    if (msg.or_low  && msg.or_low  > 0) lastOrLow  = Number(msg.or_low);
+
+    // Position state
+    const newPos = Number(msg.position) || 0;
+    lastPosition = newPos;
+    lastEntry  = Number(msg.entry)  || 0;
+    lastStop   = Number(msg.stop)   || 0;
+    lastTarget = Number(msg.target) || 0;
+    setPos(newPos);
+
+    refreshOverlayLines();
+
+    // Trade event markers
+    if (msg.trade_event) {
+      const ev = msg.trade_event;
+      const bucket = floorBucket(ts, activeTf);
+      if (ev.type === 'entry') {
+        const isBuy = (ev.direction || '').toUpperCase() === 'BUY';
+        markers.push({
+          time: bucket,
+          position: isBuy ? 'belowBar' : 'aboveBar',
+          color:    isBuy ? '#00e676'  : '#ff3b6b',
+          shape:    isBuy ? 'arrowUp'  : 'arrowDown',
+          text:     isBuy ? 'BUY'      : 'SELL',
+        });
+      } else if (ev.type === 'exit') {
+        const pnl = Number(ev.pnl) || 0;
+        markers.push({
+          time: bucket,
+          position: 'inBar',
+          color: '#ffffff',
+          shape: 'circle',
+          text:  'EXIT ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0),
+        });
+      }
+      candleSeries.setMarkers(markers);
+    }
+
     onTick(price, ts);
   };
 
@@ -169,10 +432,7 @@ function connect() {
     setWsStatus('disconnected — retrying in 3s', 'err');
     scheduleReconnect();
   };
-
-  ws.onerror = () => {
-    // onclose will follow; reconnect is handled there.
-  };
+  ws.onerror = () => { /* onclose follows */ };
 }
 
 function scheduleReconnect() {

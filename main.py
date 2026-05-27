@@ -334,8 +334,27 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
 
             if price > 0:
                 executor.update_price(price)
-                # Broadcast tick to chart_test3.html and any other WS clients
-                broadcast_tick(price, bid, ask)
+                # Broadcast tick to chart_test3.html and any other WS clients.
+                # Include feed levels + position context so the chart can
+                # render overlays without polling JSON files.
+                pos = executor.current_position
+                pos_sign = 1 if pos > 0 else (-1 if pos < 0 else 0)
+                try:
+                    vwap_val = feed._calculate_vwap(
+                        list(feed._bars_1min), datetime.now(eastern)
+                    ) if feed._bars_1min else None
+                except Exception:
+                    vwap_val = None
+                broadcast_tick(
+                    price, bid, ask,
+                    vwap=vwap_val,
+                    or_high=feed.or_high,
+                    or_low=feed.or_low,
+                    entry=executor.entry_price if pos != 0 else 0.0,
+                    stop=executor.stop_price   if pos != 0 else 0.0,
+                    target=executor.target_price if pos != 0 else 0.0,
+                    position=pos_sign,
+                )
 
             if int(time.time()) % DASHBOARD_ACCOUNT_REFRESH_SECS == 0:
                 account_data = feed.get_account_data()

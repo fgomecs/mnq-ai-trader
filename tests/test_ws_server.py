@@ -118,6 +118,90 @@ def test_client_disconnect_is_cleaned_up(server):
     assert ws_server.client_count() == 0
 
 
+def test_broadcast_includes_position_and_levels(server):
+    port = server
+
+    async def client():
+        async with websockets.connect(f"ws://localhost:{port}") as ws:
+            await asyncio.sleep(0.1)
+            ws_server.broadcast_tick(
+                30000.0, 29999.5, 30000.5, ts=100,
+                vwap=29995.25, or_high=30050.0, or_low=29950.0,
+                entry=29980.0, stop=29960.0, target=30020.0, position=1,
+            )
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            return json.loads(raw)
+
+    msg = asyncio.run(client())
+    assert msg["vwap"] == 29995.25
+    assert msg["or_high"] == 30050.0
+    assert msg["or_low"] == 29950.0
+    assert msg["entry"] == 29980.0
+    assert msg["stop"] == 29960.0
+    assert msg["target"] == 30020.0
+    assert msg["position"] == 1
+    assert msg["trade_event"] is None
+
+
+def test_optional_fields_omitted_when_none(server):
+    port = server
+
+    async def client():
+        async with websockets.connect(f"ws://localhost:{port}") as ws:
+            await asyncio.sleep(0.1)
+            ws_server.broadcast_tick(100.0, 99.0, 101.0, ts=1)
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            return json.loads(raw)
+
+    msg = asyncio.run(client())
+    assert "vwap" not in msg
+    assert "or_high" not in msg
+    assert "or_low" not in msg
+    assert msg["entry"] == 0.0
+    assert msg["stop"] == 0.0
+    assert msg["target"] == 0.0
+    assert msg["position"] == 0
+    assert msg["trade_event"] is None
+
+
+def test_trade_event_entry_drains_into_next_tick(server):
+    port = server
+
+    async def client():
+        async with websockets.connect(f"ws://localhost:{port}") as ws:
+            await asyncio.sleep(0.1)
+            ws_server.broadcast_trade_event("entry", 30010.5, direction="BUY")
+            ws_server.broadcast_tick(30011.0, 30010.5, 30011.5, ts=200, position=1)
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            first = json.loads(raw)
+            # Next tick should NOT re-deliver the same event
+            ws_server.broadcast_tick(30012.0, 30011.5, 30012.5, ts=201, position=1)
+            raw2 = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            second = json.loads(raw2)
+            return first, second
+
+    first, second = asyncio.run(client())
+    assert first["trade_event"] == {"type": "entry", "price": 30010.5, "direction": "BUY"}
+    assert second["trade_event"] is None
+
+
+def test_trade_event_exit_carries_pnl(server):
+    port = server
+
+    async def client():
+        async with websockets.connect(f"ws://localhost:{port}") as ws:
+            await asyncio.sleep(0.1)
+            ws_server.broadcast_trade_event("exit", 30020.0, pnl=42.5)
+            ws_server.broadcast_tick(30020.0, 30019.5, 30020.5, ts=300)
+            raw = await asyncio.wait_for(ws.recv(), timeout=2.0)
+            return json.loads(raw)
+
+    msg = asyncio.run(client())
+    assert msg["trade_event"]["type"] == "exit"
+    assert msg["trade_event"]["price"] == 30020.0
+    assert msg["trade_event"]["pnl"] == 42.5
+
+
 def test_broadcast_before_server_starts_is_safe():
     # Ensure no server is running
     ws_server.stop_ws_server()

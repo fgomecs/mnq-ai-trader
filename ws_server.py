@@ -69,24 +69,78 @@ async def _broadcast_coro(payload: str) -> None:
         _clients.discard(ws)
 
 
+_pending_trade_event = None
+_pending_lock = threading.Lock()
+
+
 def broadcast_tick(price: float, bid: float = 0.0, ask: float = 0.0,
-                   ts: Optional[int] = None) -> None:
+                   ts: Optional[int] = None,
+                   vwap: Optional[float] = None,
+                   or_high: Optional[float] = None,
+                   or_low: Optional[float] = None,
+                   entry: float = 0.0,
+                   stop: float = 0.0,
+                   target: float = 0.0,
+                   position: int = 0,
+                   trade_event: Optional[dict] = None) -> None:
     """Thread-safe broadcast to all connected clients. No-op if server
-    not running or no clients."""
+    not running or no clients.
+
+    `trade_event` may also be set out-of-band via `broadcast_trade_event()`
+    — a pending event is drained into the next tick message.
+    """
+    global _pending_trade_event
     if _loop is None or not _loop.is_running():
         return
     if ts is None:
         ts = int(time.time())
-    msg = json.dumps({
-        "price": float(price) if price else 0.0,
-        "bid":   float(bid)   if bid   else 0.0,
-        "ask":   float(ask)   if ask   else 0.0,
-        "ts":    int(ts),
-    })
+
+    if trade_event is None:
+        with _pending_lock:
+            if _pending_trade_event is not None:
+                trade_event = _pending_trade_event
+                _pending_trade_event = None
+
+    payload = {
+        "price":    float(price) if price else 0.0,
+        "bid":      float(bid)   if bid   else 0.0,
+        "ask":      float(ask)   if ask   else 0.0,
+        "ts":       int(ts),
+        "entry":    float(entry)    if entry    else 0.0,
+        "stop":     float(stop)     if stop     else 0.0,
+        "target":   float(target)   if target   else 0.0,
+        "position": int(position),
+        "trade_event": trade_event,
+    }
+    if vwap is not None and vwap > 0:
+        payload["vwap"] = float(vwap)
+    if or_high is not None and or_high > 0:
+        payload["or_high"] = float(or_high)
+    if or_low is not None and or_low > 0:
+        payload["or_low"] = float(or_low)
+
+    msg = json.dumps(payload)
     try:
         asyncio.run_coroutine_threadsafe(_broadcast_coro(msg), _loop)
     except Exception as e:
         logger.debug(f"[WS] broadcast schedule failed: {e}")
+
+
+def broadcast_trade_event(event_type: str, price: float,
+                          direction: Optional[str] = None,
+                          pnl: Optional[float] = None) -> None:
+    """Queue a trade event to be attached to the next tick broadcast.
+
+    event_type: "entry" or "exit"
+    """
+    global _pending_trade_event
+    ev = {"type": event_type, "price": float(price)}
+    if direction is not None:
+        ev["direction"] = direction
+    if pnl is not None:
+        ev["pnl"] = float(pnl)
+    with _pending_lock:
+        _pending_trade_event = ev
 
 
 def _run(host: str, port: int) -> None:

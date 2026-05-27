@@ -234,12 +234,24 @@ async function pollDashboard() {
       $('s-bars').textContent = mapped.length;
       if (!initialized) { chart.timeScale().fitContent(); initialized = true; }
     }
+    // Compute OR from the 9:30–9:44 bars directly (bot-reported orHigh/orLow
+    // can be stale or from the wrong bar). Timestamps use the ET-as-UTC trick
+    // so getUTCHours/Minutes gives ET wall clock.
+    let orH = 0, orL = 0;
+    for (const b of mapped) {
+      const ud = new Date(b.time * 1000);
+      const hh = ud.getUTCHours(), mm = ud.getUTCMinutes();
+      if (hh === 9 && mm >= 30 && mm <= 44) {
+        if (orH === 0 || b.high > orH) orH = b.high;
+        if (orL === 0 || b.low  < orL) orL = b.low;
+      }
+    }
+
     updateLevels(
-      Number(d.orHigh) || 0, Number(d.orLow) || 0,
+      orH, orL,
       Number(d.stopPrice) || 0, Number(d.targetPrice) || 0,
       Number(d.entryPrice) || 0, d.position
     );
-    const orH = Number(d.orHigh) || 0, orL = Number(d.orLow) || 0;
     if (orH > 0 && orL > 0) $('s-or').textContent = orH.toFixed(2) + ' / ' + orL.toFixed(2);
     $('s-pos').textContent = String(d.position || 'FLAT').toUpperCase();
     $('s-fetch').innerHTML = '<span class="ok">ok</span>';

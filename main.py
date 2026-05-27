@@ -321,6 +321,16 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
             if ask <= 0 and price > 0:
                 ask = price
 
+            # 5-second tick heartbeat: live price + bid/ask + mid so the
+            # operator can sanity-check the feed without opening the
+            # dashboard. Uses the same modulo cadence pattern as the
+            # account-refresh throttle below.
+            if price > 0 and int(time.time()) % 5 == 0:
+                mid = (bid + ask) / 2 if bid > 0 and ask > 0 else price
+                logger.info(
+                    f"[TICK] price:{price:.2f}  bid:{bid:.2f}  ask:{ask:.2f}  mid:{mid:.2f}"
+                )
+
             if price > 0:
                 executor.update_price(price)
 

@@ -26,4 +26,4 @@ __pycache__/
 
 # OS
 .DS_Store
-Thumbs.db
+Thumbs.db.coverage

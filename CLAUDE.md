@@ -203,6 +203,30 @@ FEATURE_POST_NEWS_REFRESH=false      # Post-news watchlist refresh
 4. For UI-only or prompt-text changes: replay with `backtester.py --date <today>` (defaults to no live Claude, no API spend)
 5. For pre-filter/scoring/snapshot schema changes: replay several days with Claude OFF first
 
+## Development Discipline
+
+Mandatory rules for every code change. No exceptions.
+
+1. **Every code change must include pytest tests in `tests/`.** No PRs / commits "to add tests later."
+2. **After writing tests, always run `py -3.11 -m pytest tests/ -v`.** Capture the output.
+3. **If tests fail, fix the code until they pass — do not commit failing tests.**
+4. **Only commit when all tests are green.** Red tests never reach `main`.
+5. **Commit message must include how many tests were added/modified.** Example: `Added 4 tests, modified 1.`
+6. **Never ask the user to run tests manually — always run them yourself** via the Bash tool.
+7. **If a bug is found, write the regression test BEFORE fixing the code.** The failing test is what proves the bug exists; the green test after the fix is what proves the fix works.
+
+## Pre-Commit Checklist
+
+Run these in order. Each must succeed before the next.
+
+```
+py -3.11 -m pytest tests/ -v        # must be green
+py -3.11 -m py_compile *.py         # must compile clean
+git push origin main                # only after the above pass
+```
+
+If any step fails, fix it before moving on. Do not skip steps with `--no-verify` or by force-pushing past a red build.
+
 ## Probability Framework
 
 `KNOWLEDGE_BASE.md` has academic research on strategy win rates and probability calibration.

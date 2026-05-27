@@ -124,9 +124,16 @@ def save_daily_summary(trades: list, daily_pnl: float, analysis_log: list) -> st
 
     trade_detail_lines = []
     for i, t in enumerate(trades, 1):
+        # `pnl` can be None on sanity-rejected trades; coerce to 0.0 so the
+        # format-string never sees None (which raises TypeError on :.2f).
+        # Same defensive read for `entry`/`exit` since those can also be None
+        # when the rejection path skipped fill resolution.
+        pnl_val   = t.get("pnl")  or 0.0
+        entry_val = t.get("entry") if t.get("entry") is not None else "?"
+        exit_val  = t.get("exit")  if t.get("exit")  is not None else "?"
         trade_detail_lines.append(
-            f"Trade {i}: {t.get('action','?')} @ {t.get('entry','?')} → "
-            f"{t.get('exit','?')} | P&L: ${t.get('pnl',0):.2f}\n"
+            f"Trade {i}: {t.get('action','?')} @ {entry_val} → "
+            f"{exit_val} | P&L: ${pnl_val:.2f}\n"
             f"  Entry: {t.get('reasoning','')[:300]}\n"
             f"  Exit:  {t.get('exit_reason','')[:200]}\n"
             f"  Mode: {t.get('mode','?')} | Duration: {t.get('duration','?')}"

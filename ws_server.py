@@ -8,7 +8,12 @@ receive JSON frames of the form:
 
     {"price": 30044.75, "bid": 30044.50, "ask": 30045.00, "ts": 1716825600}
 
-Used by chart_test3.html to build live 1-minute bars in the browser
+On connect, if a feed reference is registered via `set_feed()`, the server
+sends a history message first:
+
+    {"type": "history", "bars": [{"time": 1716825600, "open": ..., ...}, ...]}
+
+Used by chart_test5.html to build live 1-minute bars in the browser
 without polling any JSON files.
 """
 
@@ -18,6 +23,7 @@ import asyncio
 import json
 import threading
 import time
+from datetime import datetime
 from typing import Optional, Set
 
 try:
@@ -39,14 +45,65 @@ _server = None
 _thread: Optional[threading.Thread] = None
 _started = threading.Event()
 _stop_requested = False
+_feed_ref = None  # optional ibkr_feed reference set via set_feed()
+
+
+def set_feed(feed) -> None:
+    """Register the ibkr_feed instance so history can be sent on connect."""
+    global _feed_ref
+    _feed_ref = feed
+
+
+def _build_history_message(feed) -> Optional[str]:
+    """Build the history JSON message from feed._bars_1min (up to 1000 bars)."""
+    try:
+        from zoneinfo import ZoneInfo
+    except ImportError:
+        try:
+            from backports.zoneinfo import ZoneInfo  # type: ignore
+        except ImportError:
+            return None
+
+    bars_raw = getattr(feed, "_bars_1min", None)
+    if not bars_raw:
+        return None
+
+    ET = ZoneInfo("America/New_York")
+    bars = []
+    for bar in bars_raw[-1000:]:
+        try:
+            t_str = bar.get("t") if isinstance(bar, dict) else getattr(bar, "t", None)
+            if not t_str:
+                continue
+            dt = datetime.strptime(str(t_str), "%Y-%m-%d %H:%M")
+            dt = dt.replace(tzinfo=ET)
+            ts = int(dt.timestamp())
+            o = float(bar.get("open", bar.get("o", 0)) if isinstance(bar, dict) else getattr(bar, "open", getattr(bar, "o", 0)))
+            h = float(bar.get("high", bar.get("h", 0)) if isinstance(bar, dict) else getattr(bar, "high", getattr(bar, "h", 0)))
+            lo = float(bar.get("low", bar.get("l", 0)) if isinstance(bar, dict) else getattr(bar, "low", getattr(bar, "l", 0)))
+            c = float(bar.get("close", bar.get("c", 0)) if isinstance(bar, dict) else getattr(bar, "close", getattr(bar, "c", 0)))
+            bars.append({"time": ts, "open": o, "high": h, "low": lo, "close": c})
+        except Exception:
+            continue
+
+    if not bars:
+        return None
+    return json.dumps({"type": "history", "bars": bars})
 
 
 async def _handler(websocket, *_args):
-    """Register a client for the lifetime of its connection."""
+    """Register a client; send history on connect, then stream ticks."""
     _clients.add(websocket)
     peer = getattr(websocket, "remote_address", "?")
     logger.info(f"[WS] client connected: {peer} (total={len(_clients)})")
     try:
+        if _feed_ref is not None:
+            history_msg = _build_history_message(_feed_ref)
+            if history_msg:
+                try:
+                    await websocket.send(history_msg)
+                except Exception:
+                    pass
         async for _ in websocket:
             pass  # we don't expect inbound messages; drain anyway
     except Exception:

@@ -107,6 +107,93 @@ def test_fetch_falls_back_to_empty_list_on_network_error():
     assert events == []
 
 
+def test_get_calendar_events_two_day_uses_today_and_tomorrow_fetcher():
+    """get_calendar_events_two_day must call fetch_forexfactory_today_and_tomorrow
+    and cache the result by trading-day."""
+    import news_calendar
+    # Clear cache so we know fresh fetch happens
+    news_calendar._calendar_cache["date"]   = None
+    news_calendar._calendar_cache["events"] = []
+
+    fake = [{"title": "CPI", "impact": "HIGH", "time_et": "08:30",
+             "date": "2026-05-27", "time_obj": None, "source": "ForexFactory"}]
+    with patch("news_calendar.fetch_forexfactory_today_and_tomorrow",
+               return_value=fake):
+        first  = news_calendar.get_calendar_events_two_day()
+        second = news_calendar.get_calendar_events_two_day()  # cache hit
+
+    assert first == fake
+    assert second == fake
+
+
+def test_get_news_snapshot_includes_events_calendar():
+    """get_news_snapshot must surface a separate `events_calendar` field
+    sourced from get_calendar_events_two_day (with time_obj stripped)."""
+    import news_calendar
+
+    # Patch the cached calendar so the test is deterministic and doesn't
+    # hit the network.
+    fake_cal = [{"title": "Jobless Claims", "impact": "HIGH",
+                 "time_et": "08:30", "date": "2026-05-28",
+                 "time_obj": None, "source": "ForexFactory"}]
+    with patch("news_calendar.get_calendar_events_two_day",
+               return_value=fake_cal):
+        snap = news_calendar.get_news_snapshot(ib=None)
+
+    assert "events_calendar" in snap
+    assert any(e["title"] == "Jobless Claims" for e in snap["events_calendar"])
+    # time_obj must be stripped (not JSON-serializable in real fetch)
+    for e in snap["events_calendar"]:
+        assert "time_obj" not in e
+
+
+def test_dashboard_writer_prefers_events_calendar_over_events_today(tmp_path, monkeypatch):
+    """update_dashboard's newsEvents output must source from events_calendar
+    when present, falling back to events_today otherwise."""
+    import dashboard_writer as dw
+    import json as _json
+    target = tmp_path / "dashboard_data.json"
+    monkeypatch.setattr(dw, "DASHBOARD_FILE", str(target))
+
+    snap = {
+        "last_price": 30000.0,
+        "events_today":    [{"title": "today HIGH",    "impact": "HIGH",   "time_et": "08:30"}],
+        "events_calendar": [{"title": "tomorrow HIGH", "impact": "HIGH",   "time_et": "08:30"},
+                            {"title": "today LOW",    "impact": "LOW",    "time_et": "14:00"}],
+    }
+    dw.update_dashboard(
+        position=0, current_price=30000.0, daily_pnl=0.0,
+        trades=[], last_decision="HOLD", last_reasoning="x", snapshot=snap,
+    )
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    titles = [e["title"] for e in data["newsEvents"]]
+    assert "tomorrow HIGH" in titles
+    assert "today LOW"    in titles
+    # Should NOT have used the legacy gate list when calendar is present
+    assert "today HIGH" not in titles
+
+
+def test_dashboard_writer_falls_back_to_events_today_when_no_calendar(tmp_path, monkeypatch):
+    """If events_calendar is missing or empty (e.g. ForexFactory unreachable),
+    newsEvents must fall back to events_today."""
+    import dashboard_writer as dw
+    import json as _json
+    target = tmp_path / "dashboard_data.json"
+    monkeypatch.setattr(dw, "DASHBOARD_FILE", str(target))
+
+    snap = {
+        "last_price": 30000.0,
+        "events_today":    [{"title": "today HIGH", "impact": "HIGH", "time_et": "08:30"}],
+        # events_calendar missing
+    }
+    dw.update_dashboard(
+        position=0, current_price=30000.0, daily_pnl=0.0,
+        trades=[], last_decision="HOLD", last_reasoning="x", snapshot=snap,
+    )
+    data = _json.loads(target.read_text(encoding="utf-8"))
+    assert any(e["title"] == "today HIGH" for e in data["newsEvents"])
+
+
 def test_fetch_today_only_filters_to_high_medium():
     """The legacy _fetch_forexfactory_today helper must still strip LOW
     impact so the news_danger_zone gate remains tight."""

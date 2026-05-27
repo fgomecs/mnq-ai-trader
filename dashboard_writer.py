@@ -303,7 +303,11 @@ def update_dashboard(
             "newsDangerZone": s.get("news_danger_zone", False),
             "nextHighImpact": s.get("next_high_impact"),
             "nextEventFull":  s.get("next_event_full"),
-            "newsEvents":     s.get("events_today", []),
+            # Dashboard event list — prefer the two-day color-coded calendar
+            # (today + tomorrow, all impacts) populated by
+            # news_calendar.get_calendar_events_two_day(); fall back to the
+            # gate-driver list (today, HIGH/MEDIUM only).
+            "newsEvents":     s.get("events_calendar") or s.get("events_today", []),
             "ibkrHeadlines":  s.get("ibkr_headlines", []),
             "bars1min":       s.get("bars_1min", []),
             "bars5min":       s.get("bars_5min", []),

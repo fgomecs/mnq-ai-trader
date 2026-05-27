@@ -563,6 +563,30 @@ def get_ibkr_bulletins(ib) -> list:
 
 # ── Main snapshot ──────────────────────────────────────────
 
+_calendar_cache: dict = {"date": None, "events": []}
+
+
+def get_calendar_events_two_day() -> list:
+    """
+    Return today + tomorrow USD events from ForexFactory (HIGH/MEDIUM/LOW).
+    Cached for the trading day so we don't re-hit the network on every
+    snapshot. Empty list if the fetch fails — the dashboard renderer
+    treats that as 'no events to show', falling back gracefully.
+
+    This is intentionally SEPARATE from get_todays_events(): that one
+    feeds the news_danger_zone gate (today, HIGH/MEDIUM only); this one
+    is for the dashboard's color-coded calendar widget.
+    """
+    today_et = datetime.now(eastern).date()
+    if _calendar_cache["date"] == today_et and _calendar_cache["events"]:
+        return _calendar_cache["events"]
+
+    raw = fetch_forexfactory_today_and_tomorrow()
+    _calendar_cache["events"] = raw
+    _calendar_cache["date"]   = today_et
+    return raw
+
+
 def get_news_snapshot(ib=None) -> dict:
     """Return complete news context dict. Safe to call every 10 min —
     calendar is fetched only once per session at startup."""
@@ -630,9 +654,25 @@ def get_news_snapshot(ib=None) -> dict:
         for e in events
     ]
 
+    # Two-day calendar for the dashboard widget (today + tomorrow, all
+    # impacts). Falls back to today's events if the multi-day fetch failed.
+    try:
+        cal_two_day = get_calendar_events_two_day()
+    except Exception as _e:
+        logger.debug(f"Two-day calendar fetch failed: {_e}")
+        cal_two_day = []
+    if cal_two_day:
+        events_calendar = [
+            {k: v for k, v in e.items() if k != "time_obj"}
+            for e in cal_two_day
+        ]
+    else:
+        events_calendar = events_serializable
+
     return {
         "news_text":          text,
         "events_today":       events_serializable,
+        "events_calendar":    events_calendar,
         "news_danger_zone":   danger_zone,
         "next_high_impact":   next_high_impact,
         "next_event_full":    next_event_full,

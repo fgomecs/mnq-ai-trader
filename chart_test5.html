@@ -2,125 +2,194 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Chart v5</title>
+<title>DoBot · Chart Test 5 (WebSocket)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 <script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   html, body { height: 100%; background: #0a0e1a; color: #dce6ff;
-               font-family: Consolas, monospace; font-size: 13px; }
+               font-family: 'JetBrains Mono', Consolas, monospace; }
   #app { display: flex; flex-direction: column; height: 100vh; }
   #status {
     background: #0f1528; border-bottom: 1px solid #1a2744;
-    padding: 6px 12px; white-space: nowrap;
+    padding: 10px 14px; font-size: 12px; line-height: 1.6;
+    display: grid; grid-template-columns: 200px 1fr; gap: 4px 16px;
   }
+  #status .k { color: #7890c0; }
+  #status .v { color: #dce6ff; word-break: break-all; }
+  #status .ok  { color: #00e676; }
+  #status .err { color: #ff3b6b; }
   #chart { flex: 1; min-height: 0; }
 </style>
 </head>
 <body>
 <div id="app">
-  <div id="status">price: —  |  ws: connecting…</div>
+
+  <div id="status">
+    <span class="k">lib version:</span>          <span class="v" id="s-lib">checking…</span>
+    <span class="k">ws:</span>                    <span class="v" id="s-ws">connecting…</span>
+    <span class="k">price:</span>                 <span class="v" id="s-price">—</span>
+    <span class="k">bid:</span>                   <span class="v" id="s-bid">—</span>
+    <span class="k">ask:</span>                   <span class="v" id="s-ask">—</span>
+    <span class="k">mid:</span>                   <span class="v" id="s-mid">—</span>
+    <span class="k">last tick time:</span>        <span class="v" id="s-tick">—</span>
+    <span class="k">setData status:</span>        <span class="v" id="s-set">—</span>
+    <span class="k">forming bar (live tick):</span><span class="v" id="s-forming">—</span>
+    <span class="k">errors:</span>                <span class="v err" id="s-err"></span>
+  </div>
+
   <div id="chart"></div>
+
 </div>
 
 <script>
-const statusEl = document.getElementById('status');
+const $ = id => document.getElementById(id);
 
-const chart = LightweightCharts.createChart(document.getElementById('chart'), {
-  layout: { background: { type: 'solid', color: '#0a0e1a' }, textColor: '#dce6ff' },
-  grid: { vertLines: { color: '#1a2744' }, horzLines: { color: '#1a2744' } },
-  timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2744' },
+// ─── Chart bootstrap ──────────────────────────────────────
+if (typeof LightweightCharts === 'undefined') {
+  $('s-err').textContent = 'LightweightCharts global is undefined — CDN failed to load.';
+  throw new Error('LightweightCharts not loaded');
+}
+$('s-lib').textContent = (LightweightCharts.version && LightweightCharts.version()) || '(version() unavailable)';
+
+const chart = LightweightCharts.createChart($('chart'), {
+  layout: {
+    background: { type: 'solid', color: '#0a0e1a' },
+    textColor:  '#dce6ff',
+  },
+  grid: {
+    vertLines: { color: '#1a2744' },
+    horzLines: { color: '#1a2744' },
+  },
+  timeScale: {
+    timeVisible: true,
+    secondsVisible: false,
+    borderColor: '#1a2744',
+  },
   rightPriceScale: { borderColor: '#1a2744' },
-  crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  handleScroll: true,
-  handleScale: true,
+  autoSize: true,
 });
 
 const candleSeries = chart.addCandlestickSeries({
-  upColor: '#00e676', downColor: '#ff3b6b',
-  borderUpColor: '#00e676', borderDownColor: '#ff3b6b',
-  wickUpColor: '#00e676', wickDownColor: '#ff3b6b',
+  upColor:         '#00e676',
+  downColor:       '#ff3b6b',
+  borderUpColor:   '#00e676',
+  borderDownColor: '#ff3b6b',
+  wickUpColor:     '#00e676',
+  wickDownColor:   '#ff3b6b',
 });
 
-window.addEventListener('resize', () => {
-  chart.applyOptions({
-    width: document.getElementById('chart').clientWidth,
-    height: document.getElementById('chart').clientHeight,
-  });
-});
-
-let currentBar = null;
-
-function floorMinute(ts) {
-  return Math.floor(ts / 60) * 60;
+// ─── Time conversion ──────────────────────────────────────
+function parseEtAsUtcSec(s) {
+  if (!s || typeof s !== 'string') return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (!m) return null;
+  const [, Y, Mo, D, h, mi] = m.map(Number);
+  return Date.UTC(Y, Mo - 1, D, h, mi, 0) / 1000;
 }
 
-function onTick(price, ts) {
-  if (!price || price <= 0) return;
-  const minute = floorMinute(ts);
-  if (!currentBar || currentBar.time !== minute) {
-    currentBar = { time: minute, open: price, high: price, low: price, close: price };
-  } else {
-    if (price > currentBar.high) currentBar.high = price;
-    if (price < currentBar.low) currentBar.low = price;
-    currentBar.close = price;
+// ─── Mapping ──────────────────────────────────────────────
+function mapBars(bars) {
+  if (!Array.isArray(bars)) return [];
+  const out = [];
+  const seenTimes = new Set();
+  for (const b of bars) {
+    const t = parseEtAsUtcSec(b.t);
+    if (t === null) continue;
+    if (seenTimes.has(t)) continue;
+
+    const open  = Number(b.o);
+    const high  = Number(b.h);
+    const low   = Number(b.l);
+    const close = Number(b.c);
+    if (!Number.isFinite(open) || !Number.isFinite(close)) continue;
+
+    out.push({
+      time:  t,
+      open:  open,
+      high:  Number.isFinite(high) ? high : Math.max(open, close),
+      low:   Number.isFinite(low)  ? low  : Math.min(open, close),
+      close: close,
+    });
+    seenTimes.add(t);
   }
-  try { candleSeries.update(currentBar); } catch (e) {}
+  out.sort((a, b) => a.time - b.time);
+  return out;
 }
 
-function setStatus(price, wsState) {
-  const p = price != null ? price.toFixed(2) : '—';
-  statusEl.textContent = `price: ${p}  |  ws: ${wsState}`;
+// ─── Current ET minute (for forming bar alignment) ────────
+function currentEtMinuteAsUtcSec() {
+  const etStr = new Date().toLocaleString('sv', { timeZone: 'America/New_York' });
+  const m = etStr.match(/^(\d{4}-\d{2}-\d{2}) (\d{2}:\d{2})/);
+  if (!m) return Math.floor(Date.now() / 1000);
+  return parseEtAsUtcSec(m[1] + ' ' + m[2]);
 }
 
+// ─── State ────────────────────────────────────────────────
+let lastHistoricalTime = 0;
+let lastHistoricalHigh = 0;
+let lastHistoricalLow  = 0;
+
+// ─── WebSocket ────────────────────────────────────────────
 const WS_URL = 'ws://localhost:8765';
 let ws = null;
-let reconnectTimer = null;
-let lastPrice = null;
 
 function connect() {
-  setStatus(lastPrice, 'connecting…');
-  try { ws = new WebSocket(WS_URL); } catch (e) {
-    setStatus(lastPrice, 'error');
-    scheduleReconnect(); return;
-  }
+  ws = new WebSocket(WS_URL);
 
-  ws.onopen = () => setStatus(lastPrice, 'connected');
+  ws.onopen = () => {
+    $('s-ws').innerHTML = '<span class="ok">connected</span>';
+  };
 
-  ws.onmessage = (evt) => {
-    let msg;
-    try { msg = JSON.parse(evt.data); } catch (e) { return; }
+  ws.onmessage = (ev) => {
+    const msg = JSON.parse(ev.data);
 
     if (msg.type === 'history') {
-      candleSeries.setData(msg.bars);
-      chart.timeScale().fitContent();
-      if (msg.bars.length > 0) {
-        const last = msg.bars[msg.bars.length - 1];
-        lastPrice = last.close;
-        currentBar = { ...last };
-        setStatus(lastPrice, 'connected');
+      const bars = msg.bars.filter(b =>
+        Number.isFinite(b.open) && Number.isFinite(b.close)
+      );
+      bars.sort((a, b) => a.time - b.time);
+      candleSeries.setData(bars);
+      if (bars.length) {
+        lastHistoricalTime = bars[bars.length-1].time;
+        lastHistoricalHigh = bars[bars.length-1].high;
+        lastHistoricalLow  = bars[bars.length-1].low;
       }
+      $('s-set').innerHTML =
+        '<span class="ok">setData OK (' + bars.length + ' bars)</span>';
       return;
     }
 
-    const price = Number(msg.price) || 0;
-    const ts = Number(msg.ts) || Math.floor(Date.now() / 1000);
-    if (price > 0) {
-      lastPrice = price;
-      setStatus(price, 'connected');
-    }
-    onTick(price, ts);
+    // Live tick message: {price, bid, ask, ts}
+    const price = Number(msg.price);
+    const bid   = Number(msg.bid || 0);
+    const ask   = Number(msg.ask || 0);
+    const ts    = Number(msg.ts);
+    if (!price || price <= 0) return;
+
+    $('s-price').textContent = price.toFixed(2);
+    $('s-bid').textContent   = bid.toFixed(2);
+    $('s-ask').textContent   = ask.toFixed(2);
+    $('s-mid').textContent   = ((bid+ask)/2).toFixed(2);
+    $('s-tick').textContent  = new Date(ts*1000).toLocaleTimeString();
+
+    const t = currentEtMinuteAsUtcSec();
+    if (lastHistoricalTime && t < lastHistoricalTime) return;
+
+    const forming = { time: t, open: price, high: price,
+                      low: price, close: price };
+    try { candleSeries.update(forming); } catch(e) {}
+    $('s-forming').textContent = JSON.stringify(forming);
   };
 
-  ws.onclose = () => { setStatus(lastPrice, 'disconnected'); scheduleReconnect(); };
+  ws.onclose = () => {
+    $('s-ws').innerHTML = '<span class="err">disconnected — retrying 3s</span>';
+    setTimeout(connect, 3000);
+  };
   ws.onerror = () => {};
 }
 
-function scheduleReconnect() {
-  if (reconnectTimer) return;
-  reconnectTimer = setTimeout(() => { reconnectTimer = null; connect(); }, 3000);
-}
-
-connect();
+window.addEventListener('load', connect);
 </script>
 </body>
 </html>

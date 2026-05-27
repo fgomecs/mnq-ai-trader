@@ -55,7 +55,10 @@ def set_feed(feed) -> None:
 
 
 def _build_history_message(feed) -> Optional[str]:
-    """Build the history JSON message from feed._bars_1min (up to 1000 bars)."""
+    """Build the history JSON message from feed._bars_1min (up to 1000 bars).
+
+    feed._bars_1min entries use keys: t (ET string), o, h, l, c (floats).
+    """
     try:
         from zoneinfo import ZoneInfo
     except ImportError:
@@ -64,25 +67,24 @@ def _build_history_message(feed) -> Optional[str]:
         except ImportError:
             return None
 
-    bars_raw = getattr(feed, "_bars_1min", None)
+    bars_raw = getattr(feed, "_bars_1min", None) if feed is not None else None
     if not bars_raw:
         return None
 
     ET = ZoneInfo("America/New_York")
     bars = []
-    for bar in bars_raw[-1000:]:
+    for b in list(bars_raw)[-1000:]:
         try:
-            t_str = bar.get("t") if isinstance(bar, dict) else getattr(bar, "t", None)
-            if not t_str:
-                continue
+            t_str = b["t"] if isinstance(b, dict) else getattr(b, "t")
             dt = datetime.strptime(str(t_str), "%Y-%m-%d %H:%M")
             dt = dt.replace(tzinfo=ET)
-            ts = int(dt.timestamp())
-            o = float(bar.get("open", bar.get("o", 0)) if isinstance(bar, dict) else getattr(bar, "open", getattr(bar, "o", 0)))
-            h = float(bar.get("high", bar.get("h", 0)) if isinstance(bar, dict) else getattr(bar, "high", getattr(bar, "h", 0)))
-            lo = float(bar.get("low", bar.get("l", 0)) if isinstance(bar, dict) else getattr(bar, "low", getattr(bar, "l", 0)))
-            c = float(bar.get("close", bar.get("c", 0)) if isinstance(bar, dict) else getattr(bar, "close", getattr(bar, "c", 0)))
-            bars.append({"time": ts, "open": o, "high": h, "low": lo, "close": c})
+            bars.append({
+                "time":  int(dt.timestamp()),
+                "open":  float(b["o"] if isinstance(b, dict) else getattr(b, "o")),
+                "high":  float(b["h"] if isinstance(b, dict) else getattr(b, "h")),
+                "low":   float(b["l"] if isinstance(b, dict) else getattr(b, "l")),
+                "close": float(b["c"] if isinstance(b, dict) else getattr(b, "c")),
+            })
         except Exception:
             continue
 

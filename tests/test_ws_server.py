@@ -220,7 +220,7 @@ class _FakeFeed:
 
 
 def _make_bar(t, o=30100.0, h=30150.0, lo=30090.0, c=30120.0):
-    return {"t": t, "open": o, "high": h, "low": lo, "close": c}
+    return {"t": t, "o": o, "h": h, "l": lo, "c": c}
 
 
 def test_build_history_message_basic():

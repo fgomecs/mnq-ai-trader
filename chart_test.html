@@ -206,6 +206,7 @@ function updateLevels(orHigh, orLow, stop, target, entry, pos) {
 }
 
 let lastHistoricalTime = 0;
+let lastBarCount = 0;
 let initialized = false;
 
 async function pollDashboard() {
@@ -227,9 +228,10 @@ async function pollDashboard() {
       if (b.vwap) vwapMap.set(t, Number(b.vwap));
     }
     mapped.sort((a, b) => a.time - b.time);
-    if (mapped.length > 0) {
+    if (mapped.length > 0 && (mapped.length !== lastBarCount || !initialized)) {
       bars1m = mapped;
       lastHistoricalTime = mapped[mapped.length - 1].time;
+      lastBarCount = mapped.length;
       rebuildSeries();
       $('s-bars').textContent = mapped.length;
       if (!initialized) { chart.timeScale().fitContent(); initialized = true; }

@@ -52,7 +52,7 @@
     background: var(--panel); border-top: 1px solid var(--border);
     padding: 4px 14px; font-size: 11px; color: var(--dim);
     font-family: 'JetBrains Mono', monospace;
-    display: flex; gap: 18px;
+    display: flex; gap: 18px; flex-wrap: wrap;
   }
   #status .label { color: var(--dim); }
   #status .val   { color: var(--text); }
@@ -78,27 +78,74 @@
   <div id="chart"></div>
 
   <div id="status">
-    <span><span class="label">VWAP:</span> <span class="val" id="s-vwap">—</span></span>
-    <span><span class="label">OR-H:</span> <span class="val" id="s-orh">—</span></span>
-    <span><span class="label">OR-L:</span> <span class="val" id="s-orl">—</span></span>
-    <span><span class="label">Pos:</span>  <span class="val" id="s-pos">FLAT</span></span>
-    <span><span class="label">Entry:</span><span class="val" id="s-entry">—</span></span>
-    <span><span class="label">Stop:</span> <span class="val" id="s-stop">—</span></span>
-    <span><span class="label">Tgt:</span>  <span class="val" id="s-tgt">—</span></span>
+    <span><span class="label">Bars:</span>  <span class="val" id="s-bars">0</span></span>
+    <span><span class="label">VWAP:</span>  <span class="val" id="s-vwap">—</span></span>
+    <span><span class="label">OR-H:</span>  <span class="val" id="s-orh">—</span></span>
+    <span><span class="label">OR-L:</span>  <span class="val" id="s-orl">—</span></span>
+    <span><span class="label">Pos:</span>   <span class="val" id="s-pos">FLAT</span></span>
+    <span><span class="label">Entry:</span> <span class="val" id="s-entry">—</span></span>
+    <span><span class="label">Stop:</span>  <span class="val" id="s-stop">—</span></span>
+    <span><span class="label">Tgt:</span>   <span class="val" id="s-tgt">—</span></span>
   </div>
 
 </div>
 
 <script>
-// ─── State ────────────────────────────────────────────────
-const TF_MINUTES   = { '1M': 1, '5M': 5, '15M': 15 };
-let   currentTF    = '1M';
-const candleStore  = { '1M': new Map(), '5M': new Map(), '15M': new Map() };
-const volumeStore  = { '1M': new Map(), '5M': new Map(), '15M': new Map() };
-let   lastTickTime = 0;
+// ─── Constants ────────────────────────────────────────────
+// Bars are sourced from dashboard_data.json.bars1min /
+// dashboard_data.json.bars5min. price_data.json carries only the
+// most recent tick — we use it to update the live (last) bar.
+// 15M is aggregated from 5M on the client (3 × 5 = 15).
+const TF_MINUTES = { '1M': 1, '5M': 5, '15M': 15 };
+let   currentTF  = '1M';
 
-let chart, candleSeries, volumeSeries, vwapSeries, orHighLine, orLowLine,
-    stopLine, targetLine, entryMarker;
+// Per-TF candle store keyed by bucket-start epoch seconds (UTC).
+const candleStore = { '1M': new Map(), '5M': new Map(), '15M': new Map() };
+const volumeStore = { '1M': new Map(), '5M': new Map(), '15M': new Map() };
+const vwapStore   = { '1M': new Map(), '5M': new Map() };
+
+let chart, candleSeries, volumeSeries, vwapSeries;
+let orHighLine, orLowLine, stopLine, targetLine;
+
+// ─── Time helpers ─────────────────────────────────────────
+// dashboard_writer emits bar timestamps as "YYYY-MM-DD HH:MM"
+// in US/Eastern. The user views the chart in their local browser
+// time. To get a consistent UTC epoch for the chart, treat the
+// timestamp as ET and apply the ET offset (-4 in DST, -5 in std).
+// For US trading days that matters, but inside one continuous
+// session the bars are sequential anyway. We anchor on UTC seconds.
+function isUsDst(year, month0, day) {
+  // DST = 2nd Sunday March through 1st Sunday November.
+  // month0: 0=Jan, ..., 10=Nov.
+  if (month0 < 2 || month0 > 10) return false;
+  if (month0 > 2 && month0 < 10) return true;
+  // March or November — find the relevant Sunday.
+  const firstDow = new Date(Date.UTC(year, month0, 1)).getUTCDay();
+  if (month0 === 2) {
+    // Second Sunday: day 8 + (Sunday - firstDow) % 7
+    const secondSunday = 1 + ((7 - firstDow) % 7) + 7;
+    return day >= secondSunday;
+  } else {
+    const firstSunday = 1 + ((7 - firstDow) % 7);
+    return day < firstSunday;
+  }
+}
+
+function etStringToUtcSec(s) {
+  // s = "2026-05-27 09:30"  →  epoch seconds (UTC)
+  if (!s) return null;
+  const m = s.match(/^(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/);
+  if (!m) return null;
+  const Y = +m[1], M = +m[2] - 1, D = +m[3], h = +m[4], min = +m[5];
+  const offsetHours = isUsDst(Y, M, D) ? 4 : 5;   // ET behind UTC
+  // ET 09:30 in May = UTC 13:30
+  return Date.UTC(Y, M, D, h + offsetHours, min, 0) / 1000;
+}
+
+function bucketTime(epochSec, tf) {
+  const m = TF_MINUTES[tf];
+  return Math.floor(epochSec / (m * 60)) * (m * 60);
+}
 
 // ─── Chart bootstrap ──────────────────────────────────────
 function buildChart() {
@@ -118,89 +165,109 @@ function buildChart() {
       vertLine: { color: '#7890c0', width: 1, style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#0f1528' },
       horzLine: { color: '#7890c0', width: 1, style: LightweightCharts.LineStyle.Dashed, labelBackgroundColor: '#0f1528' },
     },
-    rightPriceScale: {
-      borderColor: '#1a2744',
-      scaleMargins: { top: 0.1, bottom: 0.25 },
-      mode: LightweightCharts.PriceScaleMode.Normal,
-    },
-    timeScale: {
-      borderColor: '#1a2744',
-      timeVisible: true,
-      secondsVisible: false,
-      rightOffset: 5,
-    },
+    rightPriceScale: { borderColor: '#1a2744', scaleMargins: { top: 0.1, bottom: 0.25 } },
+    timeScale:       { borderColor: '#1a2744', timeVisible: true, secondsVisible: false, rightOffset: 5 },
     handleScroll: { mouseWheel: true, pressedMouseMove: true, horzTouchDrag: true, vertTouchDrag: true },
     handleScale:  { mouseWheel: true, pinch: true, axisPressedMouseMove: true },
     autoSize: true,
   });
 
   candleSeries = chart.addCandlestickSeries({
-    upColor:   '#00e676',
-    downColor: '#ff3b6b',
-    borderUpColor:   '#00e676',
-    borderDownColor: '#ff3b6b',
-    wickUpColor:     '#00e676',
-    wickDownColor:   '#ff3b6b',
+    upColor:   '#00e676', downColor: '#ff3b6b',
+    borderUpColor:   '#00e676', borderDownColor: '#ff3b6b',
+    wickUpColor:     '#00e676', wickDownColor:   '#ff3b6b',
   });
-  candleSeries.priceScale().applyOptions({ scaleMargins: { top: 0.1, bottom: 0.25 } });
-
   volumeSeries = chart.addHistogramSeries({
-    color: '#7890c0',
-    priceFormat: { type: 'volume' },
-    priceScaleId: 'volume',
+    color: '#7890c0', priceFormat: { type: 'volume' }, priceScaleId: 'volume',
   });
-  chart.priceScale('volume').applyOptions({
-    scaleMargins: { top: 0.8, bottom: 0 },
-  });
-
+  chart.priceScale('volume').applyOptions({ scaleMargins: { top: 0.8, bottom: 0 } });
   vwapSeries = chart.addLineSeries({
     color: '#ffc107', lineWidth: 1, priceLineVisible: false,
     crosshairMarkerVisible: false, title: 'VWAP',
   });
 }
 
-// ─── Candle aggregation ───────────────────────────────────
-function bucketTime(epochSec, tf) {
-  const m = TF_MINUTES[tf];
-  return Math.floor(epochSec / (m * 60)) * (m * 60);
+// ─── Bar ingestion from dashboard_data.json ───────────────
+function ingestBarsFromDashboard(bars1min, bars5min) {
+  if (Array.isArray(bars1min)) ingestList(bars1min, '1M');
+  if (Array.isArray(bars5min)) {
+    ingestList(bars5min, '5M');
+    aggregate5To15();
+  }
 }
 
-function ingestTick(price, volumeDelta, tEpochSec) {
+function ingestList(bars, tf) {
+  candleStore[tf].clear();
+  volumeStore[tf].clear();
+  if (vwapStore[tf]) vwapStore[tf].clear();
+
+  for (const b of bars) {
+    const t = etStringToUtcSec(b.t);
+    if (t === null) continue;
+    const open  = num(b.o);
+    const high  = num(b.h);
+    const low   = num(b.l);
+    const close = num(b.c);
+    if (open === null || close === null) continue;
+
+    candleStore[tf].set(t, {
+      time: t, open: open, high: high ?? close, low: low ?? close, close: close,
+    });
+    volumeStore[tf].set(t, num(b.v) || 0);
+    if (vwapStore[tf] && b.vwap != null) {
+      vwapStore[tf].set(t, num(b.vwap));
+    }
+  }
+}
+
+function aggregate5To15() {
+  const src = [...candleStore['5M'].values()].sort((a, b) => a.time - b.time);
+  candleStore['15M'].clear();
+  volumeStore['15M'].clear();
+  for (const c of src) {
+    const bucket = bucketTime(c.time, '15M');
+    const existing = candleStore['15M'].get(bucket);
+    if (existing) {
+      existing.high  = Math.max(existing.high, c.high);
+      existing.low   = Math.min(existing.low,  c.low);
+      existing.close = c.close;
+    } else {
+      candleStore['15M'].set(bucket, {
+        time: bucket, open: c.open, high: c.high, low: c.low, close: c.close,
+      });
+    }
+    const v5 = volumeStore['5M'].get(c.time) || 0;
+    volumeStore['15M'].set(bucket, (volumeStore['15M'].get(bucket) || 0) + v5);
+  }
+}
+
+// ─── Live-tick handling (price_data.json) ─────────────────
+function applyLiveTick(price, volNow) {
+  if (!Number.isFinite(price) || price <= 0) return;
+  const nowSec = Math.floor(Date.now() / 1000);
+
   for (const tf of Object.keys(TF_MINUTES)) {
-    const bucket = bucketTime(tEpochSec, tf);
     const cMap = candleStore[tf];
-    const vMap = volumeStore[tf];
+    if (!cMap.size) continue;
+    const bucket = bucketTime(nowSec, tf);
     const existing = cMap.get(bucket);
     if (existing) {
       existing.high  = Math.max(existing.high, price);
       existing.low   = Math.min(existing.low,  price);
       existing.close = price;
     } else {
-      cMap.set(bucket, { time: bucket, open: price, high: price, low: price, close: price });
+      // First tick of a new bar — seed from the previous bar's close so the
+      // open is plausible (the dashboard will overwrite shortly with the
+      // real OHLC).
+      const prev = [...cMap.values()].pop();
+      const seed = prev ? prev.close : price;
+      cMap.set(bucket, { time: bucket, open: seed, high: price, low: price, close: price });
     }
-    vMap.set(bucket, (vMap.get(bucket) || 0) + Math.max(0, volumeDelta));
   }
 }
 
-function pushUpdate() {
-  const cMap = candleStore[currentTF];
-  const vMap = volumeStore[currentTF];
-  if (!cMap.size) return;
-
-  const candles = [...cMap.values()].sort((a, b) => a.time - b.time);
-  const last    = candles[candles.length - 1];
-
-  candleSeries.update(last);
-
-  const vol = vMap.get(last.time) || 0;
-  volumeSeries.update({
-    time:  last.time,
-    value: vol,
-    color: last.close >= last.open ? 'rgba(0,230,118,0.4)' : 'rgba(255,59,107,0.4)',
-  });
-}
-
-function rebindSeries() {
+// ─── Render ───────────────────────────────────────────────
+function rebindAllSeries() {
   const cMap = candleStore[currentTF];
   const vMap = volumeStore[currentTF];
   const candles = [...cMap.values()].sort((a, b) => a.time - b.time);
@@ -210,32 +277,34 @@ function rebindSeries() {
     value: vMap.get(c.time) || 0,
     color: c.close >= c.open ? 'rgba(0,230,118,0.4)' : 'rgba(255,59,107,0.4)',
   })));
-  chart.timeScale().scrollToRealTime();
-}
 
-// ─── Overlays ─────────────────────────────────────────────
-let prevVwap = null, prevOrH = null, prevOrL = null;
-let prevStop = null, prevTgt = null, prevPos = '';
-
-function applyOverlays(d) {
-  // VWAP — incremental line series
-  if (typeof d.vwap === 'number' && d.vwap > 0 && d.t) {
-    const candles = [...candleStore[currentTF].values()].sort((a, b) => a.time - b.time);
-    if (candles.length) {
-      vwapSeries.update({ time: candles[candles.length - 1].time, value: d.vwap });
-    }
-    document.getElementById('s-vwap').textContent = d.vwap.toFixed(2);
+  const wMap = vwapStore[currentTF];
+  if (wMap && wMap.size) {
+    const vwap = candles
+      .map(c => ({ time: c.time, value: wMap.get(c.time) }))
+      .filter(v => v.value != null);
+    vwapSeries.setData(vwap);
+  } else {
+    vwapSeries.setData([]);
   }
 
-  // OR high/low — dashed horizontal lines on the candle series via priceLines
-  const orH = num(d.barHigh) || num(d.orHigh) || num(d.or_high);
-  const orL = num(d.barLow)  || num(d.orLow)  || num(d.or_low);
+  document.getElementById('s-bars').textContent = candles.length;
+  if (candles.length) chart.timeScale().scrollToRealTime();
+}
+
+// ─── Overlays from dashboard JSON ────────────────────────
+let prevOrH = null, prevOrL = null, prevStop = null, prevTgt = null, prevPos = '';
+
+function applyDashboardOverlays(d) {
+  // OR high/low — dashed orange lines
+  const orH = num(d.orHigh) || num(d.barHigh) || num(d.sessionHigh);
+  const orL = num(d.orLow)  || num(d.barLow)  || num(d.sessionLow);
   if (orH && orH !== prevOrH) {
     if (orHighLine) candleSeries.removePriceLine(orHighLine);
     orHighLine = candleSeries.createPriceLine({
       price: orH, color: '#ffb74d', lineWidth: 1,
-      lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true,
-      title: 'OR-H',
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'OR-H',
     });
     prevOrH = orH;
     document.getElementById('s-orh').textContent = orH.toFixed(2);
@@ -244,8 +313,8 @@ function applyOverlays(d) {
     if (orLowLine) candleSeries.removePriceLine(orLowLine);
     orLowLine = candleSeries.createPriceLine({
       price: orL, color: '#ffb74d', lineWidth: 1,
-      lineStyle: LightweightCharts.LineStyle.Dashed, axisLabelVisible: true,
-      title: 'OR-L',
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true, title: 'OR-L',
     });
     prevOrL = orL;
     document.getElementById('s-orl').textContent = orL.toFixed(2);
@@ -253,16 +322,16 @@ function applyOverlays(d) {
 
   // Stop / target lines only when in trade
   const inTrade = (d.position && d.position !== 'FLAT');
-  const stop    = num(d.stop);
-  const tgt     = num(d.target);
-  const entry   = num(d.entry);
+  const stop    = num(d.stopPrice);
+  const tgt     = num(d.targetPrice);
+  const entry   = num(d.entryPrice);
 
   if (inTrade && stop && stop !== prevStop) {
     if (stopLine) candleSeries.removePriceLine(stopLine);
     stopLine = candleSeries.createPriceLine({
       price: stop, color: '#ff3b6b', lineWidth: 2,
-      lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true,
-      title: 'STOP',
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true, title: 'STOP',
     });
     prevStop = stop;
   } else if (!inTrade && stopLine) {
@@ -273,15 +342,15 @@ function applyOverlays(d) {
     if (targetLine) candleSeries.removePriceLine(targetLine);
     targetLine = candleSeries.createPriceLine({
       price: tgt, color: '#00e676', lineWidth: 2,
-      lineStyle: LightweightCharts.LineStyle.Solid, axisLabelVisible: true,
-      title: 'TGT',
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true, title: 'TGT',
     });
     prevTgt = tgt;
   } else if (!inTrade && targetLine) {
     candleSeries.removePriceLine(targetLine); targetLine = null; prevTgt = null;
   }
 
-  // Entry marker — keep simple: a markedSeries point on the most recent bar
+  // Entry arrow marker
   if (inTrade && entry) {
     const candles = [...candleStore[currentTF].values()].sort((a, b) => a.time - b.time);
     if (candles.length && d.position !== prevPos) {
@@ -295,11 +364,11 @@ function applyOverlays(d) {
       prevPos = d.position;
     }
   } else if (!inTrade && prevPos) {
-    candleSeries.setMarkers([]);
-    prevPos = '';
+    candleSeries.setMarkers([]); prevPos = '';
   }
 
-  // Status bar values
+  // Status bar
+  document.getElementById('s-vwap').textContent  = num(d.vwap) ? num(d.vwap).toFixed(2) : '—';
   document.getElementById('s-pos').textContent   = d.position || 'FLAT';
   document.getElementById('s-entry').textContent = entry ? entry.toFixed(2) : '—';
   document.getElementById('s-stop').textContent  = stop  ? stop.toFixed(2)  : '—';
@@ -311,54 +380,70 @@ function num(v) {
   return Number.isFinite(n) && n !== 0 ? n : null;
 }
 
-// ─── Polling ──────────────────────────────────────────────
-let lastVolume = 0;
+// ─── Polling loops ────────────────────────────────────────
 let lastUpdate = 0;
 let consecutiveErrors = 0;
 
-async function poll() {
+async function pollDashboard() {
   try {
-    const r = await fetch('price_data.json?t=' + Date.now());
-    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const r = await fetch('dashboard_data.json?t=' + Date.now());
+    if (!r.ok) throw new Error('dashboard HTTP ' + r.status);
     const d = await r.json();
 
-    const price = parseFloat(d.price);
-    const vol   = parseFloat(d.volume) || 0;
-    if (Number.isFinite(price) && price > 0) {
-      const tSec = Math.floor(Date.now() / 1000);
-      const vDelta = Math.max(0, vol - lastVolume);
-      ingestTick(price, vDelta, tSec);
-      lastVolume = vol;
-      pushUpdate();
-      applyOverlays(d);
-      document.getElementById('last-price').textContent = price.toFixed(2);
-      lastUpdate = Date.now();
+    // Seed/refresh historical bars (1M + 5M) from the dashboard write.
+    // This is the canonical source of truth for OHLC.
+    if (Array.isArray(d.bars1min) || Array.isArray(d.bars5min)) {
+      ingestBarsFromDashboard(d.bars1min, d.bars5min);
+      rebindAllSeries();
     }
-    consecutiveErrors = 0;
+
+    applyDashboardOverlays(d);
+
     document.getElementById('err').textContent = '';
+    consecutiveErrors = 0;
   } catch (e) {
     consecutiveErrors++;
     if (consecutiveErrors >= 3) {
-      document.getElementById('err').textContent = 'feed: ' + e.message;
+      document.getElementById('err').textContent = 'dashboard: ' + e.message;
     }
-  }
-
-  // Age indicator
-  if (lastUpdate) {
-    const ageMs = Date.now() - lastUpdate;
-    document.getElementById('age').textContent = ageMs < 1000 ? 'live'
-      : (ageMs / 1000).toFixed(0) + 's ago';
   }
 }
 
-// ─── UI wiring ────────────────────────────────────────────
+async function pollPrice() {
+  try {
+    const r = await fetch('price_data.json?t=' + Date.now());
+    if (!r.ok) throw new Error('price HTTP ' + r.status);
+    const d = await r.json();
+
+    const price = parseFloat(d.price);
+    if (Number.isFinite(price) && price > 0) {
+      applyLiveTick(price, parseFloat(d.volume) || 0);
+      // Update only the last candle of the current TF (cheap).
+      const cMap = candleStore[currentTF];
+      if (cMap.size) {
+        const last = [...cMap.values()].sort((a, b) => a.time - b.time).pop();
+        candleSeries.update(last);
+      }
+      document.getElementById('last-price').textContent = price.toFixed(2);
+      lastUpdate = Date.now();
+    }
+  } catch (_) { /* dashboard error already surfaced */ }
+
+  if (lastUpdate) {
+    const ageMs = Date.now() - lastUpdate;
+    document.getElementById('age').textContent =
+      ageMs < 1000 ? 'live' : (ageMs / 1000).toFixed(0) + 's ago';
+  }
+}
+
+// ─── UI ───────────────────────────────────────────────────
 function setTimeframe(tf) {
   if (!TF_MINUTES[tf] || tf === currentTF) return;
   currentTF = tf;
   document.querySelectorAll('.tf-btn[data-tf]').forEach(b => {
     b.classList.toggle('active', b.dataset.tf === tf);
   });
-  rebindSeries();
+  rebindAllSeries();
 }
 
 document.querySelectorAll('.tf-btn[data-tf]').forEach(btn => {
@@ -371,8 +456,10 @@ document.getElementById('fit-btn').addEventListener('click', () => {
 // ─── Boot ─────────────────────────────────────────────────
 window.addEventListener('load', () => {
   buildChart();
-  poll();
-  setInterval(poll, 500);
+  pollDashboard();           // immediate first paint
+  pollPrice();
+  setInterval(pollDashboard, 2000);   // bars + overlays cadence
+  setInterval(pollPrice,      500);   // live tick cadence
 });
 </script>
 </body>

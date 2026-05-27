@@ -173,6 +173,13 @@ DOM_THROTTLE_SECS                = _env_float("DOM_THROTTLE_SECS",              
 # If sustained DOM updateEvent rate exceeds this many Hz we log a one-shot
 # warning that the subscription firehose may be unsustainable.
 DOM_UPDATE_RATE_WARN_HZ          = _env_int("DOM_UPDATE_RATE_WARN_HZ",           200)
+
+# ── Loss cooldown (BUG-011) ─────────────────────────────────
+# After any losing trade closes, block new entries for this many seconds.
+# Stops the immediate revenge-trade pattern observed 2026-05-27 09:54
+# (Trade 3 entered 16s after Trade 2 closed for -$32.74, same direction
+# / same reasoning).
+LOSS_COOLDOWN_SECS               = _env_int("LOSS_COOLDOWN_SECS",                300)
 DOM_ICEBERG_SHRINK_PCT           = _env_float("DOM_ICEBERG_SHRINK_PCT",           0.6)
 DOM_ICEBERG_RECOVERY_PCT         = _env_float("DOM_ICEBERG_RECOVERY_PCT",         0.7)
 DOM_SWEEP_LEVEL_THRESHOLD        = _env_int("DOM_SWEEP_LEVEL_THRESHOLD",          3)

@@ -76,6 +76,19 @@ class Executor:
         # Stops new entries once MAX_SESSION_R_LOSS R units have been lost.
         self.session_r_spent:      float = 0.0
 
+        # BUG-011/012 — Revenge-trade gates.
+        # Set by _record_pnl on a loss; read by is_in_loss_cooldown()
+        # and same_setup_as_last_loss() from main.run_cycle before Claude
+        # is queried and before execute() runs.
+        self._last_loss_ts:         float = 0.0
+        self._last_loss_direction:  str   = ""    # "BUY" / "SELL"
+        self._last_loss_choch:      str   = ""    # CHoCH string at loss
+        self._last_loss_obs:        str   = ""    # order_blocks string at loss
+        # Captured at entry so we know what to remember if the trade loses.
+        self._entry_context_direction: str = ""
+        self._entry_context_choch:     str = ""
+        self._entry_context_obs:       str = ""
+
         # Internal
         self._lock                   = threading.Lock()
         self._running                = False
@@ -717,6 +730,14 @@ class Executor:
                 r_this_trade = 1.0   # assume 1R if stop not recorded
             self.session_r_spent += r_this_trade
             logger.info(f"R-budget: {r_this_trade:.2f}R spent this trade | session total: {self.session_r_spent:.1f}R / {MAX_SESSION_R_LOSS}R")
+
+            # BUG-011/012 — Snapshot the losing trade's structural context
+            # for the loss-cooldown and same-setup-re-entry gates that
+            # run before the NEXT entry attempt.
+            self._last_loss_ts        = time.time()
+            self._last_loss_direction = self._entry_context_direction
+            self._last_loss_choch     = self._entry_context_choch
+            self._last_loss_obs       = self._entry_context_obs
         else:
             self.consecutive_losses = 0
 
@@ -792,6 +813,47 @@ class Executor:
             except ValueError:
                 return None
         return None
+
+    # ─── Revenge-trade gates (BUG-011 / BUG-012) ────────────
+
+    def record_entry_context(self, direction: str, choch: str, order_blocks: str) -> None:
+        """Cache the structural context at entry time so we can compare
+        against it on the next entry attempt if this trade loses."""
+        self._entry_context_direction = (direction or "").upper()
+        self._entry_context_choch     = choch or ""
+        self._entry_context_obs       = order_blocks or ""
+
+    def is_in_loss_cooldown(self) -> tuple[bool, str]:
+        """BUG-011 — block new entries for LOSS_COOLDOWN_SECS after any
+        losing trade closes. Returns (in_cooldown, human-readable reason).
+        Cooldown disabled when LOSS_COOLDOWN_SECS <= 0 or no loss has
+        occurred this session."""
+        from config import LOSS_COOLDOWN_SECS
+        if LOSS_COOLDOWN_SECS <= 0 or self._last_loss_ts <= 0:
+            return False, ""
+        elapsed   = time.time() - self._last_loss_ts
+        remaining = LOSS_COOLDOWN_SECS - elapsed
+        if remaining <= 0:
+            return False, ""
+        return True, f"loss cooldown — {int(remaining)}s remaining (LOSS_COOLDOWN_SECS={LOSS_COOLDOWN_SECS})"
+
+    def same_setup_as_last_loss(self, direction: str, choch: str, order_blocks: str) -> tuple[bool, str]:
+        """BUG-012 — if the proposed entry is the SAME direction as the
+        last losing trade AND the structural context hasn't changed
+        (CHoCH string unchanged + order_blocks string unchanged), refuse.
+        At least one new structural confirmation (new CHoCH OR new OB
+        test) must precede a re-entry on the losing side.
+
+        Returns (is_same, reason)."""
+        if not self._last_loss_direction:
+            return False, ""
+        if (direction or "").upper() != self._last_loss_direction:
+            return False, ""   # different direction → allow
+        if (choch or "") != self._last_loss_choch:
+            return False, ""   # new CHoCH → allow
+        if (order_blocks or "") != self._last_loss_obs:
+            return False, ""   # new OB test → allow
+        return True, "same direction + unchanged CHoCH + unchanged OB since last loss"
 
     def mark_disconnect(self) -> None:
         """

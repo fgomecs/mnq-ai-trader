@@ -216,6 +216,165 @@ def test_bug010_backtester_default_skips_live_claude():
 
 
 # ────────────────────────────────────────────────────────────────────
+# BUG-011 — Immediate re-entry after a losing trade.
+#           2026-05-27 09:54: Trade 3 entered 16s after Trade 2 closed
+#           for -$32.74, same direction. LOSS_COOLDOWN_SECS=300 default
+#           must block new entries within the window.
+# ────────────────────────────────────────────────────────────────────
+def test_bug011_loss_cooldown_blocks_immediate_reentry(monkeypatch):
+    monkeypatch.setenv("LOSS_COOLDOWN_SECS", "300")
+    import importlib, config
+    importlib.reload(config)
+    try:
+        import time as _time
+        ex = _make_mock_executor()
+        # Simulate a loss that just happened
+        ex._last_loss_ts        = _time.time()
+        ex._last_loss_direction = "BUY"
+
+        in_cd, reason = ex.is_in_loss_cooldown()
+        assert in_cd is True, "must be in cooldown 0 sec after a loss"
+        assert "cooldown" in reason.lower()
+        assert "remaining" in reason.lower()
+    finally:
+        monkeypatch.delenv("LOSS_COOLDOWN_SECS", raising=False)
+        importlib.reload(config)
+
+
+def test_bug011_loss_cooldown_clears_after_window(monkeypatch):
+    """After LOSS_COOLDOWN_SECS elapses, the gate must release."""
+    monkeypatch.setenv("LOSS_COOLDOWN_SECS", "60")
+    import importlib, config
+    importlib.reload(config)
+    try:
+        import time as _time
+        ex = _make_mock_executor()
+        # Loss happened 120s ago — past the 60s window
+        ex._last_loss_ts        = _time.time() - 120
+        ex._last_loss_direction = "BUY"
+
+        in_cd, _ = ex.is_in_loss_cooldown()
+        assert in_cd is False, "cooldown must release after window elapses"
+    finally:
+        monkeypatch.delenv("LOSS_COOLDOWN_SECS", raising=False)
+        importlib.reload(config)
+
+
+def test_bug011_cooldown_disabled_when_zero(monkeypatch):
+    """LOSS_COOLDOWN_SECS=0 must disable the gate entirely."""
+    monkeypatch.setenv("LOSS_COOLDOWN_SECS", "0")
+    import importlib, config
+    importlib.reload(config)
+    try:
+        import time as _time
+        ex = _make_mock_executor()
+        ex._last_loss_ts        = _time.time()
+        ex._last_loss_direction = "BUY"
+        in_cd, _ = ex.is_in_loss_cooldown()
+        assert in_cd is False, "LOSS_COOLDOWN_SECS=0 must bypass the gate"
+    finally:
+        monkeypatch.delenv("LOSS_COOLDOWN_SECS", raising=False)
+        importlib.reload(config)
+
+
+def test_bug011_record_pnl_loss_sets_cooldown_state():
+    """_record_pnl must populate _last_loss_ts and structural context
+    when a losing trade closes — otherwise the gate can never engage."""
+    import time as _time
+    ex = _make_mock_executor()
+    # Cache an entry context as if main.run_cycle had called record_entry_context
+    ex.record_entry_context("BUY", "CHoCH BULLISH (initial)", "OB at 30000")
+    ex.entry_timestamp = _time.time()
+    ex.entry_price     = 30000.0
+    ex.stop_price      = 29980.0
+    # Drive a losing trade through _record_pnl
+    ex._record_pnl(entry_price=30000.0, exit_price=29980.0,
+                   contracts=1, was_long=True, reason="stop")
+
+    assert ex._last_loss_ts > 0, "_record_pnl(loss) must stamp _last_loss_ts"
+    assert ex._last_loss_direction == "BUY"
+    assert ex._last_loss_choch == "CHoCH BULLISH (initial)"
+    assert ex._last_loss_obs   == "OB at 30000"
+
+
+# ────────────────────────────────────────────────────────────────────
+# BUG-012 — Same-setup re-entry after a losing trade.
+#           After a loss, an entry on the same side with identical
+#           CHoCH and unchanged order_blocks must be refused — require
+#           at least one new structural confirmation.
+# ────────────────────────────────────────────────────────────────────
+def test_bug012_same_direction_same_structure_blocked():
+    ex = _make_mock_executor()
+    ex._last_loss_direction = "BUY"
+    ex._last_loss_choch     = "CHoCH BULLISH"
+    ex._last_loss_obs       = "OB: 30000.50"
+
+    is_same, why = ex.same_setup_as_last_loss(
+        direction="BUY",
+        choch="CHoCH BULLISH",
+        order_blocks="OB: 30000.50",
+    )
+    assert is_same is True
+    assert "same direction" in why and "unchanged" in why
+
+
+def test_bug012_different_direction_allowed():
+    ex = _make_mock_executor()
+    ex._last_loss_direction = "BUY"
+    ex._last_loss_choch     = "CHoCH BULLISH"
+    ex._last_loss_obs       = "OB: 30000.50"
+
+    is_same, _ = ex.same_setup_as_last_loss(
+        direction="SELL",                # opposite side → allow
+        choch="CHoCH BULLISH",
+        order_blocks="OB: 30000.50",
+    )
+    assert is_same is False
+
+
+def test_bug012_new_choch_allows_reentry():
+    """A new CHoCH event (different string) must count as new structural
+    confirmation and release the gate even if direction matches."""
+    ex = _make_mock_executor()
+    ex._last_loss_direction = "BUY"
+    ex._last_loss_choch     = "CHoCH BULLISH (1-min)"
+    ex._last_loss_obs       = "OB: 30000.50"
+
+    is_same, _ = ex.same_setup_as_last_loss(
+        direction="BUY",
+        choch="CHoCH BULLISH (5-min reconfirm)",   # new CHoCH string
+        order_blocks="OB: 30000.50",
+    )
+    assert is_same is False
+
+
+def test_bug012_new_ob_test_allows_reentry():
+    ex = _make_mock_executor()
+    ex._last_loss_direction = "BUY"
+    ex._last_loss_choch     = "CHoCH BULLISH"
+    ex._last_loss_obs       = "OB: 30000.50"
+
+    is_same, _ = ex.same_setup_as_last_loss(
+        direction="BUY",
+        choch="CHoCH BULLISH",
+        order_blocks="OB: 29985.25",       # new OB level tested
+    )
+    assert is_same is False
+
+
+def test_bug012_no_prior_loss_never_blocks():
+    """A fresh session (no loss recorded) must never trigger BUG-012."""
+    ex = _make_mock_executor()
+    # _last_loss_direction default = ""
+    is_same, _ = ex.same_setup_as_last_loss(
+        direction="BUY",
+        choch="CHoCH BULLISH",
+        order_blocks="OB: 30000.50",
+    )
+    assert is_same is False
+
+
+# ────────────────────────────────────────────────────────────────────
 # Helpers
 # ────────────────────────────────────────────────────────────────────
 def _make_mock_executor(broker_position: int = 0):

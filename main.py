@@ -685,6 +685,15 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
         _refresh_dashboard_with_snapshot(f"GATED — {state_reason[:40]}")
         return
 
+    # ── BUG-011: Loss cooldown gate (revenge-trade prevention) ──
+    # Checked BEFORE the Claude call so we don't burn API spend during
+    # the cooldown window.
+    in_cooldown, cd_reason = executor.is_in_loss_cooldown()
+    if in_cooldown:
+        logger.info(f"Loss-cooldown gate: {cd_reason}")
+        _refresh_dashboard_with_snapshot(f"COOLDOWN — {cd_reason[:40]}")
+        return
+
     # Tag snapshot with pre-filter reason so backtest recorder captures it
     snapshot["_pre_filter_reason"] = filter_reason
 
@@ -704,6 +713,22 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
                 decision["decision"] = "HOLD"
                 dec_str = "HOLD"
 
+        # ── BUG-012: Same-setup re-entry gate ──
+        # If this entry matches the last losing trade's direction AND the
+        # structural context (CHoCH / order_blocks) is unchanged, refuse.
+        # Forces at least one new structural confirmation before re-trying
+        # the losing side.
+        if dec_str in ("BUY", "SELL"):
+            is_same, same_why = executor.same_setup_as_last_loss(
+                direction    = dec_str,
+                choch        = snapshot.get("choch", ""),
+                order_blocks = snapshot.get("order_blocks", ""),
+            )
+            if is_same:
+                logger.info(f"Same-setup gate: {same_why} — forcing HOLD")
+                decision["decision"] = "HOLD"
+                dec_str = "HOLD"
+
     analysis_log.append({
         "time":       now.strftime("%H:%M:%S"),
         "decision":   dec_str,
@@ -714,7 +739,17 @@ def run_cycle(feed: IBKRFeed, executor: Executor) -> None:
         "filter":     filter_reason,
     })
 
+    position_before = executor.current_position
     executor.execute(decision)
+    # BUG-012 — If a position opened on this cycle, cache the structural
+    # context so the next loss has something to compare against.
+    if (position_before == 0 and executor.current_position != 0
+            and dec_str in ("BUY", "SELL")):
+        executor.record_entry_context(
+            direction    = dec_str,
+            choch        = snapshot.get("choch", ""),
+            order_blocks = snapshot.get("order_blocks", ""),
+        )
 
     # C.4 — Flush log after any BUY/SELL/CLOSE so entry/exit is on disk
     # immediately in case of crash

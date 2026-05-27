@@ -62,7 +62,21 @@ const $ = id => document.getElementById(id);
 const chart = LightweightCharts.createChart($('chart'), {
   layout: { background: { type: 'solid', color: '#0a0e1a' }, textColor: '#7890c0' },
   grid:   { vertLines: { color: '#111928' }, horzLines: { color: '#111928' } },
-  timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2744' },
+  timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2744',
+               tickMarkFormatter: (time) => {
+                 const d = new Date(time * 1000);
+                 const hh = String(d.getUTCHours()).padStart(2,'0');
+                 const mm = String(d.getUTCMinutes()).padStart(2,'0');
+                 return hh + ':' + mm;
+               }},
+  localization: { timeFormatter: (time) => {
+    const d = new Date(time * 1000);
+    const hh = String(d.getUTCHours()).padStart(2,'0');
+    const mm = String(d.getUTCMinutes()).padStart(2,'0');
+    return d.getUTCFullYear() + '-' +
+           String(d.getUTCMonth()+1).padStart(2,'0') + '-' +
+           String(d.getUTCDate()).padStart(2,'0') + ' ' + hh + ':' + mm;
+  }},
   rightPriceScale: { borderColor: '#1a2744', scaleMargins: { top: 0.05, bottom: 0.22 } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
   handleScroll: true, handleScale: true, autoSize: true,

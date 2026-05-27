@@ -1137,6 +1137,16 @@ def main() -> None:
 
     executor = Executor(feed.ib, feed.contract, paper=True)
     logger.info("PAPER TRADING MODE — no real money at risk")
+
+    # On every IBKR reconnect, re-prime the commission dedupe set so the
+    # post-reconnect execution replay doesn't double-count earlier fills'
+    # commissions into the next live trade. connectedEvent only fires on
+    # future re-connects (the initial connect already happened above).
+    try:
+        feed.ib.connectedEvent += lambda: executor.reprime_seen_exec_ids()
+    except Exception as e:
+        logger.warning(f"Could not wire reconnect re-prime: {e}")
+
     executor.start_protection_loop()
 
     # Fast dashboard ticker (1 Hz)

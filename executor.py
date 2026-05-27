@@ -762,6 +762,39 @@ class Executor:
 
         return pnl
 
+    def reprime_seen_exec_ids(self) -> None:
+        """
+        Refresh _seen_exec_ids from ib.fills(). Call this on every IBKR
+        reconnect: when Gateway drops and ib_insync reopens the session,
+        IBKR replays today's execDetails + commissionReport events. Without
+        re-priming, fills that we've already accounted for would resurrect
+        into _broker_commission_pending and get attributed to the next live
+        trade.
+
+        Safe to call repeatedly — adds to the existing set, never clears it.
+        The handler stays attached throughout; we just widen its dedupe net.
+        """
+        try:
+            # Let the post-reconnect execution replay flush onto the loop
+            # before we snapshot ib.fills().
+            try:
+                self.ib.sleep(1.0)
+            except Exception:
+                pass
+
+            added = 0
+            for fill in self.ib.fills():
+                exec_id = getattr(fill.execution, "execId", "")
+                if exec_id and exec_id not in self._seen_exec_ids:
+                    self._seen_exec_ids.add(exec_id)
+                    added += 1
+            logger.info(
+                f"Re-primed _seen_exec_ids after IBKR reconnect "
+                f"(+{added} execIds, total={len(self._seen_exec_ids)})"
+            )
+        except Exception as e:
+            logger.warning(f"reprime_seen_exec_ids failed: {e}")
+
     def _on_commission_report(self, trade, fill, report) -> None:
         """
         ib_insync commissionReportEvent handler. Fires once per fill once IBKR

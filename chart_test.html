@@ -48,6 +48,10 @@
     <div class="item"><span class="k">price</span><span class="v" id="s-price">--</span></div>
     <div class="item"><span class="k">bid</span><span class="v" id="s-bid">--</span></div>
     <div class="item"><span class="k">ask</span><span class="v" id="s-ask">--</span></div>
+    <div class="item"><span class="k">O</span><span class="v" id="s-open">--</span></div>
+    <div class="item"><span class="k">H</span><span class="v" id="s-high">--</span></div>
+    <div class="item"><span class="k">L</span><span class="v" id="s-low">--</span></div>
+    <div class="item"><span class="k">C</span><span class="v" id="s-close">--</span></div>
     <div class="item"><span class="k">pos</span><span class="v" id="s-pos">FLAT</span></div>
     <div class="item"><span class="k">or</span><span class="v" id="s-or">--</span></div>
     <div class="item"><span class="k">bars</span><span class="v" id="s-bars">0</span></div>
@@ -290,6 +294,10 @@ function onTick(price, ts, barOpen, barHigh, barLow) {
     _formingBar.close = price;
   }
   try { candleSeries.update(_formingBar); } catch(e) {}
+  $('s-open').textContent  = _formingBar.open.toFixed(2);
+  $('s-high').textContent  = _formingBar.high.toFixed(2);
+  $('s-low').textContent   = _formingBar.low.toFixed(2);
+  $('s-close').textContent = _formingBar.close.toFixed(2);
 }
 
 // WebSocket — replaces pollLive
@@ -347,6 +355,16 @@ document.querySelectorAll('.tf').forEach(btn => {
 });
 
 $('btn-fit').addEventListener('click', () => chart.timeScale().fitContent());
+
+chart.subscribeCrosshairMove((param) => {
+  if (!param || !param.time) return;
+  const bar = param.seriesData && param.seriesData.get(candleSeries);
+  if (!bar) return;
+  $('s-open').textContent  = bar.open.toFixed(2);
+  $('s-high').textContent  = bar.high.toFixed(2);
+  $('s-low').textContent   = bar.low.toFixed(2);
+  $('s-close').textContent = bar.close.toFixed(2);
+});
 
 pollDashboard();
 wsConnect();

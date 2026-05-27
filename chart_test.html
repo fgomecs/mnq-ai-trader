@@ -82,6 +82,29 @@ const chart = LightweightCharts.createChart($('chart'), {
   handleScroll: true, handleScale: true, autoSize: true,
 });
 
+// Price-scale zoom on wheel when hovering over the right price axis.
+// LWC renders the price axis inside #chart to the right; we detect
+// hover position vs chart width to decide which axis to zoom.
+let _overPriceScale = false;
+const _chartEl = $('chart');
+_chartEl.addEventListener('mousemove', (e) => {
+  const rect = _chartEl.getBoundingClientRect();
+  // Price scale is roughly the rightmost 55px of the chart element
+  _overPriceScale = (rect.right - e.clientX) < 55;
+});
+_chartEl.addEventListener('mouseleave', () => { _overPriceScale = false; });
+
+let _priceMargins = { top: 0.05, bottom: 0.22 };
+_chartEl.addEventListener('wheel', (e) => {
+  if (!_overPriceScale) return; // let LWC handle time-scale zoom normally
+  e.preventDefault();
+  e.stopPropagation();
+  const delta = e.deltaY > 0 ? 0.02 : -0.02;
+  _priceMargins.top    = Math.max(0.0, Math.min(0.45, _priceMargins.top    + delta));
+  _priceMargins.bottom = Math.max(0.0, Math.min(0.45, _priceMargins.bottom + delta));
+  chart.priceScale('right').applyOptions({ scaleMargins: _priceMargins });
+}, { passive: false });
+
 const candleSeries = chart.addCandlestickSeries({
   upColor: '#00e676', downColor: '#ff3b6b',
   borderUpColor: '#00e676', borderDownColor: '#ff3b6b',

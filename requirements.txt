@@ -5,3 +5,4 @@ pytz
 python-dotenv
 schedule
 exchange-calendars
+websockets

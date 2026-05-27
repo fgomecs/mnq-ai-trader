@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DoBot · Chart Test 3 (WebSocket)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0a0e1a; color: #dce6ff;
+               font-family: 'JetBrains Mono', Consolas, monospace; }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+  #status {
+    background: #0f1528; border-bottom: 1px solid #1a2744;
+    padding: 10px 14px; font-size: 13px;
+    display: flex; gap: 24px; flex-wrap: wrap; align-items: center;
+  }
+  #status .item { display: flex; gap: 6px; }
+  #status .k { color: #7890c0; }
+  #status .v { color: #dce6ff; }
+  #status .ok  { color: #00e676; }
+  #status .err { color: #ff3b6b; }
+  #status .warn{ color: #ffb300; }
+  #chart { flex: 1; min-height: 0; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="status">
+    <div class="item"><span class="k">price:</span> <span class="v" id="s-price">—</span></div>
+    <div class="item"><span class="k">bid:</span>   <span class="v" id="s-bid">—</span></div>
+    <div class="item"><span class="k">ask:</span>   <span class="v" id="s-ask">—</span></div>
+    <div class="item"><span class="k">mid:</span>   <span class="v" id="s-mid">—</span></div>
+    <div class="item"><span class="k">ws:</span>    <span class="v warn" id="s-ws">connecting…</span></div>
+    <div class="item"><span class="k">bars:</span>  <span class="v" id="s-bars">0</span></div>
+    <div class="item"><span class="k">last tick:</span><span class="v" id="s-tick">—</span></div>
+  </div>
+
+  <div id="chart"></div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+if (typeof LightweightCharts === 'undefined') {
+  $('s-ws').textContent = 'lib failed to load';
+  $('s-ws').className = 'v err';
+  throw new Error('LightweightCharts not loaded');
+}
+
+// ─── Chart setup ──────────────────────────────────────────
+const chart = LightweightCharts.createChart($('chart'), {
+  layout: {
+    background: { type: 'solid', color: '#0a0e1a' },
+    textColor:  '#dce6ff',
+  },
+  grid: {
+    vertLines: { color: '#1a2744' },
+    horzLines: { color: '#1a2744' },
+  },
+  timeScale: {
+    timeVisible: true,
+    secondsVisible: false,
+    borderColor: '#1a2744',
+  },
+  rightPriceScale: { borderColor: '#1a2744' },
+  crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+});
+
+const candleSeries = chart.addCandlestickSeries({
+  upColor: '#00e676', downColor: '#ff3b6b',
+  borderUpColor: '#00e676', borderDownColor: '#ff3b6b',
+  wickUpColor: '#00e676', wickDownColor: '#ff3b6b',
+});
+
+window.addEventListener('resize', () => {
+  chart.applyOptions({ width: $('chart').clientWidth, height: $('chart').clientHeight });
+});
+
+// ─── 1-minute bar aggregation ─────────────────────────────
+// We build bars entirely client-side from incoming ticks.
+// Each bar's `time` is the floor of its minute in epoch seconds.
+
+let currentBar = null;
+let barCount = 0;
+
+function floorMinute(tsSec) {
+  return Math.floor(tsSec / 60) * 60;
+}
+
+function onTick(price, ts) {
+  if (!price || price <= 0) return;
+  const minute = floorMinute(ts);
+
+  if (currentBar === null || currentBar.time !== minute) {
+    // Close the prior bar (already pushed via update()) and start a new one.
+    currentBar = {
+      time:  minute,
+      open:  price,
+      high:  price,
+      low:   price,
+      close: price,
+    };
+    barCount += 1;
+    $('s-bars').textContent = barCount;
+  } else {
+    if (price > currentBar.high) currentBar.high = price;
+    if (price < currentBar.low)  currentBar.low  = price;
+    currentBar.close = price;
+  }
+
+  try {
+    candleSeries.update(currentBar);
+  } catch (e) {
+    // Lightweight Charts rejects out-of-order timestamps. If the server
+    // clock skipped backward (rare), just drop this tick.
+    console.warn('candleSeries.update rejected:', e.message);
+  }
+}
+
+// ─── WebSocket connection w/ auto-reconnect ───────────────
+const WS_URL = 'ws://localhost:8765';
+let ws = null;
+let reconnectTimer = null;
+
+function setWsStatus(text, cls) {
+  const el = $('s-ws');
+  el.textContent = text;
+  el.className = 'v ' + cls;
+}
+
+function connect() {
+  setWsStatus('connecting…', 'warn');
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    setWsStatus('error: ' + e.message, 'err');
+    scheduleReconnect();
+    return;
+  }
+
+  ws.onopen = () => {
+    setWsStatus('connected', 'ok');
+  };
+
+  ws.onmessage = (ev) => {
+    let msg;
+    try { msg = JSON.parse(ev.data); }
+    catch (e) { return; }
+
+    const price = Number(msg.price) || 0;
+    const bid   = Number(msg.bid)   || 0;
+    const ask   = Number(msg.ask)   || 0;
+    const ts    = Number(msg.ts)    || Math.floor(Date.now() / 1000);
+    const mid   = (bid > 0 && ask > 0) ? (bid + ask) / 2 : price;
+
+    $('s-price').textContent = price.toFixed(2);
+    $('s-bid').textContent   = bid.toFixed(2);
+    $('s-ask').textContent   = ask.toFixed(2);
+    $('s-mid').textContent   = mid.toFixed(2);
+    $('s-tick').textContent  = new Date(ts * 1000).toLocaleTimeString();
+
+    onTick(price, ts);
+  };
+
+  ws.onclose = () => {
+    setWsStatus('disconnected — retrying in 3s', 'err');
+    scheduleReconnect();
+  };
+
+  ws.onerror = () => {
+    // onclose will follow; reconnect is handled there.
+  };
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    connect();
+  }, 3000);
+}
+
+connect();
+</script>
+
+</body>
+</html>

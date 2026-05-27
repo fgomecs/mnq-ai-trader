@@ -76,6 +76,7 @@ from memory_manager import (
 )
 from dashboard_writer import update_dashboard, update_price_only
 from data_recorder import recorder as _recorder
+from ws_server import start_ws_server, broadcast_tick
 
 try:
     from notifier import (
@@ -333,6 +334,8 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
 
             if price > 0:
                 executor.update_price(price)
+                # Broadcast tick to chart_test3.html and any other WS clients
+                broadcast_tick(price, bid, ask)
 
             if int(time.time()) % DASHBOARD_ACCOUNT_REFRESH_SECS == 0:
                 account_data = feed.get_account_data()
@@ -1239,6 +1242,13 @@ def main() -> None:
     )
     ticker_thread.start()
     logger.info("Fast dashboard ticker started (1 Hz)")
+
+    # WebSocket tick broadcaster (port 8765) — feeds chart_test3.html
+    try:
+        if start_ws_server(host="localhost", port=8765):
+            logger.info("WebSocket tick broadcaster started on ws://localhost:8765")
+    except Exception as e:
+        logger.warning(f"WS broadcaster failed to start: {e}")
 
     memory = load_recent_memory(days=5)
     logger.info(

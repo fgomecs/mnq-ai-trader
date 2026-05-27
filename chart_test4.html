@@ -1,0 +1,573 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>DoBot · Chart v4 (Full WebSocket)</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://unpkg.com/lightweight-charts@4/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; background: #0a0e1a; color: #dce6ff;
+               font-family: 'JetBrains Mono', Consolas, monospace; font-size: 13px; }
+  #app { display: flex; flex-direction: column; height: 100vh; }
+
+  #status {
+    background: #0f1528; border-bottom: 1px solid #1a2744;
+    padding: 8px 12px; display: flex; gap: 16px; flex-wrap: wrap; align-items: center;
+  }
+  #status .item { display: flex; gap: 5px; align-items: center; }
+  #status .k { color: #7890c0; }
+  #status .v { color: #dce6ff; font-weight: 500; }
+  #status .ok  { color: #00e676; }
+  #status .err { color: #ff3b6b; }
+  #status .warn{ color: #ffb300; }
+  #status .long { color: #00e676; font-weight: 700; }
+  #status .short{ color: #ff3b6b; font-weight: 700; }
+  #status .flat { color: #7890c0; }
+
+  .ws-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: #7890c0;
+    display: inline-block; margin-right: 4px;
+  }
+  .ws-dot.ok  { background: #00e676; box-shadow: 0 0 8px #00e676; }
+  .ws-dot.err { background: #ff3b6b; box-shadow: 0 0 8px #ff3b6b; }
+
+  #toolbar {
+    background: #0f1528; border-bottom: 1px solid #1a2744;
+    padding: 6px 12px; display: flex; gap: 8px; align-items: center;
+  }
+  #toolbar .label { color: #7890c0; font-size: 11px; text-transform: uppercase;
+                    letter-spacing: 0.5px; margin-right: 4px; }
+  #toolbar button {
+    background: #1a2744; color: #dce6ff; border: 1px solid #2a3a64;
+    padding: 4px 12px; font-family: inherit; font-size: 12px; font-weight: 600;
+    cursor: pointer; border-radius: 3px; transition: all 0.15s;
+  }
+  #toolbar button:hover { background: #243358; border-color: #3a4a74; }
+  #toolbar button.active {
+    background: #2f4ea0; border-color: #4a6fd0; color: #fff;
+    box-shadow: 0 0 8px rgba(74,111,208,0.4);
+  }
+
+  #chart { flex: 1; min-height: 0; position: relative; }
+
+  #reconnect-overlay {
+    position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+    background: rgba(15,21,40,0.95); border: 2px solid #ff3b6b;
+    border-radius: 6px; padding: 20px 30px; text-align: center;
+    display: none; z-index: 1000;
+  }
+  #reconnect-overlay.show { display: block; }
+  #reconnect-overlay .title { color: #ff3b6b; font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+  #reconnect-overlay .msg { color: #dce6ff; font-size: 13px; }
+</style>
+</head>
+<body>
+<div id="app">
+
+  <div id="status">
+    <div class="item">
+      <span class="ws-dot" id="ws-dot"></span>
+      <span class="v" id="ws-status">connecting…</span>
+    </div>
+    <div class="item"><span class="k">price:</span><span class="v" id="s-price">—</span></div>
+    <div class="item"><span class="k">bid:</span><span class="v" id="s-bid">—</span></div>
+    <div class="item"><span class="k">ask:</span><span class="v" id="s-ask">—</span></div>
+    <div class="item"><span class="k">mid:</span><span class="v" id="s-mid">—</span></div>
+    <div class="item"><span class="k">vwap:</span><span class="v" id="s-vwap">—</span></div>
+    <div class="item"><span class="k">pos:</span><span class="v flat" id="s-pos">FLAT</span></div>
+    <div class="item"><span class="k">bars:</span><span class="v" id="s-bars">0</span></div>
+  </div>
+
+  <div id="toolbar">
+    <span class="label">Timeframe</span>
+    <button class="tf-btn active" data-tf="1">1M</button>
+    <button class="tf-btn" data-tf="5">5M</button>
+    <button class="tf-btn" data-tf="15">15M</button>
+  </div>
+
+  <div id="chart">
+    <div id="reconnect-overlay">
+      <div class="title">WebSocket Disconnected</div>
+      <div class="msg">Reconnecting in <span id="reconnect-timer">3</span>s...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+
+if (typeof LightweightCharts === 'undefined') {
+  alert('LightweightCharts failed to load');
+  throw new Error('LightweightCharts not loaded');
+}
+
+// ════════════════════════════════════════════════════════════
+// Chart Setup
+// ════════════════════════════════════════════════════════════
+const chart = LightweightCharts.createChart($('chart'), {
+  layout: {
+    background: { type: 'solid', color: '#0a0e1a' },
+    textColor: '#dce6ff',
+  },
+  grid: {
+    vertLines: { color: '#1a2744' },
+    horzLines: { color: '#1a2744' },
+  },
+  timeScale: {
+    timeVisible: true,
+    secondsVisible: false,
+    borderColor: '#1a2744',
+  },
+  rightPriceScale: {
+    borderColor: '#1a2744',
+    scaleMargins: { top: 0.08, bottom: 0.25 },
+  },
+  crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+});
+
+const candleSeries = chart.addCandlestickSeries({
+  upColor: '#00e676',
+  downColor: '#ff3b6b',
+  borderUpColor: '#00e676',
+  borderDownColor: '#ff3b6b',
+  wickUpColor: '#00e676',
+  wickDownColor: '#ff3b6b',
+});
+
+const vwapSeries = chart.addLineSeries({
+  color: '#3a8dff',
+  lineWidth: 2,
+  priceLineVisible: false,
+  lastValueVisible: false,
+  crosshairMarkerVisible: true,
+  title: 'VWAP',
+});
+
+const volumeSeries = chart.addHistogramSeries({
+  color: 'rgba(120,144,192,0.5)',
+  priceFormat: { type: 'volume' },
+  priceScaleId: 'volume',
+});
+chart.priceScale('volume').applyOptions({
+  scaleMargins: { top: 0.82, bottom: 0.01 },
+});
+
+window.addEventListener('resize', () => {
+  chart.applyOptions({
+    width: $('chart').clientWidth,
+    height: $('chart').clientHeight
+  });
+});
+
+// ════════════════════════════════════════════════════════════
+// State
+// ════════════════════════════════════════════════════════════
+const bars1m = [];           // Master 1-min OHLCV bars [{time, open, high, low, close, volume}]
+const vwapCache = new Map(); // ts -> vwap value
+let currentBar = null;
+let activeTf = 1;
+let markers = [];
+
+// Price lines (recreated when values change)
+let orHighLine = null, orLowLine = null;
+let entryLine = null, stopLine = null, targetLine = null;
+let lastOrHigh = null, lastOrLow = null;
+let lastPosition = 0, lastEntry = 0, lastStop = 0, lastTarget = 0;
+
+// ════════════════════════════════════════════════════════════
+// Bar Aggregation
+// ════════════════════════════════════════════════════════════
+function floorBucket(epochSec, tfMin) {
+  const bucketSec = tfMin * 60;
+  return Math.floor(epochSec / bucketSec) * bucketSec;
+}
+
+function aggregateBars(srcBars, tfMin) {
+  if (tfMin === 1) return srcBars.slice();
+  const out = [];
+  let agg = null;
+  for (const bar of srcBars) {
+    const bucket = floorBucket(bar.time, tfMin);
+    if (!agg || agg.time !== bucket) {
+      if (agg) out.push(agg);
+      agg = {
+        time: bucket,
+        open: bar.open,
+        high: bar.high,
+        low: bar.low,
+        close: bar.close,
+        volume: bar.volume || 0,
+      };
+    } else {
+      if (bar.high > agg.high) agg.high = bar.high;
+      if (bar.low < agg.low) agg.low = bar.low;
+      agg.close = bar.close;
+      agg.volume += (bar.volume || 0);
+    }
+  }
+  if (agg) out.push(agg);
+  return out;
+}
+
+function rebuildChart() {
+  const aggBars = aggregateBars(bars1m, activeTf);
+  candleSeries.setData(aggBars);
+
+  // Volume bars (colored by candle direction)
+  const volData = aggBars.map(b => ({
+    time: b.time,
+    value: b.volume || 0,
+    color: b.close >= b.open ? 'rgba(0,230,118,0.35)' : 'rgba(255,59,107,0.35)',
+  }));
+  volumeSeries.setData(volData);
+
+  // VWAP — find the closest vwap snapshot per bucket
+  const vwapData = [];
+  for (const bar of aggBars) {
+    const bucketEnd = bar.time + activeTf * 60 - 1;
+    let bestTs = null, bestVal = null;
+    for (const [ts, val] of vwapCache.entries()) {
+      if (ts >= bar.time && ts <= bucketEnd) {
+        if (bestTs === null || ts > bestTs) {
+          bestTs = ts;
+          bestVal = val;
+        }
+      }
+    }
+    if (bestVal !== null) {
+      vwapData.push({ time: bar.time, value: bestVal });
+    }
+  }
+  vwapSeries.setData(vwapData);
+
+  candleSeries.setMarkers(markers);
+  chart.timeScale().scrollToRealTime();
+}
+
+function updateOverlayLines() {
+  // OR lines
+  if (lastOrHigh && (!orHighLine || orHighLine.__price !== lastOrHigh)) {
+    if (orHighLine) candleSeries.removePriceLine(orHighLine);
+    orHighLine = candleSeries.createPriceLine({
+      price: lastOrHigh,
+      color: '#ffb300',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: 'OR-H',
+    });
+    orHighLine.__price = lastOrHigh;
+  }
+  if (lastOrLow && (!orLowLine || orLowLine.__price !== lastOrLow)) {
+    if (orLowLine) candleSeries.removePriceLine(orLowLine);
+    orLowLine = candleSeries.createPriceLine({
+      price: lastOrLow,
+      color: '#ffb300',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      axisLabelVisible: true,
+      title: 'OR-L',
+    });
+    orLowLine.__price = lastOrLow;
+  }
+
+  // Entry/Stop/Target — visible only when in position
+  const inPos = (lastPosition !== 0);
+  if (!inPos) {
+    if (entryLine)  { candleSeries.removePriceLine(entryLine);  entryLine  = null; }
+    if (stopLine)   { candleSeries.removePriceLine(stopLine);   stopLine   = null; }
+    if (targetLine) { candleSeries.removePriceLine(targetLine); targetLine = null; }
+    return;
+  }
+
+  if (lastEntry > 0 && (!entryLine || entryLine.__price !== lastEntry)) {
+    if (entryLine) candleSeries.removePriceLine(entryLine);
+    entryLine = candleSeries.createPriceLine({
+      price: lastEntry,
+      color: '#ffffff',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true,
+      title: 'ENTRY',
+    });
+    entryLine.__price = lastEntry;
+  }
+  if (lastStop > 0 && (!stopLine || stopLine.__price !== lastStop)) {
+    if (stopLine) candleSeries.removePriceLine(stopLine);
+    stopLine = candleSeries.createPriceLine({
+      price: lastStop,
+      color: '#ff3b6b',
+      lineWidth: 2,
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true,
+      title: 'STOP',
+    });
+    stopLine.__price = lastStop;
+  }
+  if (lastTarget > 0 && (!targetLine || targetLine.__price !== lastTarget)) {
+    if (targetLine) candleSeries.removePriceLine(targetLine);
+    targetLine = candleSeries.createPriceLine({
+      price: lastTarget,
+      color: '#00e676',
+      lineWidth: 2,
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      axisLabelVisible: true,
+      title: 'TARGET',
+    });
+    targetLine.__price = lastTarget;
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+// Tick → Bar
+// ════════════════════════════════════════════════════════════
+function onTick(price, ts) {
+  if (!price || price <= 0) return;
+  const minute = floorBucket(ts, 1);
+
+  if (!currentBar || currentBar.time !== minute) {
+    // Finalize previous bar
+    if (currentBar) {
+      const idx = bars1m.findIndex(b => b.time === currentBar.time);
+      if (idx >= 0) bars1m[idx] = {...currentBar};
+      else bars1m.push({...currentBar});
+    }
+    currentBar = {
+      time: minute,
+      open: price,
+      high: price,
+      low: price,
+      close: price,
+      volume: 1,
+    };
+    bars1m.push({...currentBar});
+    $('s-bars').textContent = bars1m.length;
+  } else {
+    if (price > currentBar.high) currentBar.high = price;
+    if (price < currentBar.low) currentBar.low = price;
+    currentBar.close = price;
+    currentBar.volume = (currentBar.volume || 0) + 1;
+    const idx = bars1m.length - 1;
+    if (idx >= 0) bars1m[idx] = {...currentBar};
+  }
+
+  // Push to chart based on active TF
+  if (activeTf === 1) {
+    try {
+      candleSeries.update(currentBar);
+      volumeSeries.update({
+        time: currentBar.time,
+        value: currentBar.volume,
+        color: currentBar.close >= currentBar.open
+               ? 'rgba(0,230,118,0.35)' : 'rgba(255,59,107,0.35)',
+      });
+    } catch (e) {
+      console.warn('Chart update rejected (out-of-order):', e.message);
+    }
+  } else {
+    // Update aggregated current bucket
+    const bucket = floorBucket(ts, activeTf);
+    const slice = bars1m.filter(b => b.time >= bucket && b.time < bucket + activeTf * 60);
+    if (slice.length) {
+      const agg = {
+        time: bucket,
+        open: slice[0].open,
+        high: Math.max(...slice.map(b => b.high)),
+        low: Math.min(...slice.map(b => b.low)),
+        close: slice[slice.length - 1].close,
+        volume: slice.reduce((sum, b) => sum + (b.volume || 0), 0),
+      };
+      try {
+        candleSeries.update(agg);
+        volumeSeries.update({
+          time: agg.time,
+          value: agg.volume,
+          color: agg.close >= agg.open
+                 ? 'rgba(0,230,118,0.35)' : 'rgba(255,59,107,0.35)',
+        });
+      } catch (e) {}
+    }
+  }
+
+  chart.timeScale().scrollToRealTime();
+}
+
+// ════════════════════════════════════════════════════════════
+// Timeframe Buttons
+// ════════════════════════════════════════════════════════════
+document.querySelectorAll('.tf-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    activeTf = Number(btn.dataset.tf);
+    rebuildChart();
+  });
+});
+
+// ════════════════════════════════════════════════════════════
+// WebSocket
+// ════════════════════════════════════════════════════════════
+const WS_URL = 'ws://localhost:8765';
+let ws = null;
+let reconnectTimer = null;
+let reconnectCountdown = null;
+
+function setWsStatus(text, state) {
+  $('ws-status').textContent = text;
+  const dot = $('ws-dot');
+  dot.className = 'ws-dot ' + (state === 'ok' ? 'ok' : state === 'err' ? 'err' : '');
+  const overlay = $('reconnect-overlay');
+  if (state === 'err') {
+    overlay.classList.add('show');
+  } else {
+    overlay.classList.remove('show');
+  }
+}
+
+function setPosition(pos) {
+  const el = $('s-pos');
+  if (pos > 0) {
+    el.textContent = 'LONG';
+    el.className = 'v long';
+  } else if (pos < 0) {
+    el.textContent = 'SHORT';
+    el.className = 'v short';
+  } else {
+    el.textContent = 'FLAT';
+    el.className = 'v flat';
+  }
+}
+
+function connect() {
+  setWsStatus('connecting…', 'warn');
+  try {
+    ws = new WebSocket(WS_URL);
+  } catch (e) {
+    setWsStatus('error: ' + e.message, 'err');
+    scheduleReconnect();
+    return;
+  }
+
+  ws.onopen = () => {
+    setWsStatus('connected', 'ok');
+    if (reconnectCountdown) {
+      clearInterval(reconnectCountdown);
+      reconnectCountdown = null;
+    }
+  };
+
+  ws.onmessage = (evt) => {
+    let msg;
+    try {
+      msg = JSON.parse(evt.data);
+    } catch (e) {
+      return;
+    }
+
+    const price = Number(msg.price) || 0;
+    const bid   = Number(msg.bid)   || 0;
+    const ask   = Number(msg.ask)   || 0;
+    const ts    = Number(msg.ts)    || Math.floor(Date.now() / 1000);
+    const mid   = (bid > 0 && ask > 0) ? (bid + ask) / 2 : price;
+
+    $('s-price').textContent = price.toFixed(2);
+    $('s-bid').textContent   = bid.toFixed(2);
+    $('s-ask').textContent   = ask.toFixed(2);
+    $('s-mid').textContent   = mid.toFixed(2);
+
+    // VWAP
+    if (msg.vwap && msg.vwap > 0) {
+      const vwapVal = Number(msg.vwap);
+      $('s-vwap').textContent = vwapVal.toFixed(2);
+      vwapCache.set(ts, vwapVal);
+      const bucket = floorBucket(ts, activeTf);
+      try {
+        vwapSeries.update({ time: bucket, value: vwapVal });
+      } catch (e) {}
+    } else {
+      $('s-vwap').textContent = '—';
+    }
+
+    // OR levels
+    if (msg.or_high && msg.or_high > 0) lastOrHigh = Number(msg.or_high);
+    if (msg.or_low && msg.or_low > 0)   lastOrLow  = Number(msg.or_low);
+
+    // Position
+    const newPos = Number(msg.position) || 0;
+    lastPosition = newPos;
+    lastEntry  = Number(msg.entry)  || 0;
+    lastStop   = Number(msg.stop)   || 0;
+    lastTarget = Number(msg.target) || 0;
+    setPosition(newPos);
+
+    updateOverlayLines();
+
+    // Trade events
+    if (msg.trade_event) {
+      const ev = msg.trade_event;
+      const bucket = floorBucket(ts, activeTf);
+      if (ev.type === 'entry') {
+        const isBuy = (ev.direction || '').toUpperCase() === 'BUY';
+        markers.push({
+          time: bucket,
+          position: isBuy ? 'belowBar' : 'aboveBar',
+          color: isBuy ? '#00e676' : '#ff3b6b',
+          shape: isBuy ? 'arrowUp' : 'arrowDown',
+          text: ev.direction,
+        });
+      } else if (ev.type === 'exit') {
+        const pnl = Number(ev.pnl) || 0;
+        markers.push({
+          time: bucket,
+          position: 'inBar',
+          color: '#ffffff',
+          shape: 'circle',
+          text: 'EXIT ' + (pnl >= 0 ? '+' : '') + pnl.toFixed(0),
+        });
+      }
+      candleSeries.setMarkers(markers);
+    }
+
+    onTick(price, ts);
+  };
+
+  ws.onclose = () => {
+    setWsStatus('disconnected', 'err');
+    scheduleReconnect();
+  };
+
+  ws.onerror = () => {
+    // onclose will follow
+  };
+}
+
+function scheduleReconnect() {
+  if (reconnectTimer) return;
+  let countdown = 3;
+  $('reconnect-timer').textContent = countdown;
+  reconnectCountdown = setInterval(() => {
+    countdown -= 1;
+    $('reconnect-timer').textContent = countdown;
+    if (countdown <= 0 && reconnectCountdown) {
+      clearInterval(reconnectCountdown);
+      reconnectCountdown = null;
+    }
+  }, 1000);
+
+  reconnectTimer = setTimeout(() => {
+    reconnectTimer = null;
+    if (reconnectCountdown) {
+      clearInterval(reconnectCountdown);
+      reconnectCountdown = null;
+    }
+    connect();
+  }, 3000);
+}
+
+connect();
+</script>
+
+</body>
+</html>

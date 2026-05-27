@@ -1822,8 +1822,15 @@ def _first_match(value: str, candidates: list) -> str | None:
 
 
 def _extract_int(s: str, default: int) -> int:
-    digits = "".join(c for c in s if c.isdigit())
-    return int(digits) if digits else default
+    """Pull the FIRST contiguous digit run, not every digit concatenated.
+
+    The previous "".join(every-digit-char) implementation turned strings
+    like "65 (was 70)" into "6570" which then clamped to 100 in the
+    thesis-probability path — silently letting low-confidence trades
+    through the gate. Anchor to the first numeric run instead.
+    """
+    m = re.search(r"\d+", s)
+    return int(m.group()) if m else default
 
 
 def _extract_float(s: str, default: float) -> float:

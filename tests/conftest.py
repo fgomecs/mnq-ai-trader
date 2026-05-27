@@ -70,9 +70,10 @@ def mock_decision():
 
 @pytest.fixture
 def mock_watchlist():
-    """The shape pre_filter_signal expects from claude_brain.get_watchlist()."""
+    """The shape pre_filter_signal expects from claude_brain.get_watchlist().
+    Default bias is LONG_PREFERRED so tests exercise the bias-aware branch."""
     return {
-        "bias":               "NEUTRAL",
+        "bias":               "LONG_PREFERRED",
         "bias_invalidated":   False,
     }
 

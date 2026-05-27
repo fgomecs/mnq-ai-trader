@@ -43,16 +43,30 @@ def test_bug002_thesis_gate_passes_at_72_with_55_threshold():
 
 
 # ────────────────────────────────────────────────────────────────────
-# BUG-003 — Wrong model string would crash the Anthropic client.
-#           Verify claude_brain still references a documented model id.
+# BUG-003 — Wrong hardcoded model string would crash the Anthropic client.
+#           Fix made the model id env-driven via CLAUDE_ENTRY_MODEL so it
+#           can be swapped without code edits. Verify the env read works.
 # ────────────────────────────────────────────────────────────────────
-def test_bug003_model_strings_are_valid_anthropic_ids():
-    import claude_brain
-    source = open(claude_brain.__file__, encoding="utf-8").read()
-    valid_opus   = ("claude-opus-4-7", "claude-opus-4-6")
-    valid_sonnet = ("claude-sonnet-4-6", "claude-sonnet-4-7")
-    assert any(m in source for m in valid_opus),   "claude_brain has no valid Opus model id"
-    assert any(m in source for m in valid_sonnet), "claude_brain has no valid Sonnet model id"
+def test_bug003_claude_entry_model_reads_from_env(monkeypatch):
+    import importlib
+    import config
+    monkeypatch.setenv("CLAUDE_ENTRY_MODEL", "claude-opus-bug003-probe")
+    importlib.reload(config)
+    try:
+        assert config.CLAUDE_ENTRY_MODEL == "claude-opus-bug003-probe", \
+            "BUG-003: CLAUDE_ENTRY_MODEL did not pick up env override"
+        # Legacy alias must track the entry model.
+        assert config.CLAUDE_MODEL == config.CLAUDE_ENTRY_MODEL
+    finally:
+        monkeypatch.delenv("CLAUDE_ENTRY_MODEL", raising=False)
+        importlib.reload(config)
+
+
+def test_bug003_default_model_is_valid_anthropic_id():
+    """Without env override, default must still be a real Anthropic model id."""
+    import config
+    assert config.CLAUDE_ENTRY_MODEL.startswith(("claude-opus-", "claude-sonnet-")), \
+        f"BUG-003: invalid default model id: {config.CLAUDE_ENTRY_MODEL}"
 
 
 # ────────────────────────────────────────────────────────────────────

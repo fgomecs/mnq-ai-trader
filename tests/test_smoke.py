@@ -14,6 +14,30 @@ def test_config_imports_and_version_set():
     assert cfg.MAX_DAILY_LOSS_USD > 0
 
 
+def test_config_reads_max_contracts_from_env(monkeypatch):
+    """MAX_CONTRACTS is env-overridable; reload picks up the new value."""
+    import config
+    monkeypatch.setenv("MAX_CONTRACTS", "3")
+    importlib.reload(config)
+    try:
+        assert config.MAX_CONTRACTS == 3
+    finally:
+        monkeypatch.delenv("MAX_CONTRACTS", raising=False)
+        importlib.reload(config)   # restore for downstream tests
+
+
+def test_config_reads_claude_entry_model_from_env(monkeypatch):
+    """CLAUDE_ENTRY_MODEL is env-overridable so we can swap Opus versions."""
+    import config
+    monkeypatch.setenv("CLAUDE_ENTRY_MODEL", "claude-opus-test-stub")
+    importlib.reload(config)
+    try:
+        assert config.CLAUDE_ENTRY_MODEL == "claude-opus-test-stub"
+    finally:
+        monkeypatch.delenv("CLAUDE_ENTRY_MODEL", raising=False)
+        importlib.reload(config)
+
+
 def test_claude_brain_imports_and_exports():
     mod = importlib.import_module("claude_brain")
     for name in ("pre_filter_signal", "parse_decision", "analyze_market",

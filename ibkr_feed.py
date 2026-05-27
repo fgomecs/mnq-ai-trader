@@ -122,6 +122,13 @@ class IBKRFeed:
         self._delta_last_bar   = 0
         self._last_bar_start   = None
 
+        # ── Tick-built forming 1-min bar ───────────────────
+        # Updated on every AllLast tick in live mode.
+        # _tick_bar_minute: ET datetime truncated to minute (or None before first tick).
+        # _tick_bar: dict with open/high/low/close/volume/minute_dt for the current minute.
+        self._tick_bar_minute: Optional[datetime] = None
+        self._tick_bar: dict = {}
+
         # ── Tape / large print detection ───────────────────
         self._large_prints:        list  = []   # last 20 [{time, price, size, side}]
         self._large_print_threshold: int = LARGE_PRINT_THRESHOLD
@@ -427,6 +434,12 @@ class IBKRFeed:
 
                 self._rt_bar_buffer.append(last)
 
+                # In live mode, 1-min bars are built tick-by-tick in on_tick.
+                # RT bars are still received (subscription kept alive) but we
+                # skip the flush here to avoid double-appending.
+                if LIVE_DATA_ACTIVE:
+                    return
+
                 # Accumulate REALTIME_BARS_PER_MINUTE × 5-sec bars → one 1-min bar
                 if len(self._rt_bar_buffer) >= REALTIME_BARS_PER_MINUTE:
                     buf = self._rt_bar_buffer[-REALTIME_BARS_PER_MINUTE:]
@@ -592,6 +605,71 @@ class IBKRFeed:
 
                     rounded = round(price * 4) / 4
                     self.volume_profile[rounded] = self.volume_profile.get(rounded, 0) + size
+
+                    # ── Tick-built 1-min bar ───────────────
+                    # Use the tick's own exchange timestamp when available;
+                    # fall back to wall clock so the bar boundary is accurate
+                    # regardless of system clock skew.
+                    try:
+                        tick_time = getattr(tick, "time", None)
+                        if tick_time and hasattr(tick_time, "astimezone"):
+                            tick_et = tick_time.astimezone(eastern)
+                        elif isinstance(tick_time, (int, float)) and tick_time > 0:
+                            tick_et = datetime.fromtimestamp(tick_time, tz=eastern)
+                        else:
+                            tick_et = datetime.now(eastern)
+                    except Exception:
+                        tick_et = datetime.now(eastern)
+
+                    this_minute = tick_et.replace(second=0, microsecond=0)
+
+                    if self._tick_bar_minute is None or this_minute != self._tick_bar_minute:
+                        # Minute rolled — close the completed bar into _bars_1min
+                        if self._tick_bar and self._tick_bar_minute is not None:
+                            class _Bar:
+                                pass
+                            closed = _Bar()
+                            closed.date   = self._tick_bar_minute
+                            closed.open   = self._tick_bar["open"]
+                            closed.high   = self._tick_bar["high"]
+                            closed.low    = self._tick_bar["low"]
+                            closed.close  = self._tick_bar["close"]
+                            closed.volume = self._tick_bar["volume"]
+                            with self._bar_lock:
+                                self._bars_1min.append(closed)
+                                self._bars_1min = self._bars_1min[-BARS_1MIN_CACHE_SIZE:]
+                                self._last_bars_1min = list(self._bars_1min)
+                                self._update_vwap_incremental(closed, self._tick_bar_minute)
+                                bar_dt = closed.date
+                                if (bar_dt.hour == 9 and bar_dt.minute == 30
+                                        and self.first_candle_1min_high == 0.0):
+                                    self.first_candle_1min_high = closed.high
+                                    self.first_candle_1min_low  = closed.low
+                                if (bar_dt.hour == 9 and bar_dt.minute == 34
+                                        and self.first_candle_5min_high == 0.0):
+                                    today_d = bar_dt.date()
+                                    window = [b for b in self._bars_1min[-5:]
+                                              if b.date.date() == today_d
+                                              and b.date.hour == 9
+                                              and 30 <= b.date.minute <= 34]
+                                    if window:
+                                        self.first_candle_5min_high = max(b.high for b in window)
+                                        self.first_candle_5min_low  = min(b.low  for b in window)
+                            if this_minute.minute % 5 == 0:
+                                self._refresh_ict_levels()
+                                self._update_or_pullback_tracking()
+                        # Start fresh bar for new minute
+                        self._tick_bar_minute = this_minute
+                        self._tick_bar = {
+                            "open": price, "high": price, "low": price,
+                            "close": price, "volume": size,
+                        }
+                    else:
+                        # Same minute — accumulate
+                        if price > self._tick_bar["high"]: self._tick_bar["high"]  = price
+                        if price < self._tick_bar["low"]:  self._tick_bar["low"]   = price
+                        self._tick_bar["close"]   = price
+                        self._tick_bar["volume"] += size
 
                     # Large print / tape detection
                     if size >= self._large_print_threshold:

@@ -44,7 +44,7 @@ from config import (
     DASHBOARD_ACCOUNT_REFRESH_SECS, DASHBOARD_LIVE_PATCH_SECS,
     PRE_FILTER_LOG_INTERVAL_SECS,
     FEATURE_SESSION_CLASSIFIER, FEATURE_POST_NEWS_REFRESH,
-    NIGHT_OWL,
+    NIGHT_OWL, LIVE_DATA_ACTIVE,
 )
 from session_classifier import (
     classify_session_type, get_session_type_context, SessionType,
@@ -295,48 +295,62 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                     return 0.0
 
             if ticker:
-                price = _clean(ticker.last) or _clean(ticker.close) or _clean(ticker.bid) or _clean(ticker.ask)
+                price = _clean(ticker.last) or 0  # LAST trade only — no bid/ask fallback
                 bid   = _clean(ticker.bid)
                 ask   = _clean(ticker.ask)
                 vol   = _clean(ticker.volume) or _clean(getattr(ticker, "avVolume", 0))
 
-            # Fallback chain when ticker hasn't populated yet (delayed data
-            # mode has a 1-3s warmup before fields appear). Use last close
-            # from feed's bar cache so dashboard shows SOMETHING immediately.
-            if price <= 0 and executor._last_price > 0:
-                price = executor._last_price
-            if price <= 0:
+            # Fallback chain for dashboard display only (not broadcast).
+            # executor.update_price and broadcast_tick require real LAST price.
+            display_price = price
+            if display_price <= 0 and executor._last_price > 0:
+                display_price = executor._last_price
+            if display_price <= 0:
                 try:
-                    price = feed._get_last_price()
+                    display_price = feed._get_last_price()
                 except Exception:
                     pass
-            # Last resort: pull from the most recent 1-min bar
-            if price <= 0 and feed._bars_1min:
-                price = feed._bars_1min[-1].close or 0.0
+            if display_price <= 0 and feed._bars_1min:
+                display_price = feed._bars_1min[-1].close or 0.0
 
             # If bid/ask still empty (common in delayed mode), synthesize a
             # tight spread around price so the dashboard shows SOMETHING.
             # Mark approximate by using exact price = bid = ask.
-            if bid <= 0 and price > 0:
-                bid = price
-            if ask <= 0 and price > 0:
-                ask = price
+            if bid <= 0 and display_price > 0:
+                bid = display_price
+            if ask <= 0 and display_price > 0:
+                ask = display_price
 
-            # 5-second tick heartbeat: live price + bid/ask + mid so the
-            # operator can sanity-check the feed without opening the
-            # dashboard. Uses the same modulo cadence pattern as the
-            # account-refresh throttle below.
-            if price > 0 and int(time.time()) % 5 == 0:
-                mid = (bid + ask) / 2 if bid > 0 and ask > 0 else price
+            # 5-second tick heartbeat
+            if display_price > 0 and int(time.time()) % 5 == 0:
+                mid = (bid + ask) / 2 if bid > 0 and ask > 0 else display_price
                 logger.info(
-                    f"[TICK] price:{price:.2f}  bid:{bid:.2f}  ask:{ask:.2f}  mid:{mid:.2f}"
+                    f"[TICK] price:{display_price:.2f}  bid:{bid:.2f}  ask:{ask:.2f}  mid:{mid:.2f}"
                 )
 
+            if display_price > 0:
+                executor.update_price(display_price)
+
+            # Broadcast only real LAST trade prices — skip if no LAST tick this cycle.
             if price > 0:
-                executor.update_price(price)
-                # Broadcast tick to chart_test3.html and any other WS clients.
-                # Include feed levels + position context so the chart can
-                # render overlays without polling JSON files.
+                # Track forming 1-min bar for broadcast.
+                # Live mode: feed._tick_bar is built tick-by-tick in on_tick —
+                # use it directly so bar OHLC is accurate to the tick.
+                # Delayed mode: accumulate here as before (no tick stream).
+                if LIVE_DATA_ACTIVE and feed._tick_bar:
+                    cur_bar = feed._tick_bar
+                else:
+                    now_min = int(time.time() // 60)
+                    if _current_bar["minute"] != now_min:
+                        _current_bar["minute"] = now_min
+                        _current_bar["open"]   = price
+                        _current_bar["high"]   = price
+                        _current_bar["low"]    = price
+                    else:
+                        if price > _current_bar["high"]: _current_bar["high"] = price
+                        if price < _current_bar["low"]:  _current_bar["low"]  = price
+                    cur_bar = _current_bar
+
                 pos = executor.current_position
                 pos_sign = 1 if pos > 0 else (-1 if pos < 0 else 0)
                 try:
@@ -354,6 +368,9 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                     stop=executor.stop_price   if pos != 0 else 0.0,
                     target=executor.target_price if pos != 0 else 0.0,
                     position=pos_sign,
+                    bar_open=float(cur_bar.get("open",  price)),
+                    bar_high=float(cur_bar.get("high",  price)),
+                    bar_low=float( cur_bar.get("low",   price)),
                 )
 
             if int(time.time()) % DASHBOARD_ACCOUNT_REFRESH_SECS == 0:
@@ -364,27 +381,15 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
                 with _last_snapshot_lock:
                     account_data = _last_snapshot.get("account_data", {})
 
-            # Track current forming 1-min bar (reset on minute boundary)
-            if price > 0:
-                now_min = int(time.time() // 60)
-                if _current_bar["minute"] != now_min:
-                    _current_bar["minute"] = now_min
-                    _current_bar["open"]   = price
-                    _current_bar["high"]   = price
-                    _current_bar["low"]    = price
-                else:
-                    if price > _current_bar["high"]: _current_bar["high"] = price
-                    if price < _current_bar["low"]:  _current_bar["low"]  = price
-
             update_price_only(
-                price=price, bid=bid, ask=ask, volume=vol,
+                price=display_price, bid=bid, ask=ask, volume=vol,
                 position=executor.current_position,
                 entry_price=executor.entry_price,
                 stop_price=executor.stop_price,
                 target_price=executor.target_price,
                 daily_pnl=executor.daily_pnl,
                 account=account_data,
-                current_bar=_current_bar if price > 0 else None,
+                current_bar=_current_bar if display_price > 0 else None,
                 session_high=_last_snapshot.get("session_high"),
                 session_low=_last_snapshot.get("session_low"),
             )

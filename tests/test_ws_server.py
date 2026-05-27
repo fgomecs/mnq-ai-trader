@@ -337,3 +337,124 @@ def test_no_history_when_feed_not_set(server):
     # First message should be a tick, not history
     assert "price" in msg
     assert msg.get("type") != "history"
+
+
+# ── Tick-built 1-min bar tests ───────────────────────────────────────────────
+
+def _make_feed_stub():
+    """Minimal IBKRFeed stub for tick-bar tests (no IBKR connection needed)."""
+    import threading
+    from ibkr_feed import IBKRFeed
+    feed = IBKRFeed.__new__(IBKRFeed)
+    feed._bars_1min           = []
+    feed._bar_lock            = threading.Lock()
+    feed._last_bars_1min      = []
+    feed.vwap_cum_pv          = 0.0
+    feed.vwap_cum_vol         = 0.0
+    feed.vwap_date            = None
+    feed.first_candle_1min_high = 0.0
+    feed.first_candle_1min_low  = 0.0
+    feed.first_candle_5min_high = 0.0
+    feed.first_candle_5min_low  = 0.0
+    feed._tick_bar_minute     = None
+    feed._tick_bar            = {}
+    feed._refresh_ict_levels          = lambda: None
+    feed._update_or_pullback_tracking = lambda: None
+    return feed
+
+
+def _push_tick(feed, price, size, minute, second=0):
+    """Simulate one AllLast tick arriving at the given ET minute:second."""
+    import pytz
+    from datetime import datetime
+    from ibkr_feed import BARS_1MIN_CACHE_SIZE
+
+    eastern = pytz.timezone("US/Eastern")
+
+    class _Tick:
+        pass
+    t = _Tick()
+    t.price = price
+    t.size  = size
+    t.time  = eastern.localize(datetime(2026, 5, 27, 15, minute, second))
+
+    tick_et     = t.time
+    this_minute = tick_et.replace(second=0, microsecond=0)
+
+    if feed._tick_bar_minute is None or this_minute != feed._tick_bar_minute:
+        if feed._tick_bar and feed._tick_bar_minute is not None:
+            class _Bar:
+                pass
+            closed        = _Bar()
+            closed.date   = feed._tick_bar_minute
+            closed.open   = feed._tick_bar["open"]
+            closed.high   = feed._tick_bar["high"]
+            closed.low    = feed._tick_bar["low"]
+            closed.close  = feed._tick_bar["close"]
+            closed.volume = feed._tick_bar["volume"]
+            with feed._bar_lock:
+                feed._bars_1min.append(closed)
+                feed._bars_1min = feed._bars_1min[-BARS_1MIN_CACHE_SIZE:]
+                feed._last_bars_1min = list(feed._bars_1min)
+            if this_minute.minute % 5 == 0:
+                feed._refresh_ict_levels()
+                feed._update_or_pullback_tracking()
+        feed._tick_bar_minute = this_minute
+        feed._tick_bar = {"open": price, "high": price, "low": price,
+                          "close": price, "volume": size}
+    else:
+        if price > feed._tick_bar["high"]: feed._tick_bar["high"]  = price
+        if price < feed._tick_bar["low"]:  feed._tick_bar["low"]   = price
+        feed._tick_bar["close"]   = price
+        feed._tick_bar["volume"] += size
+
+
+def test_tick_bar_accumulates_within_minute():
+    feed = _make_feed_stub()
+    _push_tick(feed, 30050.00, 10, minute=15, second=0)
+    _push_tick(feed, 30055.00, 5,  minute=15, second=10)
+    _push_tick(feed, 30048.00, 8,  minute=15, second=50)
+    # Bar not closed yet — no completed bar
+    assert len(feed._bars_1min) == 0
+    assert feed._tick_bar["open"]  == 30050.00
+    assert feed._tick_bar["high"]  == 30055.00
+    assert feed._tick_bar["low"]   == 30048.00
+    assert feed._tick_bar["close"] == 30048.00
+    assert feed._tick_bar["volume"] == 23
+
+
+def test_tick_bar_closes_on_minute_roll():
+    feed = _make_feed_stub()
+    _push_tick(feed, 30050.00, 10, minute=15, second=0)
+    _push_tick(feed, 30060.00, 5,  minute=15, second=30)
+    # New minute arrives — triggers flush of :15 bar
+    _push_tick(feed, 30055.00, 3,  minute=16, second=0)
+    assert len(feed._bars_1min) == 1
+    bar = feed._bars_1min[0]
+    assert bar.date.minute == 15
+    assert bar.date.second == 0
+    assert bar.open  == 30050.00
+    assert bar.high  == 30060.00
+    assert bar.low   == 30050.00
+    assert bar.close == 30060.00
+    assert bar.volume == 15
+    # New minute's forming bar seeded correctly
+    assert feed._tick_bar["open"] == 30055.00
+
+
+def test_tick_bar_open_never_changes():
+    feed = _make_feed_stub()
+    _push_tick(feed, 30100.00, 1, minute=10, second=0)
+    _push_tick(feed, 30200.00, 1, minute=10, second=15)
+    _push_tick(feed, 29900.00, 1, minute=10, second=45)
+    assert feed._tick_bar["open"] == 30100.00  # unchanged regardless of H/L
+
+
+def test_tick_bar_aligns_to_clock_minute_boundary():
+    """Bot connecting mid-minute: first bar's date must be :00, not :37."""
+    feed = _make_feed_stub()
+    _push_tick(feed, 30050.00, 5, minute=9, second=37)
+    _push_tick(feed, 30051.00, 5, minute=10, second=0)
+    assert len(feed._bars_1min) == 1
+    assert feed._bars_1min[0].date.second == 0
+    assert feed._bars_1min[0].date.minute == 9

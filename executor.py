@@ -12,7 +12,7 @@ import threading
 import time
 from typing import Optional
 
-from ib_insync import Future, LimitOrder, MarketOrder, StopOrder
+from ib_async import Future, LimitOrder, MarketOrder, StopOrder
 
 from config import (
     MAX_CONTRACTS, MAX_DAILY_LOSS_USD, MAX_SESSION_R_LOSS, SYMBOL,
@@ -95,7 +95,7 @@ class Executor:
         # Real broker commissions captured via commissionReportEvent.
         # _pending: accumulated since last _record_pnl (consumed and reset per trade).
         # _session: running total for the day (diagnostic).
-        # _seen_exec_ids: dedupe — ib_insync can fire the event twice for the
+        # _seen_exec_ids: dedupe — ib_async can fire the event twice for the
         #   same fill, AND IBKR replays today's executions on (re)connect,
         #   which would otherwise pile previously-accounted commissions into
         #   the next live trade. Primed below from ib.fills() before the
@@ -197,7 +197,7 @@ class Executor:
         """
         Compare local position with broker. If they disagree, flag for main
         thread to fix. We CANNOT call ib.placeOrder or ib.sleep from this
-        thread (protection thread) safely — ib_insync's asyncio loop lives
+        thread (protection thread) safely — ib_async's asyncio loop lives
         on the main thread, and calls from worker threads can hang or fail.
 
         So this method only DETECTS drift and sets _needs_close with a
@@ -231,7 +231,7 @@ class Executor:
     def _handle_reconcile_on_main(self, reason: str) -> None:
         """
         Main-thread reconciliation handler. Called from check_pending_close
-        when _needs_close starts with 'RECONCILE'. Safe to call ib_insync
+        when _needs_close starts with 'RECONCILE'. Safe to call ib_async
         methods here.
         """
         try:
@@ -771,7 +771,7 @@ class Executor:
     @staticmethod
     def _coerce_utc(ts) -> Optional["datetime.datetime"]:
         """
-        Best-effort: turn an ib_insync execution.time into a tz-aware UTC
+        Best-effort: turn an ib_async execution.time into a tz-aware UTC
         datetime. Accepts datetime (naive treated as UTC), ISO string, or
         epoch seconds. Returns None if it can't be coerced — callers must
         treat None as "unknown, don't apply cutoff" to avoid silent drops.
@@ -864,12 +864,12 @@ class Executor:
 
     def _on_commission_report(self, trade, fill, report) -> None:
         """
-        ib_insync commissionReportEvent handler. Fires once per fill once IBKR
+        ib_async commissionReportEvent handler. Fires once per fill once IBKR
         reports the realised commission. Accumulates into a pending bucket that
         _record_pnl drains on trade close. Dedupes by execId — the event can
-        fire twice for the same fill in some ib_insync versions.
+        fire twice for the same fill in some ib_async versions.
 
-        Runs on the ib_insync event-loop thread. Uses a dedicated lock so it
+        Runs on the ib_async event-loop thread. Uses a dedicated lock so it
         never contends with the main Executor._lock.
         """
         try:

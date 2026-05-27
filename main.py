@@ -163,7 +163,7 @@ _last_snapshot_lock   = threading.Lock()
 _last_snapshot: dict  = {}
 _current_bar: dict    = {"minute": None, "open": 0.0, "high": 0.0, "low": 0.0}
 
-# Claude calls run in a worker thread so the ib_insync asyncio loop keeps pumping
+# Claude calls run in a worker thread so the ib_async asyncio loop keeps pumping
 # IBKR keepalives during the 8–40s Anthropic HTTP wait. Without this, TWS drops
 # the socket as unresponsive and run_cycle ends up in an "Empty snapshot" loop.
 _claude_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="claude")
@@ -273,7 +273,7 @@ def _fast_dashboard_ticker(feed: IBKRFeed, executor: Executor) -> None:
             price = bid = ask = vol = 0.0
 
             def _clean(v):
-                """Convert NaN/None/negative to 0.0. ib_insync returns NaN
+                """Convert NaN/None/negative to 0.0. ib_async returns NaN
                 for delayed-mode bid/ask which is truthy, so `or 0.0` doesn't
                 catch it. This does."""
                 try:

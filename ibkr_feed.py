@@ -2,7 +2,7 @@
 IBKR Market Data Feed — MNQ AI Trader
 ======================================
 Architecture:
-  - Bars fetched ONCE at startup, then updated via reqRealTimeBars (5-sec bars)
+  - Bars fetched ONCE at startup, then updated via reqRealTimeBars (1-sec bars)
   - Historical bars refresh only on bar close (not every snapshot cycle)
   - Snapshot assembly < 1 second (vs 7-17s before)
   - True bid/ask delta classification via live tick stream
@@ -21,7 +21,7 @@ from typing import Optional
 
 import pandas as pd
 import pytz
-from ib_insync import IB, Future, RealTimeBar
+from ib_async import IB, Future, RealTimeBar
 
 from config import (
     CONTRACT_CONID, CONTRACT_EXPIRY, CURRENCY, EXCHANGE,
@@ -65,7 +65,7 @@ eastern = pytz.timezone("US/Eastern")
 
 
 def _bar_et(bar) -> datetime:
-    """Return timezone-aware Eastern datetime for an ib_insync bar or RealTimeBar."""
+    """Return timezone-aware Eastern datetime for an ib_async bar or RealTimeBar."""
     # RealTimeBar uses .time (a datetime), historical bars use .date (str or datetime)
     raw = getattr(bar, "date", None) or getattr(bar, "time", None)
     if raw is None:
@@ -380,10 +380,16 @@ class IBKRFeed:
         self._start_realtime_bars()
 
     def _start_realtime_bars(self) -> None:
-        """Subscribe to 5-second real-time bars. Accumulate into 1-min bars."""
+        """Subscribe to 1-second real-time bars. Accumulate into 1-min bars.
+
+        NOTE: IBKR's reqRealTimeBars officially supports only 5-second bars.
+        Passing barSize=1 may be rejected by TWS (look for "only 5 second
+        bars" in the error log). If that happens, revert to 5 or build
+        1-second bars by aggregating reqTickByTickData on our side.
+        """
         try:
             bars = self.ib.reqRealTimeBars(
-                self.contract, 5, "TRADES", False
+                self.contract, 1, "TRADES", False
             )
 
             def on_rt_bar(bars, has_new_bar):
@@ -404,7 +410,7 @@ class IBKRFeed:
                         pass
                     bar_1m      = _Bar()
                     bar_1m.date = _bar_et(buf[0])   # always a datetime
-                    # RealTimeBar uses open_ (not open) — ib_insync naming quirk
+                    # RealTimeBar uses open_ (not open) — ib_async naming quirk
                     bar_1m.open   = getattr(buf[0],  'open_', getattr(buf[0],  'open',  0))
                     bar_1m.high   = max(getattr(b,   'high',  0) for b in buf)
                     bar_1m.low    = min(getattr(b,   'low',   0) for b in buf)
@@ -504,7 +510,7 @@ class IBKRFeed:
 
             def on_tick(ticker):
                 """
-                ib_insync's reqTickByTickData passes the Ticker object to
+                ib_async's reqTickByTickData passes the Ticker object to
                 updateEvent handlers. The actual ticks are stored in
                 ticker.tickByTicks as a list of TickByTickAllLast objects
                 with .price, .size, .time attributes.
@@ -582,7 +588,7 @@ class IBKRFeed:
                     self._tape_bear_pressure = 0
                     self._tape_last_reset    = now_et
 
-                # Note: do NOT clear ticker.tickByTicks here. ib_insync
+                # Note: do NOT clear ticker.tickByTicks here. ib_async
                 # replaces the list with each updateEvent, so clearing would
                 # actually be a no-op or could race with the next update.
 
@@ -645,11 +651,11 @@ class IBKRFeed:
             return
         try:
             self.dom_ticker = self.ib.reqMktDepth(
-                self.contract, numRows=20, isSmartDepth=False
+                self.contract, numRows=40, isSmartDepth=False
             )
             self.ib.sleep(1)
             self.dom_subscription_active = True
-            logger.info("DOM stream started (20 levels)")
+            logger.info("DOM stream started (40 levels)")
         except Exception as e:
             logger.warning(f"DOM stream unavailable: {e}")
             self.dom_subscription_active = False
@@ -735,7 +741,7 @@ class IBKRFeed:
             # QQQ is the closest liquid proxy for Nasdaq news flow.
             if not hasattr(self, '_news_handler_wired'):
                 try:
-                    from ib_insync import Stock
+                    from ib_async import Stock
                     qqq = Stock("QQQ", "SMART", "USD")
                     self.ib.qualifyContracts(qqq)
                     self._news_ticker = self.ib.reqMktData(qqq, "292", False, False)

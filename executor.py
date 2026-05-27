@@ -768,6 +768,31 @@ class Executor:
 
         return pnl
 
+    @staticmethod
+    def _coerce_utc(ts) -> Optional["datetime.datetime"]:
+        """
+        Best-effort: turn an ib_insync execution.time into a tz-aware UTC
+        datetime. Accepts datetime (naive treated as UTC), ISO string, or
+        epoch seconds. Returns None if it can't be coerced — callers must
+        treat None as "unknown, don't apply cutoff" to avoid silent drops.
+        """
+        if ts is None:
+            return None
+        if isinstance(ts, datetime.datetime):
+            return ts if ts.tzinfo else ts.replace(tzinfo=datetime.timezone.utc)
+        if isinstance(ts, (int, float)):
+            try:
+                return datetime.datetime.fromtimestamp(ts, datetime.timezone.utc)
+            except (OverflowError, OSError, ValueError):
+                return None
+        if isinstance(ts, str):
+            try:
+                dt = datetime.datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                return dt if dt.tzinfo else dt.replace(tzinfo=datetime.timezone.utc)
+            except ValueError:
+                return None
+        return None
+
     def mark_disconnect(self) -> None:
         """
         Record the UTC time of an IBKR disconnect. reprime_seen_exec_ids()
@@ -800,23 +825,36 @@ class Executor:
             except Exception:
                 pass
 
-            cutoff  = self._last_disconnect_ts
-            added   = 0
-            skipped = 0
+            cutoff   = self._last_disconnect_ts
+            added    = 0
+            skipped  = 0
+            unknown  = 0   # fills with un-coercible timestamps
             for fill in self.ib.fills():
                 exec_id = getattr(fill.execution, "execId", "")
                 if not exec_id or exec_id in self._seen_exec_ids:
                     continue
-                fill_ts = getattr(fill.execution, "time", None)
-                if cutoff is not None and fill_ts is not None and fill_ts >= cutoff:
-                    skipped += 1   # outage-window fill — let its commission book
-                    continue
+                if cutoff is not None:
+                    fill_ts = self._coerce_utc(getattr(fill.execution, "time", None))
+                    if fill_ts is None:
+                        # Don't apply cutoff to a fill we can't time.
+                        # Conservative: do NOT prime — let the handler decide
+                        # via its own dedupe and book the commission if seen.
+                        unknown += 1
+                        continue
+                    if fill_ts >= cutoff:
+                        skipped += 1   # outage-window — let its commission book
+                        continue
                 self._seen_exec_ids.add(exec_id)
                 added += 1
 
             self._last_disconnect_ts = None  # consumed; next reprime starts fresh
 
-            tail = "" if cutoff is None else f", {skipped} outage-window fill(s) preserved"
+            tail_parts = []
+            if cutoff is not None:
+                tail_parts.append(f"{skipped} outage-window fill(s) preserved")
+            if unknown:
+                tail_parts.append(f"{unknown} fill(s) with unparseable timestamp skipped")
+            tail = (", " + ", ".join(tail_parts)) if tail_parts else ""
             logger.info(
                 f"Re-primed _seen_exec_ids after IBKR reconnect "
                 f"(+{added} execIds, total={len(self._seen_exec_ids)}{tail})"

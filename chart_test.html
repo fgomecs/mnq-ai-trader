@@ -52,6 +52,10 @@
     <div class="item"><span class="k">H</span><span class="v" id="s-high">--</span></div>
     <div class="item"><span class="k">L</span><span class="v" id="s-low">--</span></div>
     <div class="item"><span class="k">C</span><span class="v" id="s-close">--</span></div>
+    <div class="item"><span class="k">vwap</span><span class="v" id="s-vwap">--</span></div>
+    <div class="item"><span class="k">entry</span><span class="v" id="s-entry">--</span></div>
+    <div class="item"><span class="k">stop</span><span class="v" id="s-stop">--</span></div>
+    <div class="item"><span class="k">target</span><span class="v" id="s-target">--</span></div>
     <div class="item"><span class="k">pos</span><span class="v" id="s-pos">FLAT</span></div>
     <div class="item"><span class="k">or</span><span class="v" id="s-or">--</span></div>
     <div class="item"><span class="k">bars</span><span class="v" id="s-bars">0</span></div>
@@ -328,6 +332,13 @@ function wsConnect() {
       onTick(price, ts, Number(msg.bar_open) || 0, Number(msg.bar_high) || 0, Number(msg.bar_low) || 0);
     }
     // Live levels from WS tick
+    if (msg.vwap > 0)   $('s-vwap').textContent   = Number(msg.vwap).toFixed(2);
+    if (msg.entry > 0)  $('s-entry').textContent  = Number(msg.entry).toFixed(2);
+    else                $('s-entry').textContent  = '--';
+    if (msg.stop > 0)   $('s-stop').textContent   = Number(msg.stop).toFixed(2);
+    else                $('s-stop').textContent   = '--';
+    if (msg.target > 0) $('s-target').textContent = Number(msg.target).toFixed(2);
+    else                $('s-target').textContent = '--';
     if (msg.or_high || msg.or_low || msg.stop || msg.target || msg.entry) {
       updateLevels(
         Number(msg.or_high) || 0, Number(msg.or_low) || 0,

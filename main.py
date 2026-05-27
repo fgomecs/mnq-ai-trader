@@ -836,6 +836,18 @@ def _patch_dashboard_live(feed: IBKRFeed, executor: Executor, price: float, acco
     every 10 seconds regardless of whether Claude fired.
     """
     now_et = datetime.now(pytz.timezone("US/Eastern"))
+
+    # Include the OHLC bar arrays so the dashboard writer's
+    # 10-second live patch does not clobber bars1min / bars5min with
+    # empty lists (the chart was going blank between full snapshot
+    # writes). Same serializer as the full get_snapshot path uses.
+    try:
+        bars_1min_serialized = feed._serialize_bars_with_vwap(list(feed._bars_1min)[-300:])
+        bars_5min_serialized = feed._serialize_bars_with_vwap(list(feed._bars_5min)[-150:])
+    except Exception:
+        bars_1min_serialized = []
+        bars_5min_serialized = []
+
     s = {
         "or_high":            feed.or_high,
         "or_low":             feed.or_low,
@@ -854,6 +866,8 @@ def _patch_dashboard_live(feed: IBKRFeed, executor: Executor, price: float, acco
         "killzone":           feed._get_killzone(now_et),
         "news_text":          feed._news_cache.get("news_text", ""),
         "news_danger_zone":   feed._news_cache.get("news_danger_zone", False),
+        "bars_1min":          bars_1min_serialized,
+        "bars_5min":          bars_5min_serialized,
     }
 
     state  = get_session_state(now_et)

@@ -352,6 +352,13 @@ def update_dashboard(
                               "delta_trend", "market_structure", "htfBias"):
                     if not data.get(field) and existing.get(field):
                         data[field] = existing[field]
+                # Preserve bar arrays — empty list incoming + non-empty
+                # existing means the caller doesn't have bars to give us
+                # (e.g. fast ticker partial snapshot). Don't clobber the
+                # chart.
+                for bar_field in ("bars1min", "bars5min"):
+                    if not data.get(bar_field) and existing.get(bar_field):
+                        data[bar_field] = existing[bar_field]
         except Exception as merge_err:
             if _logger:
                 _logger.debug(f"Dashboard merge skipped: {merge_err}")

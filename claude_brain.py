@@ -1008,12 +1008,13 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     if "CONFLICTED" in mtf:
         return False, "MTF conflicted"
 
-    price   = snapshot.get("last_price", 0)
+    # Defensive: any of these may arrive as None from a degraded snapshot.
+    price   = snapshot.get("last_price", 0) or 0
     vwap    = snapshot.get("vwap",  0) or 0
     delta   = snapshot.get("cumulative_delta", 0) or 0
     or_high = snapshot.get("or_high", 0) or 0
     or_low  = snapshot.get("or_low",  0) or 0
-    choch   = snapshot.get("choch", "")
+    choch   = snapshot.get("choch", "") or ""
 
     dom_imbalance  = snapshot.get("dom_imbalance", "NEUTRAL")
     dom_vacuum_up  = snapshot.get("dom_vacuum_above", False)
@@ -1027,8 +1028,8 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     dom_cluster_a  = snapshot.get("dom_cluster_above")
     last_price     = snapshot.get("last_price", 0) or 0
 
-    # V4.0 — OFI signals
-    ofi            = snapshot.get("ofi", {})
+    # V4.0 — OFI signals. `or {}` guards against snapshot["ofi"] == None.
+    ofi            = snapshot.get("ofi", {}) or {}
     ofi_score      = ofi.get("score", 0)
     ofi_signal     = ofi.get("signal", "NEUTRAL")
     ofi_accel      = ofi.get("acceleration", "STABLE")
@@ -1078,7 +1079,7 @@ def pre_filter_signal(snapshot: dict) -> tuple:
     if vp_inside_va and price > snapshot.get("vp_poc", 0):
         bull_signals += 1; bull_reasons.append("above POC in VA")
     # Candle patterns — bullish engulfing or hammer near OB/FVG = +2; OR-aligned pattern = +1
-    _cp = snapshot.get("candle_patterns", "")
+    _cp = snapshot.get("candle_patterns", "") or ""
     _at_level = any(kw in snapshot.get("fair_value_gaps", "") or snapshot.get("order_blocks", "")
                     for kw in ("★ INSIDE", "★ AT OB", "dist:0", "dist:1", "dist:2", "dist:3", "dist:4", "dist:5"))
     if ("BULLISH ENGULFING" in _cp or "HAMMER" in _cp) and _at_level:
@@ -1151,7 +1152,7 @@ def pre_filter_signal(snapshot: dict) -> tuple:
             bull_signals += 1; bull_reasons.append("testing PM low support")
 
     # Daily demand / supply zones
-    _daily_zones = snapshot.get("daily_zones", {})
+    _daily_zones = snapshot.get("daily_zones", {}) or {}
     if _daily_zones.get("near_demand"):
         bull_signals += 1; bull_reasons.append("daily demand zone")
     if _daily_zones.get("near_supply"):
@@ -1851,6 +1852,8 @@ def parse_decision(text: str, allow_zero_stop: bool = False) -> dict:
     primary entry gate. Entries blocked when probability < MIN_THESIS_PROBABILITY.
 
     P1.7 — If decision is BUY/SELL but stop_price <= 0, demote to HOLD.
+
+    Defensive: accepts None / empty string by returning the safe HOLD default.
     """
     d = {
         "decision": "HOLD", "mode": "NONE", "contracts": 1,
@@ -1862,6 +1865,9 @@ def parse_decision(text: str, allow_zero_stop: bool = False) -> dict:
         "strategy": "", "confluence": "", "confluence_score": 0,
         "reasoning": "",
     }
+
+    if not text or not isinstance(text, str):
+        return d
 
     for raw_line in text.strip().splitlines():
         line = raw_line.strip().replace("**", "").replace("*", "")

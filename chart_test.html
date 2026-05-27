@@ -73,18 +73,17 @@ const chart = LightweightCharts.createChart($('chart'), {
   timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2744',
                tickMarkFormatter: (time) => {
                  const d = new Date(time * 1000);
-                 return d.toLocaleString('en-US', {
-                   timeZone: 'America/New_York',
-                   hour: '2-digit', minute: '2-digit', hour12: false,
-                 });
+                 const hh = String(d.getUTCHours()).padStart(2,'0');
+                 const mm = String(d.getUTCMinutes()).padStart(2,'0');
+                 return hh + ':' + mm;
                }},
   localization: { timeFormatter: (time) => {
     const d = new Date(time * 1000);
-    return d.toLocaleString('en-US', {
-      timeZone: 'America/New_York',
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', hour12: false,
-    });
+    const hh = String(d.getUTCHours()).padStart(2,'0');
+    const mm = String(d.getUTCMinutes()).padStart(2,'0');
+    return d.getUTCFullYear() + '-' +
+           String(d.getUTCMonth()+1).padStart(2,'0') + '-' +
+           String(d.getUTCDate()).padStart(2,'0') + ' ' + hh + ':' + mm;
   }},
   rightPriceScale: { borderColor: '#1a2744', scaleMargins: { top: 0.05, bottom: 0.22 } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
@@ -288,24 +287,16 @@ function onTick(price, ts, barOpen, barHigh, barLow) {
   if (!price || price <= 0) return;
   const t = currentEtMinuteAsUtcSec();
   if (lastHistoricalTime && t <= lastHistoricalTime) return;
-
-  if (!_formingBar || _formingBar.time !== t) {
-    // New minute — seed from server OHLC if available,
-    // otherwise use price for all fields
-    const o = barOpen > 0 ? barOpen : price;
-    const h = barHigh > 0 ? Math.max(barHigh, price) : price;
-    const l = barLow  > 0 ? Math.min(barLow,  price) : price;
-    _formingBar = { time: t, open: o, high: h, low: l, close: price };
+  if (barOpen > 0) {
+    // Use server-side forming bar OHLC; price is the latest close
+    _formingBar = { time: t, open: barOpen, high: barHigh, low: barLow, close: price };
+  } else if (!_formingBar || _formingBar.time !== t) {
+    _formingBar = { time: t, open: price, high: price, low: price, close: price };
   } else {
-    // Same minute — accumulate. Never overwrite open.
-    // Take best of server-reported and tick-by-tick.
-    if (barHigh > 0 && barHigh > _formingBar.high) _formingBar.high = barHigh;
-    if (barLow  > 0 && barLow  < _formingBar.low)  _formingBar.low  = barLow;
     if (price > _formingBar.high) _formingBar.high = price;
     if (price < _formingBar.low)  _formingBar.low  = price;
     _formingBar.close = price;
   }
-
   try { candleSeries.update(_formingBar); } catch(e) {}
   $('s-open').textContent  = _formingBar.open.toFixed(2);
   $('s-high').textContent  = _formingBar.high.toFixed(2);

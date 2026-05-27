@@ -419,71 +419,64 @@ class IBKRFeed:
                 self.contract, 5, "TRADES", False
             )
 
-            # Tracks which clock minute the buffer currently belongs to
-            _buf_minute: list = [None]   # [0] = datetime truncated to minute, or None
-
-            def _flush_rt_buffer(buf: list, minute_dt) -> None:
-                """Build one 1-min bar from buf and append to _bars_1min."""
-                if not buf:
-                    return
-
-                class _Bar:
-                    pass
-                bar_1m        = _Bar()
-                # Align timestamp to the clock-minute boundary so it matches
-                # IBKR's own 1-min bars (avoids the mid-minute startup drift).
-                bar_1m.date   = minute_dt
-                bar_1m.open   = getattr(buf[0],  'open_', getattr(buf[0],  'open',  0))
-                bar_1m.high   = max(getattr(b,   'high',  0) for b in buf)
-                bar_1m.low    = min(getattr(b,   'low',   0) for b in buf)
-                bar_1m.close  = getattr(buf[-1], 'close', 0)
-                bar_1m.volume = sum(getattr(b,   'volume',0) for b in buf)
-
-                with self._bar_lock:
-                    self._bars_1min.append(bar_1m)
-                    self._bars_1min = self._bars_1min[-BARS_1MIN_CACHE_SIZE:]
-                    self._last_bars_1min = list(self._bars_1min)
-                    self._update_vwap_incremental(bar_1m, minute_dt)
-
-                    bar_dt = bar_1m.date
-                    if (bar_dt.hour == 9 and bar_dt.minute == 30
-                            and self.first_candle_1min_high == 0.0):
-                        self.first_candle_1min_high = bar_1m.high
-                        self.first_candle_1min_low  = bar_1m.low
-
-                    if (bar_dt.hour == 9 and bar_dt.minute == 34
-                            and self.first_candle_5min_high == 0.0):
-                        today = bar_dt.date()
-                        window = [b for b in self._bars_1min[-5:]
-                                  if b.date.date() == today
-                                  and b.date.hour == 9
-                                  and 30 <= b.date.minute <= 34]
-                        if window:
-                            self.first_candle_5min_high = max(b.high for b in window)
-                            self.first_candle_5min_low  = min(b.low  for b in window)
-
-                if minute_dt.minute % 5 == 0:
-                    self._refresh_ict_levels()
-                    self._update_or_pullback_tracking()
-
             def on_rt_bar(bars, has_new_bar):
                 if not bars:
                     return
-                last   = bars[-1]
-                bar_et = _bar_et(last)
-                # Truncate to the clock-minute boundary
-                this_minute = bar_et.replace(second=0, microsecond=0)
-
-                if _buf_minute[0] is None:
-                    _buf_minute[0] = this_minute
-
-                if this_minute != _buf_minute[0]:
-                    # Minute rolled — flush the completed buffer, start fresh
-                    _flush_rt_buffer(self._rt_bar_buffer, _buf_minute[0])
-                    self._rt_bar_buffer = []
-                    _buf_minute[0] = this_minute
+                last = bars[-1]
+                now_et = _bar_et(last)
 
                 self._rt_bar_buffer.append(last)
+
+                # Accumulate REALTIME_BARS_PER_MINUTE × 5-sec bars → one 1-min bar
+                if len(self._rt_bar_buffer) >= REALTIME_BARS_PER_MINUTE:
+                    buf = self._rt_bar_buffer[-REALTIME_BARS_PER_MINUTE:]
+                    self._rt_bar_buffer = []
+
+                    # Build synthetic 1-min bar
+                    class _Bar:
+                        pass
+                    bar_1m      = _Bar()
+                    bar_1m.date = _bar_et(buf[0])   # always a datetime
+                    # RealTimeBar uses open_ (not open) — ib_async naming quirk
+                    bar_1m.open   = getattr(buf[0],  'open_', getattr(buf[0],  'open',  0))
+                    bar_1m.high   = max(getattr(b,   'high',  0) for b in buf)
+                    bar_1m.low    = min(getattr(b,   'low',   0) for b in buf)
+                    bar_1m.close  = getattr(buf[-1], 'close', 0)
+                    bar_1m.volume = sum(getattr(b,   'volume',0) for b in buf)
+
+                    with self._bar_lock:
+                        self._bars_1min.append(bar_1m)
+                        self._bars_1min = self._bars_1min[-BARS_1MIN_CACHE_SIZE:]
+                        self._last_bars_1min = list(self._bars_1min)
+
+                        # Refresh delta and VWAP on new bar
+                        self._update_vwap_incremental(bar_1m, now_et)
+
+                        # Capture first 1-min candle (9:30 ET open) on close
+                        bar_dt = bar_1m.date
+                        if (bar_dt.hour == 9 and bar_dt.minute == 30
+                                and self.first_candle_1min_high == 0.0):
+                            self.first_candle_1min_high = bar_1m.high
+                            self.first_candle_1min_low  = bar_1m.low
+
+                        # Capture first 5-min candle when 9:34 1-min bar closes
+                        # (covers 9:30–9:34 inclusive — the 9:30–9:35 5-min bar)
+                        if (bar_dt.hour == 9 and bar_dt.minute == 34
+                                and self.first_candle_5min_high == 0.0):
+                            today = bar_dt.date()
+                            window = [b for b in self._bars_1min[-5:]
+                                      if b.date.date() == today
+                                      and b.date.hour == 9
+                                      and 30 <= b.date.minute <= 34]
+                            if window:
+                                self.first_candle_5min_high = max(b.high for b in window)
+                                self.first_candle_5min_low  = min(b.low  for b in window)
+
+                    # Refresh ICT levels every 5-min bar close
+                    t = now_et.minute
+                    if t % 5 == 0:
+                        self._refresh_ict_levels()
+                        self._update_or_pullback_tracking()
 
             bars.updateEvent += on_rt_bar
             self._rt_subscription = bars

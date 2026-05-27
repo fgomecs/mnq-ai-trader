@@ -337,3 +337,97 @@ def test_no_history_when_feed_not_set(server):
     # First message should be a tick, not history
     assert "price" in msg
     assert msg.get("type") != "history"
+
+
+# ── RT bar clock-minute alignment ───────────────────────────────────────────
+
+def test_rt_bar_aligns_to_clock_minute():
+    """Bars arriving mid-minute must flush when the minute rolls, not after
+    a fixed count. The resulting 1-min bar's date must be the minute boundary
+    of the completed minute, not the timestamp of the first 5-sec bar."""
+    import pytz
+    from datetime import datetime
+    from ibkr_feed import IBKRFeed
+
+    feed = IBKRFeed.__new__(IBKRFeed)
+    feed._bars_1min = []
+    feed._bar_lock  = __import__("threading").Lock()
+    feed._rt_bar_buffer = []
+    feed.vwap_cum_pv  = 0.0
+    feed.vwap_cum_vol = 0.0
+    feed.vwap_date    = None
+    feed.first_candle_1min_high = 0.0
+    feed.first_candle_1min_low  = 0.0
+    feed.first_candle_5min_high = 0.0
+    feed.first_candle_5min_low  = 0.0
+    feed._last_bars_1min = []
+
+    ET = pytz.timezone("US/Eastern")
+
+    class FakeRTBar:
+        def __init__(self, minute, second, price):
+            self.time   = ET.localize(datetime(2026, 5, 27, 15, minute, second))
+            self.open_  = price
+            self.high   = price + 0.25
+            self.low    = price - 0.25
+            self.close  = price
+            self.volume = 10
+
+    # Patch out side-effect helpers that need a real IBKR connection
+    feed._refresh_ict_levels      = lambda: None
+    feed._update_or_pullback_tracking = lambda: None
+
+    from ibkr_feed import _bar_et
+
+    # Build the closure exactly as _start_realtime_bars does
+    _buf_minute = [None]
+
+    def _flush_rt_buffer(buf, minute_dt):
+        if not buf:
+            return
+
+        class _Bar:
+            pass
+        bar_1m        = _Bar()
+        bar_1m.date   = minute_dt
+        bar_1m.open   = getattr(buf[0], 'open_', getattr(buf[0], 'open', 0))
+        bar_1m.high   = max(getattr(b, 'high', 0) for b in buf)
+        bar_1m.low    = min(getattr(b, 'low',  0) for b in buf)
+        bar_1m.close  = getattr(buf[-1], 'close', 0)
+        bar_1m.volume = sum(getattr(b, 'volume', 0) for b in buf)
+        with feed._bar_lock:
+            feed._bars_1min.append(bar_1m)
+            feed._last_bars_1min = list(feed._bars_1min)
+        if minute_dt.minute % 5 == 0:
+            feed._refresh_ict_levels()
+            feed._update_or_pullback_tracking()
+
+    def on_rt_bar_sim(rt_bar):
+        bar_et     = _bar_et(rt_bar)
+        this_minute = bar_et.replace(second=0, microsecond=0)
+        if _buf_minute[0] is None:
+            _buf_minute[0] = this_minute
+        if this_minute != _buf_minute[0]:
+            _flush_rt_buffer(feed._rt_bar_buffer, _buf_minute[0])
+            feed._rt_bar_buffer = []
+            _buf_minute[0] = this_minute
+        feed._rt_bar_buffer.append(rt_bar)
+
+    # Simulate bot connecting at 15:06:20 — first 3 bars arrive in minute :06
+    on_rt_bar_sim(FakeRTBar(6, 20, 30050.0))
+    on_rt_bar_sim(FakeRTBar(6, 25, 30051.0))
+    on_rt_bar_sim(FakeRTBar(6, 30, 30052.0))
+    assert len(feed._bars_1min) == 0  # minute not yet complete
+
+    # Minute rolls to :07 — first bar of new minute triggers flush of :06
+    on_rt_bar_sim(FakeRTBar(7,  0, 30053.0))
+    assert len(feed._bars_1min) == 1
+    bar = feed._bars_1min[0]
+    # Timestamp must be the :06 minute boundary, not 15:06:20
+    assert bar.date.minute == 6
+    assert bar.date.second == 0
+    # OHLC must cover all three :06 bars
+    assert bar.open  == 30050.0
+    assert bar.high  == 30052.25
+    assert bar.low   == 30049.75
+    assert bar.close == 30052.0

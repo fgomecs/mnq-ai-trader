@@ -6,7 +6,7 @@ An institutional-grade AI-driven futures trading bot for **MNQ (Micro E-Mini Nas
 > **Account:** $50,000 simulated | **Max daily loss:** configurable via `MAX_DAILY_LOSS_PCT` in `.env` (default 20% = $10,000) | **Max size:** `MAX_CONTRACTS` env (default 1, up to 4 supported)  
 > **Version:** 4.5.0 (auto-managed by `version_manager.py`)
 
-**Highlights in 4.5.0** — real broker commission capture via `commissionReportEvent` (dedupe + reconnect-safe), trade JSONL persistence end-to-end, dashboard + journal commission-source breakdown, **139-test pytest suite** (`make test`/`smoke`/`regression`/`coverage`), migration from `ib_insync` to `ib_async`, DOM raised to 40 levels, 1-second real-time bars, backtester bias seeding + safe `--no-live-claude` default, dashboard reset at pre-market, EOD time shifted to 15:55. Full diff in `CHANGELOG.md`.
+**Highlights in 4.5.0** — real broker commission capture via `commissionReportEvent` (dedupe + reconnect-safe), trade JSONL persistence end-to-end, dashboard + journal commission-source breakdown, **170+ test pytest suite** (`make test`/`smoke`/`regression`/`coverage`), migration from `ib_insync` to `ib_async`, backtester bias seeding + safe `--no-live-claude` default, dashboard reset at pre-market, EOD time shifted to 15:55, NIGHT_OWL 24/7 mode, DOM signal throttling + wire-rate monitor. Note: an initial v4.5.0 bump of DOM to 40 levels + 1-second bars was reverted on 2026-05-27 after an IBKR Gateway EWriter overflow incident — current values are DOM 20 levels and 5-second bars. Full diff in `CHANGELOG.md`.
 
 **Deeper docs:**
 - `CHANGELOG.md` — versioned changelog (4.5.0 entry)

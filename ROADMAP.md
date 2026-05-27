@@ -31,8 +31,9 @@
 - `ib-insync 0.9.86` uninstalled from the env; `ib-async 2.1.0` is the
   sole IBKR library now
 - 140-test suite green against `ib_async` only
-- DOM 20 → 40 levels
-- Real-time bars 5s → 1s (TWS may reject — see CHANGELOG)
+- DOM 20 → 40 levels (REVERTED to 20 on 2026-05-27 — see CHANGELOG)
+- Real-time bars 5s → 1s (REVERTED to 5s on 2026-05-27 — see CHANGELOG)
+- DOM signal throttling (100ms cache) + wire-rate monitor (200 Hz warn)
 
 **Operational fixes**
 - Backtester seeds `_session_watchlist` (was reporting 0/N passes silently)

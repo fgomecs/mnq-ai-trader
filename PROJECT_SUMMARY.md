@@ -15,7 +15,7 @@ Paper-trading bot for **MNQ (Micro E-mini Nasdaq-100)** futures. Pulls live L1+L
 
 **Performance reference** — 2026-05-26 session (OB_BOUNCE strategy, end-to-end broker-commission capture): 8 trades, 4W / 4L, **+$55.36 net P&L** (after $9.30 broker commission), 50% win rate.
 
-**Version as of this document:** 4.5.0. Added: real broker `commissionReportEvent` capture (dedupe + reconnect-safe), trade JSONL persistence end-to-end, dashboard + journal commission breakdown, **139-test pytest suite** (29% line coverage), migration `ib_insync → ib_async`, DOM to 40 levels, 1-second real-time bars, backtester bias seeding + safe `--no-live-claude` default, pre-market dashboard reset, `EOD_SCHEDULE_TIME` → 15:55, `load_dotenv` absolute-path fix. Risk caps unchanged. Full diff in `CHANGELOG.md`.
+**Version as of this document:** 4.5.0. Added: real broker `commissionReportEvent` capture (dedupe + reconnect-safe), trade JSONL persistence end-to-end, dashboard + journal commission breakdown, **170+ test pytest suite**, migration `ib_insync → ib_async`, NIGHT_OWL 24/7 mode, backtester bias seeding + safe `--no-live-claude` default, pre-market dashboard reset, `EOD_SCHEDULE_TIME` → 15:55, `load_dotenv` absolute-path fix, DOM signal throttling + wire-rate monitor. Note: an initial bump of DOM to 40 levels + 1-second bars was reverted on 2026-05-27 after an IBKR Gateway EWriter overflow — current values are DOM 20 levels and 5-second bars. Risk caps unchanged. Full diff in `CHANGELOG.md`.
 
 ---
 

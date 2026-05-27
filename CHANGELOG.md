@@ -3,6 +3,31 @@
 All notable changes to MNQ AI Trader are recorded here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/).
 
+## [4.5.1] — 2026-05-27
+
+### Reverted — IBKR Gateway firehose mitigation
+**Production incident 2026-05-27 09:14 ET**: Gateway killed the socket after
+the EWriter buffer grew to ~5MB. The combination of `reqMktDepth(numRows=40)`,
+`reqRealTimeBars(barSize=1)`, and `reqTickByTickData("AllLast")` produced
+more wire traffic than the asyncio loop could drain.
+
+- `reqMktDepth` numRows reverted **40 → 20** (back to V3.x default).
+- `reqRealTimeBars` barSize reverted **1 → 5** (also restores IBKR API
+  spec compliance — barSize=1 was unofficial and frequently rejected by TWS).
+- Pin tests added (`tests/test_firehose_limits.py`) to prevent silent
+  re-bumping.
+
+### Added — DOM signal throttling (defensive)
+- `DOM_THROTTLE_SECS` (default 0.1) caches processed DOM features so a
+  burst of `get_snapshot()` calls doesn't multiply CPU cost.
+  `_compute_dom_signals` → wraps `_compute_dom_signals_impl`;
+  `_get_live_dom` → wraps `_get_live_dom_impl`.
+- `DOM_UPDATE_RATE_WARN_HZ` (default 200) — wire-rate monitor logs a
+  one-shot warning when sustained `dom_ticker.updateEvent` rate exceeds
+  threshold, naming the firehose culprits so the operator can lower.
+- 9 tests in `tests/test_dom_throttle.py` covering cache hit/miss/disable,
+  counter, warning fire/latch/no-fire-below-threshold, env knobs.
+
 ## [4.5.0] — 2026-05-26
 
 ### Added — Broker commission capture (end-to-end)

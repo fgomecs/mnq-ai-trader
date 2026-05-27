@@ -2,7 +2,7 @@
 IBKR Market Data Feed — MNQ AI Trader
 ======================================
 Architecture:
-  - Bars fetched ONCE at startup, then updated via reqRealTimeBars (1-sec bars)
+  - Bars fetched ONCE at startup, then updated via reqRealTimeBars (5-sec bars)
   - Historical bars refresh only on bar close (not every snapshot cycle)
   - Snapshot assembly < 1 second (vs 7-17s before)
   - True bid/ask delta classification via live tick stream
@@ -404,16 +404,19 @@ class IBKRFeed:
         self._start_realtime_bars()
 
     def _start_realtime_bars(self) -> None:
-        """Subscribe to 1-second real-time bars. Accumulate into 1-min bars.
+        """Subscribe to 5-second real-time bars. Accumulate into 1-min bars.
 
-        NOTE: IBKR's reqRealTimeBars officially supports only 5-second bars.
-        Passing barSize=1 may be rejected by TWS (look for "only 5 second
-        bars" in the error log). If that happens, revert to 5 or build
-        1-second bars by aggregating reqTickByTickData on our side.
+        IBKR's reqRealTimeBars officially supports only barSize=5. The
+        v4.5.0 attempt at barSize=1 was reverted after the 2026-05-27
+        Gateway overflow incident — combined with DOM at 40 levels and
+        reqTickByTickData, the 5×-faster bar stream was part of what
+        saturated the EWriter buffer. If true 1-second resolution is
+        needed later, aggregate 1-sec OHLC bars from the existing
+        reqTickByTickData('AllLast') stream rather than via this call.
         """
         try:
             bars = self.ib.reqRealTimeBars(
-                self.contract, 1, "TRADES", False
+                self.contract, 5, "TRADES", False
             )
 
             def on_rt_bar(bars, has_new_bar):
@@ -674,8 +677,12 @@ class IBKRFeed:
             logger.error("DOM stream: contract not qualified — skipping")
             return
         try:
+            # numRows=20 — reverted from 40 after 2026-05-27 09:14 Gateway
+            # EWriter overflow incident. 20 levels is sufficient for our
+            # cluster / wall / vacuum / sweep detection (DOM_LARGE_SIZE
+            # filters the noise) and ~halves DOM wire volume.
             self.dom_ticker = self.ib.reqMktDepth(
-                self.contract, numRows=40, isSmartDepth=False
+                self.contract, numRows=20, isSmartDepth=False
             )
             self.ib.sleep(1)
             self.dom_subscription_active = True
@@ -689,7 +696,7 @@ class IBKRFeed:
             except Exception as _e:
                 logger.debug(f"Could not hook DOM update counter: {_e}")
 
-            logger.info("DOM stream started (40 levels) — rate monitor active")
+            logger.info("DOM stream started (20 levels) — rate monitor active")
         except Exception as e:
             logger.warning(f"DOM stream unavailable: {e}")
             self.dom_subscription_active = False

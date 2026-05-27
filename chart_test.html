@@ -73,17 +73,18 @@ const chart = LightweightCharts.createChart($('chart'), {
   timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2744',
                tickMarkFormatter: (time) => {
                  const d = new Date(time * 1000);
-                 const hh = String(d.getUTCHours()).padStart(2,'0');
-                 const mm = String(d.getUTCMinutes()).padStart(2,'0');
-                 return hh + ':' + mm;
+                 return d.toLocaleString('en-US', {
+                   timeZone: 'America/New_York',
+                   hour: '2-digit', minute: '2-digit', hour12: false,
+                 });
                }},
   localization: { timeFormatter: (time) => {
     const d = new Date(time * 1000);
-    const hh = String(d.getUTCHours()).padStart(2,'0');
-    const mm = String(d.getUTCMinutes()).padStart(2,'0');
-    return d.getUTCFullYear() + '-' +
-           String(d.getUTCMonth()+1).padStart(2,'0') + '-' +
-           String(d.getUTCDate()).padStart(2,'0') + ' ' + hh + ':' + mm;
+    return d.toLocaleString('en-US', {
+      timeZone: 'America/New_York',
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hour12: false,
+    });
   }},
   rightPriceScale: { borderColor: '#1a2744', scaleMargins: { top: 0.05, bottom: 0.22 } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },

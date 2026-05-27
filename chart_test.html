@@ -79,20 +79,8 @@ const chart = LightweightCharts.createChart($('chart'), {
   }},
   rightPriceScale: { borderColor: '#1a2744', scaleMargins: { top: 0.05, bottom: 0.22 } },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
-  handleScroll: true,
-  handleScale: { mouseWheel: false, pinch: true, axisPressedMouseMove: true },
-  autoSize: true,
+  handleScroll: true, handleScale: true, autoSize: true,
 });
-
-// Mouse wheel zooms price scale (Y), not time scale (X)
-let _margins = { top: 0.05, bottom: 0.22 };
-$('chart').addEventListener('wheel', (e) => {
-  e.preventDefault();
-  const delta = e.deltaY > 0 ? 0.02 : -0.02;
-  _margins.top    = Math.max(0.0, Math.min(0.45, _margins.top    + delta));
-  _margins.bottom = Math.max(0.0, Math.min(0.45, _margins.bottom + delta));
-  chart.priceScale('right').applyOptions({ scaleMargins: _margins });
-}, { passive: false });
 
 const candleSeries = chart.addCandlestickSeries({
   upColor: '#00e676', downColor: '#ff3b6b',

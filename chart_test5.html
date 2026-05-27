@@ -31,6 +31,8 @@ const chart = LightweightCharts.createChart(document.getElementById('chart'), {
   timeScale: { timeVisible: true, secondsVisible: false, borderColor: '#1a2744' },
   rightPriceScale: { borderColor: '#1a2744' },
   crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+  handleScroll: true,
+  handleScale: true,
 });
 
 const candleSeries = chart.addCandlestickSeries({
@@ -63,7 +65,6 @@ function onTick(price, ts) {
     currentBar.close = price;
   }
   try { candleSeries.update(currentBar); } catch (e) {}
-  chart.timeScale().scrollToRealTime();
 }
 
 function setStatus(price, wsState) {

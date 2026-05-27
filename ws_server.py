@@ -101,7 +101,9 @@ async def _handler(websocket, *_args):
             history_msg = _build_history_message(_feed_ref)
             if history_msg:
                 try:
+                    bars_count = len(json.loads(history_msg).get("bars", []))
                     await websocket.send(history_msg)
+                    logger.info(f"[WS] Sent history: {bars_count} bars to new client")
                 except Exception:
                     pass
         async for _ in websocket:
